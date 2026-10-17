@@ -7,6 +7,8 @@ GET /tracks?ids=...  -> {"clips": [{"camId", "at", "duration", "tracks": [{"id",
     cls = YOLO class (person, car, bus, truck, motorcycle, bicycle); color = the object's median colour
     as "#rrggbb" (torso for people, body panel for vehicles), so the twin can draw it like the real one.
 GET /frame?id=JamCams_00001.03500  -> annotated JPEG of the busiest analysed frame
+GET /clip?id=JamCams_00001.03500   -> the exact MP4 the tracks came from (TfL overwrites its URL every few
+    minutes, so playing TfL's URL directly can show a different 10 s than the one that was tracked)
 
 Each clip is ~10s and TfL refreshes it every few minutes, so readings are cached per camera.
 
@@ -35,9 +37,14 @@ from ultralytics.utils import YAML, IterableSimpleNamespace
 from ultralytics.utils.checks import check_yaml
 
 PORT = int(os.environ.get("PORT", "8047"))
-TTL_S = 120
+TTL_S = 240  # TfL replaces each clip every ~3-5 minutes
 MAX_IDS = 12
-STRIDE = 2  # analyse every 2nd frame (~12fps): enough for ByteTrack, half the cost
+STRIDE = 3  # analyse every 3rd frame (~8 fps): enough for ByteTrack at street speeds, a third of the cost
+# JamCam frames are 352x288, so people are only a few pixels tall: upscale to 960 and use a stronger
+# model than nano. YOLO26s at 960 finds ~17% more objects per frame than yolo11n at 640 on these clips.
+WEIGHTS = os.environ.get("JAMCAM_YOLO_WEIGHTS", "yolo26s.pt")
+IMGSZ = int(os.environ.get("JAMCAM_YOLO_IMGSZ", "960"))
+CONF = 0.2
 MIN_TRACK_POINTS = 4
 PEOPLE = {0}
 VEHICLES = {1, 2, 3, 5, 7}  # bicycle, car, motorcycle, bus, truck
@@ -45,10 +52,11 @@ CLASS_NAMES = {0: "person", 1: "bicycle", 2: "car", 3: "motorcycle", 5: "bus", 7
 # Part of the box to sample for colour, as (x0, x1, y0, y1) fractions: the torso, or the lower body panel (below the windows).
 SAMPLE = {"person": (0.3, 0.7, 0.2, 0.45), "vehicle": (0.25, 0.75, 0.5, 0.8)}
 
-model = YOLO("yolo11n.pt")
+model = YOLO(WEIGHTS)
 model_lock = threading.Lock()
 cache: dict[str, dict] = {}
 frames: dict[str, bytes] = {}
+clip_bytes: dict[str, bytes] = {}
 track_cache: dict[str, dict] = {}
 inflight: set[str] = set()
 state_lock = threading.Lock()
@@ -277,7 +285,7 @@ def track_clip(path: str):
             if idx % STRIDE == 0:
                 h, w = frame.shape[:2]
                 result = model.track(
-                    frame, imgsz=640, conf=0.25, persist=idx > 0, tracker="bytetrack.yaml",
+                    frame, imgsz=IMGSZ, conf=CONF, persist=idx > 0, tracker="bytetrack.yaml",
                     classes=sorted(PEOPLE | VEHICLES), verbose=False,
                 )[0]
                 boxes = result.boxes
@@ -309,7 +317,8 @@ def analyse(cam_id: str) -> None:
         with tempfile.NamedTemporaryFile(suffix=".mp4") as tmp:
             req = urllib.request.Request(clip_url(cam_id), headers={"User-Agent": "classroom-47"})
             with urllib.request.urlopen(req, timeout=15) as res:
-                tmp.write(res.read())
+                mp4 = res.read()
+            tmp.write(mp4)
             tmp.flush()
             people, vehicles, kept, best_plot, duration = track_clip(tmp.name)
         at = int(time.time() * 1000)
@@ -317,6 +326,7 @@ def analyse(cam_id: str) -> None:
         with state_lock:
             cache[cam_id] = reading
             track_cache[cam_id] = {"camId": cam_id, "at": at, "duration": duration, "tracks": kept}
+            clip_bytes[cam_id] = mp4
             if best_plot is not None:
                 ok, jpg = cv2.imencode(".jpg", best_plot, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 if ok:
@@ -380,6 +390,13 @@ class Handler(BaseHTTPRequestHandler):
             s = get_session(q.get("session", [""])[0], create=False)
             body = s.state() if s else {"people": [], "followers": 0}
             self._send(200, json.dumps(body).encode(), "application/json")
+        elif url.path == "/clip":
+            with state_lock:
+                mp4 = clip_bytes.get(q.get("id", [""])[0])
+            if mp4:
+                self._send(200, mp4, "video/mp4")
+            else:
+                self._send(404, b'{"error":"no clip yet"}', "application/json")
         elif url.path == "/health":
             self._send(200, b'{"ok":true}', "application/json")
         else:
