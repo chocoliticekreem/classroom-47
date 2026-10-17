@@ -85,7 +85,7 @@ function buildEyeWheel(): Kit {
 }
 
 export function Westminster() {
-  const palaceKit = useMemo(buildPalace, []);
+  const palaceKit = useMemo(() => buildPalace(), []);
   const [tx, tz] = landmarkPos(LANDMARKS.elizabethTower);
   const yaw = Math.PI - (LANDMARKS.elizabethTower.headingDeg * Math.PI) / 180;
   return (
@@ -96,8 +96,8 @@ export function Westminster() {
 }
 
 export function LondonEye() {
-  const staticKit = useMemo(buildEyeStatic, []);
-  const wheelKit = useMemo(buildEyeWheel, []);
+  const staticKit = useMemo(() => buildEyeStatic(), []);
+  const wheelKit = useMemo(() => buildEyeWheel(), []);
   const wheel = useRef<THREE.Group>(null);
   useFrame((_, dt) => {
     if (wheel.current) wheel.current.rotation.z -= dt * 0.035;

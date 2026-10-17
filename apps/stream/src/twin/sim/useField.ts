@@ -4,9 +4,8 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { useDemoSettings } from "@/platform/demo";
 import type { FieldResponse } from "@/twin/field/types";
-import { camFrame } from "@/twin/live/project";
+import { camFrame, type CamFrame } from "@/twin/live/project";
 import { useLive } from "@/twin/live/store";
-import { setCoveredCams, setCrowdMultiplier, setField } from "./sim";
 
 const FIELD_MS = 30_000;
 
@@ -22,6 +21,9 @@ export interface FieldSummary {
 }
 
 export const useFieldStore = create<FieldSummary | null>(() => null);
+
+/** Calibrated camera footprints that already carry YOLO-tracked agents; field-driven agents stay out. */
+export const useCoveredFrames = create<{ frames: CamFrame[] }>(() => ({ frames: [] }));
 
 function summarise(f: FieldResponse, crowd: number): FieldSummary {
   let observed = 0;
@@ -41,7 +43,7 @@ let stop: (() => void) | null = null;
 let lastField: FieldResponse | null = null;
 let crowdNow = 1;
 
-/** The most recent field payload, for debug overlays; changes whenever useFieldStore's `at` does. */
+/** The most recent field payload; changes whenever useFieldStore's `at` does. */
 export function getLastField() {
   return lastField;
 }
@@ -58,7 +60,6 @@ function start() {
       const f = (await res.json()) as FieldResponse;
       if (stopped || !Array.isArray(f.segments)) return;
       lastField = f;
-      setField(f);
       useFieldStore.setState(summarise(f, crowdNow));
     } catch {
       // aborted or offline; next tick retries
@@ -73,7 +74,7 @@ function start() {
   };
 }
 
-/** Polls /api/twin/field, feeds the sim, and keeps the crowd multiplier and covered cams in sync. */
+/** Polls /api/twin/field and keeps the crowd multiplier and covered cams in sync for the movers. */
 export function useField() {
   const crowd = useDemoSettings().crowd;
   const cams = useLive((s) => s.cams);
@@ -89,10 +90,9 @@ export function useField() {
   }, []);
   useEffect(() => {
     crowdNow = crowd;
-    setCrowdMultiplier(crowd);
     if (lastField) useFieldStore.setState(summarise(lastField, crowd));
   }, [crowd]);
   useEffect(() => {
-    setCoveredCams(cams.filter((c) => clips[c.id]?.tracks?.length).map(camFrame));
+    useCoveredFrames.setState({ frames: cams.filter((c) => clips[c.id]?.tracks?.length).map(camFrame) });
   }, [cams, clips]);
 }

@@ -27,7 +27,7 @@ function buildLondonBridge(): Kit {
 }
 
 export function LondonBridge() {
-  const kit = useMemo(buildLondonBridge, []);
+  const kit = useMemo(() => buildLondonBridge(), []);
   const [x, z] = landmarkPos(LANDMARKS.londonBridge);
   return (
     <group position={[x, 0, z]} rotation={[0, bearingToYaw(LANDMARKS.londonBridge.headingDeg), 0]}>

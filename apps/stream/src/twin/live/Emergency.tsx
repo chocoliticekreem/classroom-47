@@ -1,6 +1,6 @@
 "use client";
 
-import { useFrame } from "@react-three/fiber";
+import { useFrame, type RootState } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
@@ -9,7 +9,8 @@ import { useNetwork } from "../network/useNetwork";
 import { ATMOS } from "../scene/palette";
 import { useLive } from "./store";
 import { writeYawMatrix } from "./sim/matrix";
-import { CAP, K, KIND_COUNT, LondonDirector, londonHour, parseLife, type Actor } from "./sim/london";
+import type { Helicopter } from "./sim/chase";
+import { CAP, K, KIND_COUNT, LondonDirector, londonHour, parseLife, type Actor, type DirectorContext } from "./sim/london";
 
 const SEED = 20261017;
 const GROUND_Y = 0.05;
@@ -567,6 +568,15 @@ function flashState(clock: number, phase: number) {
   return (f < 0.34 ? 1 : 0) | ((f >= 0.5 && f < 0.84 ? 1 : 0) << 1);
 }
 
+interface HeliParts {
+  hull: THREE.MeshStandardMaterial;
+  stripe: THREE.MeshStandardMaterial;
+  beamGeo: THREE.ConeGeometry;
+  beamMat: THREE.MeshBasicMaterial;
+  poolGeo: THREE.CircleGeometry;
+  poolMat: THREE.MeshBasicMaterial;
+}
+
 interface HeliRefs {
   group: THREE.Group;
   rotor: THREE.Object3D;
@@ -618,29 +628,11 @@ function Helicopter({ director, refs }: { director: LondonDirector; refs: React.
   const pool = useRef<THREE.Mesh>(null);
 
   useFrame((_, dt) => {
-    const h = director.heli();
     const g = group.current;
     const b = beam.current;
     const p = pool.current;
     const r = rotor.current;
-    if (!g || !b || !p || !r) return;
-    g.visible = b.visible = p.visible = !!h;
-    if (!h) return;
-    g.position.set(h.x, h.y, h.z);
-    g.rotation.y = h.yaw;
-    r.rotation.y += dt * 38;
-    const night = 0.35 + 0.65 * ATMOS.windowGlow;
-    b.position.set(h.x, h.y - 0.9, h.z);
-    const dx = h.lx - h.x;
-    const dz = h.lz - h.z;
-    const dist = Math.hypot(dx, dz, h.y);
-    b.lookAt(h.lx, 0.2, h.lz);
-    const radius = dist * 0.13;
-    b.scale.set(radius, radius, dist);
-    parts.beamMat.opacity = 0.05 + 0.13 * night;
-    p.position.set(h.lx, 0.12, h.lz);
-    p.scale.setScalar(radius * 1.05);
-    parts.poolMat.opacity = 0.12 + 0.3 * night;
+    if (g && b && p && r) drawHeli(director.heli(), { g, b, p, r }, parts, dt);
   });
   void refs;
 
@@ -683,13 +675,42 @@ function Helicopter({ director, refs }: { director: LondonDirector; refs: React.
   );
 }
 
+function drawHeli(
+  h: Helicopter | null,
+  { g, b, p, r }: { g: THREE.Group; b: THREE.Mesh; p: THREE.Mesh; r: THREE.Object3D },
+  parts: HeliParts,
+  dt: number,
+) {
+  g.visible = b.visible = p.visible = !!h;
+    if (!h) return;
+    g.position.set(h.x, h.y, h.z);
+    g.rotation.y = h.yaw;
+    r.rotation.y += dt * 38;
+    const night = 0.35 + 0.65 * ATMOS.windowGlow;
+    b.position.set(h.x, h.y - 0.9, h.z);
+    const dx = h.lx - h.x;
+    const dz = h.lz - h.z;
+    const dist = Math.hypot(dx, dz, h.y);
+    b.lookAt(h.lx, 0.2, h.lz);
+    const radius = dist * 0.13;
+    b.scale.set(radius, radius, dist);
+    parts.beamMat.opacity = 0.05 + 0.13 * night;
+    p.position.set(h.lx, 0.12, h.lz);
+    p.scale.setScalar(radius * 1.05);
+    parts.poolMat.opacity = 0.12 + 0.3 * night;
+}
+
+type LifeKit = ReturnType<typeof buildMeshes> & { kits: Kit[] };
+
 function Life({ director }: { director: LondonDirector }) {
   const settings = useDemoSettings();
   const disruptions = useLive((s) => s.disruptions);
   const settingsRef = useRef(settings);
-  settingsRef.current = settings;
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
   const clock = useRef({ hour: 12, at: -1e9 });
-  const ctx = useMemo(() => ({ hour: 12, rain: 0, focus: [0, 0] as [number, number] }), []);
+  const ctx = useMemo<DirectorContext>(() => ({ hour: 12, rain: 0, focus: [0, 0] }), []);
   const heliRefs = useRef<HeliRefs | null>(null);
 
   const kit = useMemo(() => {
@@ -724,185 +745,7 @@ function Life({ director }: { director: LondonDirector }) {
     [kit],
   );
 
-  useFrame((state, dtRaw) => {
-    const dt = Math.min(dtRaw, 0.05);
-    const now = state.clock.elapsedTime;
-    const ck = clock.current;
-    const override = settingsRef.current.time;
-    if (override) ck.hour = HOUR_OVERRIDE[override];
-    else if (now - ck.at > 5) {
-      ck.at = now;
-      ck.hour = londonHour();
-    }
-    const cam = state.camera.position;
-    ctx.hour = ck.hour;
-    ctx.rain = ATMOS.rain;
-    ctx.focus[0] = cam.x;
-    ctx.focus[1] = cam.z;
-    director.update(dt, ctx);
-
-    const night = ATMOS.windowGlow;
-    const dark = 0.35 + 0.65 * night;
-    const pool = director.pool;
-    const q = state.camera.quaternion;
-    const haloArr = kit.haloMesh.instanceMatrix.array as Float32Array;
-    const haloCol = kit.haloMesh.instanceColor!.array as Float32Array;
-    const spillArr = kit.spill.instanceMatrix.array as Float32Array;
-    const spillCol = kit.spill.instanceColor!.array as Float32Array;
-    let halos = 0;
-    let spills = 0;
-    let arms = 0;
-    const armsArr = kit.arms.instanceMatrix.array as Float32Array;
-    const armsCol = kit.arms.instanceColor!.array as Float32Array;
-    const flapArr = kit.flap.array as Float32Array;
-
-    const pushHalo = (x: number, y: number, z: number, size: number, r: number, g: number, b: number) => {
-      if (halos >= HALO_CAP) return;
-      _p.set(x, y, z);
-      _s.set(size, size, 1);
-      _m.compose(_p, q, _s);
-      _m.toArray(haloArr, halos * 16);
-      haloCol[halos * 3] = r;
-      haloCol[halos * 3 + 1] = g;
-      haloCol[halos * 3 + 2] = b;
-      halos++;
-    };
-
-    kit.mats.lit.color.setScalar(dark);
-    kit.mats.glowMat.color.setScalar(0.5 + 0.5 * night);
-
-    for (let k = 0; k < KIND_COUNT; k++) {
-      const km = kit.kinds[k]!;
-      const list = pool[k];
-      const lights = LIGHTS[k];
-      const bodyArr = km.body.instanceMatrix.array as Float32Array;
-      const bodyCol = km.body.instanceColor!.array as Float32Array;
-      const lampCol = km.lamp?.instanceColor!.array as Float32Array | undefined;
-      const barLCol = km.barL?.instanceColor!.array as Float32Array | undefined;
-      const barRCol = km.barR?.instanceColor!.array as Float32Array | undefined;
-      let n = 0;
-      for (let i = 0; i < list.length; i++) {
-        const a: Actor = list[i];
-        if (!a.live) continue;
-        let y = a.y + GROUND_Y;
-        if (k === K.HUMAN && a.walk > 0) y += Math.abs(Math.sin(now * 8 + a.phase * 6.28)) * 0.05 * a.walk;
-        else if (k === K.BIRD) y = a.y;
-        writeYawMatrix(bodyArr, n * 16, a.x, y, a.z, a.yaw, a.scale, a.scale);
-        bodyCol[n * 3] = a.tr;
-        bodyCol[n * 3 + 1] = a.tg;
-        bodyCol[n * 3 + 2] = a.tb;
-        if (lampCol) {
-          if (km.lampMode === "fixed") {
-            lampCol[n * 3] = lampCol[n * 3 + 1] = lampCol[n * 3 + 2] = 1;
-          } else {
-            const boost = km.lampMode === "glow" ? 2.2 : 1;
-            lampCol[n * 3] = a.gr * boost;
-            lampCol[n * 3 + 1] = a.gg * boost;
-            lampCol[n * 3 + 2] = a.gb * boost;
-          }
-        }
-        if (k === K.BIRD) flapArr[n] = a.flap;
-        if (k === K.HUMAN && a.hands && arms < ARMS_CAP) {
-          armsArr.set(bodyArr.subarray(n * 16, n * 16 + 16), arms * 16);
-          armsCol[arms * 3] = a.tr;
-          armsCol[arms * 3 + 1] = a.tg;
-          armsCol[arms * 3 + 2] = a.tb;
-          arms++;
-        }
-        const c = Math.cos(a.yaw) * a.scale;
-        const s = Math.sin(a.yaw) * a.scale;
-        if (a.siren && barLCol && barRCol) {
-          const f = flashState(now, a.phase);
-          const polOn = k === K.POLICE;
-          const lc: RGB = POLICE_BLUE;
-          const rc: RGB = polOn ? POLICE_RED : POLICE_BLUE;
-          const l = f & 1 ? 4 : 0.03;
-          const r = f & 2 ? 4 : 0.03;
-          barLCol[n * 3] = lc[0] * l;
-          barLCol[n * 3 + 1] = lc[1] * l;
-          barLCol[n * 3 + 2] = lc[2] * l;
-          barRCol[n * 3] = rc[0] * r;
-          barRCol[n * 3 + 1] = rc[1] * r;
-          barRCol[n * 3 + 2] = rc[2] * r;
-          if (spills < SPILL_CAP) {
-            const lit = f & 1 ? lc : f & 2 ? rc : null;
-            if (lit) {
-              writeYawMatrix(spillArr, spills * 16, a.x, 0.1, a.z, 0, 15 * a.scale, 1);
-              const gain = (0.12 + 0.5 * night) * a.scale;
-              spillCol[spills * 3] = lit[0] * gain;
-              spillCol[spills * 3 + 1] = lit[1] * gain;
-              spillCol[spills * 3 + 2] = lit[2] * gain;
-              spills++;
-            }
-          }
-        } else if (barLCol && barRCol) {
-          barLCol[n * 3] = barLCol[n * 3 + 1] = barLCol[n * 3 + 2] = 0.02;
-          barRCol[n * 3] = barRCol[n * 3 + 1] = barRCol[n * 3 + 2] = 0.02;
-        }
-        if (lights && a.scale > 0.05) {
-          const f = a.siren ? flashState(now, a.phase) : 0;
-          for (let j = 0; j < lights.length; j++) {
-            const L = lights[j];
-            if (L.night && night < 0.4) continue;
-            let on = 1;
-            if (L.mode === 1) on = f & 1;
-            else if (L.mode === 2) on = f & 2 ? 1 : 0;
-            else if (L.mode === 3) on = Math.sin(now * 7 + a.phase * 6) > 0 ? 1 : 0;
-            if (L.mode !== 0 && !a.siren && k !== K.SWEEPER) on = 0;
-            if (!on) continue;
-            const gain = L.mode === 0 ? 0.35 + 0.65 * night : 0.55 + 0.6 * night;
-            const lx = a.x + c * L.x + s * L.z;
-            const lz = a.z - s * L.x + c * L.z;
-            pushHalo(lx, y + L.y * a.scale, lz, L.size * a.scale, L.color[0] * gain, L.color[1] * gain, L.color[2] * gain);
-          }
-        }
-        if ((k === K.MOPED || k === K.COURIER) && night > 0.15) {
-          const lx = a.x + s * -0.7;
-          const lz = a.z + c * -0.7;
-          pushHalo(lx, y + 1.25, lz, 1.5, a.gr * 2.2 * night, a.gg * 2.2 * night, a.gb * 2.2 * night);
-        }
-        n++;
-      }
-      km.body.count = n;
-      km.body.instanceMatrix.needsUpdate = true;
-      km.body.instanceColor!.needsUpdate = true;
-      if (km.lamp) {
-        km.lamp.count = n;
-        km.lamp.instanceColor!.needsUpdate = true;
-      }
-      if (km.barL && km.barR) {
-        km.barL.count = km.barR.count = n;
-        km.barL.instanceColor!.needsUpdate = true;
-        km.barR.instanceColor!.needsUpdate = true;
-      }
-      if (k === K.BIRD) kit.flap.needsUpdate = true;
-    }
-
-    for (const g of director.glows) {
-      if (!g.on) continue;
-      const flicker = 0.85 + 0.15 * Math.sin(now * 9 + g.x);
-      pushHalo(g.x, g.y, g.z, g.size, g.r * night * flicker, g.g * night * flicker, g.b * night * flicker);
-    }
-
-    kit.haloMesh.count = halos;
-    kit.haloMesh.instanceMatrix.needsUpdate = true;
-    kit.haloMesh.instanceColor!.needsUpdate = true;
-    kit.spill.count = spills;
-    kit.spill.instanceMatrix.needsUpdate = true;
-    kit.spill.instanceColor!.needsUpdate = true;
-    kit.arms.count = arms;
-    kit.arms.instanceMatrix.needsUpdate = true;
-    kit.arms.instanceColor!.needsUpdate = true;
-
-    const h = director.heli();
-    if (h) {
-      const blink = Math.sin(now * 5) > 0.2;
-      pushHaloHeli(h.x, h.y, h.z, h.yaw, blink, now, night, pushHalo);
-      kit.haloMesh.count = halos;
-      kit.haloMesh.instanceMatrix.needsUpdate = true;
-      kit.haloMesh.instanceColor!.needsUpdate = true;
-    }
-  });
+  useFrame((state, dtRaw) => drawLife(director, kit, ctx, clock.current, settingsRef.current.time, state, dtRaw));
 
   return (
     <group>
@@ -922,6 +765,192 @@ function Life({ director }: { director: LondonDirector }) {
       <Helicopter director={director} refs={heliRefs} />
     </group>
   );
+}
+
+function drawLife(
+  director: LondonDirector,
+  kit: LifeKit,
+  ctx: DirectorContext,
+  ck: { hour: number; at: number },
+  override: TimeOfDay | null,
+  state: RootState,
+  dtRaw: number,
+) {
+  const dt = Math.min(dtRaw, 0.05);
+  const now = state.clock.elapsedTime;
+  if (override) ck.hour = HOUR_OVERRIDE[override];
+  else if (now - ck.at > 5) {
+    ck.at = now;
+    ck.hour = londonHour();
+  }
+  const cam = state.camera.position;
+  ctx.hour = ck.hour;
+  ctx.rain = ATMOS.rain;
+  ctx.focus[0] = cam.x;
+  ctx.focus[1] = cam.z;
+  director.update(dt, ctx);
+
+  const night = ATMOS.windowGlow;
+  const dark = 0.35 + 0.65 * night;
+  const pool = director.pool;
+  const q = state.camera.quaternion;
+  const haloArr = kit.haloMesh.instanceMatrix.array as Float32Array;
+  const haloCol = kit.haloMesh.instanceColor!.array as Float32Array;
+  const spillArr = kit.spill.instanceMatrix.array as Float32Array;
+  const spillCol = kit.spill.instanceColor!.array as Float32Array;
+  let halos = 0;
+  let spills = 0;
+  let arms = 0;
+  const armsArr = kit.arms.instanceMatrix.array as Float32Array;
+  const armsCol = kit.arms.instanceColor!.array as Float32Array;
+  const flapArr = kit.flap.array as Float32Array;
+
+  const pushHalo = (x: number, y: number, z: number, size: number, r: number, g: number, b: number) => {
+    if (halos >= HALO_CAP) return;
+    _p.set(x, y, z);
+    _s.set(size, size, 1);
+    _m.compose(_p, q, _s);
+    _m.toArray(haloArr, halos * 16);
+    haloCol[halos * 3] = r;
+    haloCol[halos * 3 + 1] = g;
+    haloCol[halos * 3 + 2] = b;
+    halos++;
+  };
+
+  kit.mats.lit.color.setScalar(dark);
+  kit.mats.glowMat.color.setScalar(0.5 + 0.5 * night);
+
+  for (let k = 0; k < KIND_COUNT; k++) {
+    const km = kit.kinds[k]!;
+    const list = pool[k];
+    const lights = LIGHTS[k];
+    const bodyArr = km.body.instanceMatrix.array as Float32Array;
+    const bodyCol = km.body.instanceColor!.array as Float32Array;
+    const lampCol = km.lamp?.instanceColor!.array as Float32Array | undefined;
+    const barLCol = km.barL?.instanceColor!.array as Float32Array | undefined;
+    const barRCol = km.barR?.instanceColor!.array as Float32Array | undefined;
+    let n = 0;
+    for (let i = 0; i < list.length; i++) {
+      const a: Actor = list[i];
+      if (!a.live) continue;
+      let y = a.y + GROUND_Y;
+      if (k === K.HUMAN && a.walk > 0) y += Math.abs(Math.sin(now * 8 + a.phase * 6.28)) * 0.05 * a.walk;
+      else if (k === K.BIRD) y = a.y;
+      writeYawMatrix(bodyArr, n * 16, a.x, y, a.z, a.yaw, a.scale, a.scale);
+      bodyCol[n * 3] = a.tr;
+      bodyCol[n * 3 + 1] = a.tg;
+      bodyCol[n * 3 + 2] = a.tb;
+      if (lampCol) {
+        if (km.lampMode === "fixed") {
+          lampCol[n * 3] = lampCol[n * 3 + 1] = lampCol[n * 3 + 2] = 1;
+        } else {
+          const boost = km.lampMode === "glow" ? 2.2 : 1;
+          lampCol[n * 3] = a.gr * boost;
+          lampCol[n * 3 + 1] = a.gg * boost;
+          lampCol[n * 3 + 2] = a.gb * boost;
+        }
+      }
+      if (k === K.BIRD) flapArr[n] = a.flap;
+      if (k === K.HUMAN && a.hands && arms < ARMS_CAP) {
+        armsArr.set(bodyArr.subarray(n * 16, n * 16 + 16), arms * 16);
+        armsCol[arms * 3] = a.tr;
+        armsCol[arms * 3 + 1] = a.tg;
+        armsCol[arms * 3 + 2] = a.tb;
+        arms++;
+      }
+      const c = Math.cos(a.yaw) * a.scale;
+      const s = Math.sin(a.yaw) * a.scale;
+      if (a.siren && barLCol && barRCol) {
+        const f = flashState(now, a.phase);
+        const polOn = k === K.POLICE;
+        const lc: RGB = POLICE_BLUE;
+        const rc: RGB = polOn ? POLICE_RED : POLICE_BLUE;
+        const l = f & 1 ? 4 : 0.03;
+        const r = f & 2 ? 4 : 0.03;
+        barLCol[n * 3] = lc[0] * l;
+        barLCol[n * 3 + 1] = lc[1] * l;
+        barLCol[n * 3 + 2] = lc[2] * l;
+        barRCol[n * 3] = rc[0] * r;
+        barRCol[n * 3 + 1] = rc[1] * r;
+        barRCol[n * 3 + 2] = rc[2] * r;
+        if (spills < SPILL_CAP) {
+          const lit = f & 1 ? lc : f & 2 ? rc : null;
+          if (lit) {
+            writeYawMatrix(spillArr, spills * 16, a.x, 0.1, a.z, 0, 15 * a.scale, 1);
+            const gain = (0.12 + 0.5 * night) * a.scale;
+            spillCol[spills * 3] = lit[0] * gain;
+            spillCol[spills * 3 + 1] = lit[1] * gain;
+            spillCol[spills * 3 + 2] = lit[2] * gain;
+            spills++;
+          }
+        }
+      } else if (barLCol && barRCol) {
+        barLCol[n * 3] = barLCol[n * 3 + 1] = barLCol[n * 3 + 2] = 0.02;
+        barRCol[n * 3] = barRCol[n * 3 + 1] = barRCol[n * 3 + 2] = 0.02;
+      }
+      if (lights && a.scale > 0.05) {
+        const f = a.siren ? flashState(now, a.phase) : 0;
+        for (let j = 0; j < lights.length; j++) {
+          const L = lights[j];
+          if (L.night && night < 0.4) continue;
+          let on = 1;
+          if (L.mode === 1) on = f & 1;
+          else if (L.mode === 2) on = f & 2 ? 1 : 0;
+          else if (L.mode === 3) on = Math.sin(now * 7 + a.phase * 6) > 0 ? 1 : 0;
+          if (L.mode !== 0 && !a.siren && k !== K.SWEEPER) on = 0;
+          if (!on) continue;
+          const gain = L.mode === 0 ? 0.35 + 0.65 * night : 0.55 + 0.6 * night;
+          const lx = a.x + c * L.x + s * L.z;
+          const lz = a.z - s * L.x + c * L.z;
+          pushHalo(lx, y + L.y * a.scale, lz, L.size * a.scale, L.color[0] * gain, L.color[1] * gain, L.color[2] * gain);
+        }
+      }
+      if ((k === K.MOPED || k === K.COURIER) && night > 0.15) {
+        const lx = a.x + s * -0.7;
+        const lz = a.z + c * -0.7;
+        pushHalo(lx, y + 1.25, lz, 1.5, a.gr * 2.2 * night, a.gg * 2.2 * night, a.gb * 2.2 * night);
+      }
+      n++;
+    }
+    km.body.count = n;
+    km.body.instanceMatrix.needsUpdate = true;
+    km.body.instanceColor!.needsUpdate = true;
+    if (km.lamp) {
+      km.lamp.count = n;
+      km.lamp.instanceColor!.needsUpdate = true;
+    }
+    if (km.barL && km.barR) {
+      km.barL.count = km.barR.count = n;
+      km.barL.instanceColor!.needsUpdate = true;
+      km.barR.instanceColor!.needsUpdate = true;
+    }
+    if (k === K.BIRD) kit.flap.needsUpdate = true;
+  }
+
+  for (const g of director.glows) {
+    if (!g.on) continue;
+    const flicker = 0.85 + 0.15 * Math.sin(now * 9 + g.x);
+    pushHalo(g.x, g.y, g.z, g.size, g.r * night * flicker, g.g * night * flicker, g.b * night * flicker);
+  }
+
+  kit.haloMesh.count = halos;
+  kit.haloMesh.instanceMatrix.needsUpdate = true;
+  kit.haloMesh.instanceColor!.needsUpdate = true;
+  kit.spill.count = spills;
+  kit.spill.instanceMatrix.needsUpdate = true;
+  kit.spill.instanceColor!.needsUpdate = true;
+  kit.arms.count = arms;
+  kit.arms.instanceMatrix.needsUpdate = true;
+  kit.arms.instanceColor!.needsUpdate = true;
+
+  const h = director.heli();
+  if (h) {
+    const blink = Math.sin(now * 5) > 0.2;
+    pushHaloHeli(h.x, h.y, h.z, h.yaw, blink, now, night, pushHalo);
+    kit.haloMesh.count = halos;
+    kit.haloMesh.instanceMatrix.needsUpdate = true;
+    kit.haloMesh.instanceColor!.needsUpdate = true;
+  }
 }
 
 function pushHaloHeli(

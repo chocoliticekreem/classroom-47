@@ -103,6 +103,6 @@ function buildTowerOfLondon(): Kit {
 }
 
 export function TowerOfLondon() {
-  const kit = useMemo(buildTowerOfLondon, []);
+  const kit = useMemo(() => buildTowerOfLondon(), []);
   return <KitMeshes kit={kit} />;
 }
