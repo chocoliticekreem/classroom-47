@@ -90,3 +90,17 @@ export function Delta({ value, unit = "" }: { value: number; unit?: string }) {
 export function Row({ children, gap = 8 }: { children: ReactNode; gap?: number }) {
   return <div style={{ display: "flex", alignItems: "center", gap, flexWrap: "wrap" }}>{children}</div>;
 }
+
+/** Confidence as a word plus percent; the tooltip says what drives it. */
+export function Confidence({ value }: { value: number }) {
+  const word = value >= 0.65 ? "high" : value >= 0.4 ? "medium" : "low";
+  const color = value >= 0.65 ? "var(--ok)" : value >= 0.4 ? "var(--warn)" : "var(--muted)";
+  return (
+    <span
+      title="Share of this zone's streets with a live camera reading, plus a bonus when a camera sits in the zone; large swings lose a little."
+      style={{ color, fontSize: 11, fontWeight: 600, cursor: "help", borderBottom: "1px dotted currentColor" }}
+    >
+      {word} confidence · {Math.round(value * 100)}%
+    </span>
+  );
+}

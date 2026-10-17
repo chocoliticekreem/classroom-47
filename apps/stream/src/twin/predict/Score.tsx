@@ -32,42 +32,48 @@ export function Score() {
           {scoring ? "Scoring…" : score ? "Re-score" : "Score"}
         </Button>
       </div>
-      {!score && <div style={label}>Compares the forecast step that has just arrived with the latest camera counts. Re-scores every 2 min.</div>}
+      {!score && (
+        <div style={label}>Compares the forecast step that has just arrived with the latest camera counts: direction (busier / quieter vs now) first, size second. Re-scores every 2 min.</div>
+      )}
       {score?.error && <div style={{ fontSize: 12, color: "var(--warn)" }}>{score.error.replace(/; first due at \d+/, "")}</div>}
-      {s && (
+      {s && score?.compared === 0 && !score.error && (
+        <div style={{ fontSize: 12, color: "var(--warn)" }}>No camera has a reading newer than the +{score.forecastMinute} min step yet; re-scores every 2 min.</div>
+      )}
+      {s && (score?.compared ?? 0) > 0 && (
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <Chip color={s.zonesRight >= s.zonesWrong ? "var(--ok)" : "var(--warn)"}>
-            {s.zonesRight} of {s.zonesRight + s.zonesWrong} zones right
+            direction right in {s.zonesRight} of {s.zonesRight + s.zonesWrong} zones
           </Chip>
           <span style={label}>
-            MAE {s.meanAbsError ?? "—"} people · +{score?.forecastMinute} min step · {score?.compared} cameras
+            MAE {s.meanAbsError === null || s.meanAbsError === undefined ? "—" : Math.round(s.meanAbsError)} people · +{score?.forecastMinute} min step ·{" "}
+            {score?.compared} cameras
           </span>
         </div>
       )}
       {zones.length > 0 && (
-        <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse", fontVariantNumeric: "tabular-nums" }}>
-          <thead>
-            <tr style={{ color: "var(--muted)", fontSize: 11, textAlign: "left" }}>
-              <th style={{ fontWeight: 500, padding: "4px 0" }}>Zone</th>
-              <th style={{ fontWeight: 500, textAlign: "right" }}>Predicted</th>
-              <th style={{ fontWeight: 500, textAlign: "right" }}>Actual</th>
-              <th style={{ fontWeight: 500, textAlign: "right" }}>Verdict</th>
-            </tr>
-          </thead>
-          <tbody>
-            {zones.map((z) => (
-              <tr key={z.zoneId ?? "none"} style={{ borderTop: "1px solid var(--border)" }}>
-                <td style={{ padding: "4px 0" }}>{zoneName(z.zoneId)}</td>
-                <td style={{ textAlign: "right" }}>{z.predicted}</td>
-                <td style={{ textAlign: "right" }}>{z.actual}</td>
-                <td style={{ textAlign: "right", color: z.verdict === "right" ? "var(--ok)" : "var(--warn)", fontWeight: 600 }}>
-                  {z.verdict}
-                  {z.errorPct !== null ? ` · ${Math.round(z.errorPct)}%` : ""}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div style={{ display: "grid", gap: 4, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "0 10px", color: "var(--muted)", fontSize: 11 }}>
+            <span>Zone</span>
+            <span style={{ textAlign: "right" }}>Now</span>
+            <span style={{ textAlign: "right" }}>Predicted</span>
+            <span style={{ textAlign: "right" }}>Actual</span>
+          </div>
+          {zones.map((z) => (
+            <div key={z.zoneId ?? "none"} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "0 10px", borderTop: "1px solid var(--border)", paddingTop: 4 }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{zoneName(z.zoneId)}</span>
+              <span style={{ textAlign: "right", color: "var(--muted)" }}>{Math.round(z.now)}</span>
+              <span style={{ textAlign: "right" }}>
+                {Math.round(z.predicted)} <span style={{ color: "var(--muted)" }}>{z.predictedDirection}</span>
+              </span>
+              <span style={{ textAlign: "right", fontWeight: 600 }}>
+                {Math.round(z.actual)} <span style={{ color: "var(--muted)", fontWeight: 400 }}>{z.actualDirection}</span>
+              </span>
+              <span style={{ gridColumn: "1 / -1", color: z.verdict === "right" ? "var(--ok)" : "var(--warn)", fontWeight: 600, fontSize: 11 }}>
+                {z.verdictText}
+              </span>
+            </div>
+          ))}
+        </div>
       )}
       {(score?.cams?.length ?? 0) > 0 && (
         <details style={{ fontSize: 12 }}>
@@ -76,8 +82,8 @@ export function Score() {
             {score?.cams?.map((c) => (
               <div key={c.camId} style={{ display: "flex", gap: 8 }}>
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{camName(c.camId)}</span>
-                <span style={label}>pred {c.predictedPeople}</span>
-                <span style={{ fontWeight: 600 }}>actual {c.actualPeople}</span>
+                <span style={label}>pred {Math.round(c.predictedPeople)}</span>
+                <span style={{ fontWeight: 600 }}>actual {Math.round(c.actualPeople)}</span>
               </div>
             ))}
           </div>

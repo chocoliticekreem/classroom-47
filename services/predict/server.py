@@ -28,6 +28,7 @@ RUNS: dict[str, dict] = {}
 PEOPLE_PER_FRAME = seedmod.CAM_VIEW_M / 100.0
 RIGHT_IF_WITHIN = 0.3
 RIGHT_IF_ABS = 2.0
+FLAT_PEOPLE = 1.0
 
 
 def save_run(run: dict) -> None:
@@ -54,17 +55,42 @@ def predict(body: dict) -> dict:
         raise ValueError("interventions must be a list")
     use_llm = bool(body.get("useLlm", True))
     rng_seed = int(body.get("rngSeed") or 47)
-    seed = seedmod.build_seed(interventions)
+    origin = parse_origin(body.get("origin"))
+    area = body.get("area") if isinstance(body.get("area"), str) else None
+    seed = seedmod.build_seed(interventions, origin, area)
     groups, mode = personas.generate(seed, horizon, use_llm, __import__("random").Random(rng_seed))
     sim = simulate.run_simulation(seed, groups, horizon, use_llm, rng_seed)
     rep = report.build_report(seed, groups, sim, mode)
     run = {"runId": str(uuid.uuid4())[:8], "at": seed["at"], "horizonMin": horizon,
            "seed": seedmod.seed_summary(seed), "personas": groups, "timeline": sim["timeline"], "report": rep,
-           "interventions": sim["interventions"], "camSegments": cam_segments(seed)}
+           "interventions": sim["interventions"], "camSegments": cam_segments(seed),
+           "keyZoneSegments": key_zone_segments(seed, rep)}
     if mode == "llm" and llm.weave_project():
         run["trace"] = {"weave_project": llm.weave_project(), "model": llm.model_name()}
     save_run(run)
     return run
+
+
+def parse_origin(raw: Any) -> tuple[float, float]:
+    if not isinstance(raw, dict):
+        return seedmod.ORIGIN
+    try:
+        lat, lon = float(raw["lat"]), float(raw["lon"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("origin must be {lat, lon}") from exc
+    if not (49.0 <= lat <= 61.0 and -11.0 <= lon <= 3.0):
+        raise ValueError("origin must be in the UK")
+    return (lat, lon)
+
+
+def key_zone_segments(seed: dict, rep: dict) -> dict[str, list]:
+    """The ghost layer draws only the report's zones, so it needs their segment ids and centres."""
+    wanted = {it["zoneId"] for it in rep["items"]}
+    out = {}
+    for z in seed["zones"]:
+        if z["id"] in wanted:
+            out[z["id"]] = {"name": z["name"], "x": z["x"], "z": z["z"], "segmentIds": z["segmentIds"]}
+    return out
 
 
 def cam_segments(seed: dict) -> list[dict]:
@@ -93,10 +119,12 @@ def score(body: dict) -> dict:
             continue
         # Timeline segments list only changes vs now; an unlisted segment still holds its seed value.
         pred_people = predicted.get(cs["segmentId"], cs["seedPeds"]) * PEOPLE_PER_FRAME
-        cams.append({"camId": cs["camId"], "zoneId": cs["zoneId"], "predictedPeople": round(pred_people, 1),
-                     "actualPeople": r["people"], "actualAt": r["at"]})
-        agg = by_zone.setdefault(cs["zoneId"], {"zoneId": cs["zoneId"], "predicted": 0.0, "actual": 0})
+        now_people = cs["seedPeds"] * PEOPLE_PER_FRAME
+        cams.append({"camId": cs["camId"], "zoneId": cs["zoneId"], "predictedPeople": round(pred_people),
+                     "nowPeople": round(now_people), "actualPeople": r["people"], "actualAt": r["at"]})
+        agg = by_zone.setdefault(cs["zoneId"], {"zoneId": cs["zoneId"], "predicted": 0.0, "now": 0.0, "actual": 0})
         agg["predicted"] += pred_people
+        agg["now"] += now_people
         agg["actual"] += r["people"]
     zones = [judge(z) for z in by_zone.values()]
     return {"runId": run["runId"], "forecastMinute": step["minute"], "forecastT": step["t"], "comparedAt": now_ms,
@@ -106,11 +134,27 @@ def score(body: dict) -> dict:
                         "meanAbsError": round(sum(abs(z["predicted"] - z["actual"]) for z in zones) / len(zones), 2) if zones else None}}
 
 
+def direction(delta: float) -> str:
+    if delta > FLAT_PEOPLE:
+        return "busier"
+    if delta < -FLAT_PEOPLE:
+        return "quieter"
+    return "flat"
+
+
 def judge(z: dict) -> dict:
+    """Verdict by direction vs now (busier / quieter / flat); the size error is reported separately."""
+    predicted_dir = direction(z["predicted"] - z["now"])
+    actual_dir = direction(z["actual"] - z["now"])
     err = abs(z["predicted"] - z["actual"])
     pct = round(100.0 * err / z["actual"], 1) if z["actual"] else None
-    right = err <= RIGHT_IF_ABS or (pct is not None and pct <= RIGHT_IF_WITHIN * 100)
-    return {**z, "predicted": round(z["predicted"], 1), "errorPct": pct, "verdict": "right" if right else "wrong"}
+    right = predicted_dir == actual_dir
+    size_ok = err <= RIGHT_IF_ABS or (pct is not None and pct <= RIGHT_IF_WITHIN * 100)
+    verdict_text = f"direction {'right' if right else 'wrong'}"
+    verdict_text += " · size close" if size_ok else (f" · size off by {pct:.0f} %" if pct is not None else f" · off by {err:.0f}")
+    return {**z, "predicted": round(z["predicted"]), "now": round(z["now"]), "errorPct": pct,
+            "predictedDirection": predicted_dir, "actualDirection": actual_dir,
+            "verdict": "right" if right else "wrong", "verdictText": verdict_text}
 
 
 class Handler(BaseHTTPRequestHandler):

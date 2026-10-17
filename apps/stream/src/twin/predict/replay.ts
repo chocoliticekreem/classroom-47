@@ -6,9 +6,10 @@ import { getLastField } from "../sim/useField";
 import { shownRun, usePredict } from "./store";
 import type { PredictRun, ReportItem } from "./types";
 
-/** Forecast minutes per real second at 1×; 30 min plays in ~21 s plus a dwell on each hotspot. */
-export const MIN_PER_S = 1.4;
-export const DWELL_S = 3;
+/** Forecast minutes per real second at 1×. At the default 4× the 30 min play in ~60 s plus ~3 s per hotspot dwell. */
+export const MIN_PER_S = 0.125;
+export const DWELL_S = 12;
+export const DEFAULT_SPEED = 4;
 /** Fly to a hotspot this many forecast minutes before its change lands so the camera is there in time. */
 const LEAD_MIN = 3;
 const SHOT_DIST = 170;
@@ -26,7 +27,7 @@ export interface Hotspot {
 interface ReplayState {
   active: boolean;
   paused: boolean;
-  speed: 1 | 2 | 4;
+  speed: 1 | 2 | 4 | 8;
   /** Current hotspot being dwelt on, or -1 while travelling. */
   dwellIndex: number;
   hotspots: Hotspot[];
@@ -37,13 +38,15 @@ interface ReplayState {
 export const useReplay = create<ReplayState>(() => ({
   active: false,
   paused: false,
-  speed: 1,
+  speed: DEFAULT_SPEED,
   dwellIndex: -1,
   hotspots: [],
   returnTo: "streamer",
 }));
 
 function zoneCentroid(run: PredictRun, zoneId: string): { x: number; z: number } | null {
+  const key = run.keyZoneSegments?.[zoneId];
+  if (key) return { x: key.x, z: key.z };
   let n = 0;
   let x = 0;
   let z = 0;
@@ -79,18 +82,17 @@ function captionFor(it: ReportItem) {
 }
 
 export function buildHotspots(run: PredictRun): Hotspot[] {
-  const items = run.report.items
-    .slice()
-    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
-    .slice(0, 5)
-    .sort((a, b) => a.atMin - b.atMin);
+  const ranked = run.report.items.slice().sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  const headline = ranked[0];
+  // Why: the headline zone opens the replay; the rest follow in forecast order.
+  const items = headline ? [headline, ...ranked.slice(1, 5).sort((a, b) => a.atMin - b.atMin)] : [];
   const out: Hotspot[] = [];
   let lastFly = -Infinity;
   for (const item of items) {
     const c = zoneCentroid(run, item.zoneId);
     if (!c) continue;
     // Why: two hotspots landing in the same minute would otherwise race the camera; space the flights out.
-    const flyAt = Math.max(lastFly + 1, item.atMin - LEAD_MIN);
+    const flyAt = item === headline ? 0 : Math.max(lastFly + 1, item.atMin - LEAD_MIN);
     lastFly = flyAt;
     out.push({ item, x: c.x, z: c.z, caption: captionFor(item), flyAt });
   }
@@ -126,7 +128,7 @@ export function startReplay() {
   const returnTo = cam.cinematic ? useReplay.getState().returnTo : cam.preset;
   usePredict.setState({ playing: false, minute: 0, reportOpen: false, ghosts: true });
   useReplay.setState({ active: true, paused: false, dwellIndex: -1, hotspots, returnTo });
-  cam.setCinematic(overviewShot(hotspots));
+  cam.setCinematic(hotspots.length ? shotFor(hotspots[0], 0) : overviewShot(hotspots));
 }
 
 export function stopReplay() {

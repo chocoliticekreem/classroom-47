@@ -93,7 +93,7 @@ def map_zone_ids(iv: dict, seed: dict) -> set[str]:
 
 def headline(seed: dict, items: list[dict], mode: str) -> str:
     t = seed["time"]
-    where = f"Tower Hill, {t['weekday']} {t['iso'][11:16]} ({t['daypart'].replace('_', ' ')})"
+    where = f"{seed.get('area') or 'Tower Hill'}, {t['weekday']} {t['iso'][11:16]} ({t['daypart'].replace('_', ' ')})"
     if not items:
         return f"{where}: no zone moves by more than {MIN_ABS_CHANGE:.0f} people in the next half hour."
     top = items[0]
@@ -113,7 +113,7 @@ def template_prose(items: list[dict]) -> list[str]:
 def llm_prose(seed: dict, items: list[dict], assumptions: list[str]) -> list[str] | None:
     from seed import seed_summary
     user = json.dumps({"seed": seed_summary(seed), "items": items, "assumptions": assumptions})
-    system = ("Write the prediction report for a Tower Hill digital twin: one sentence per item, concrete numbers, "
+    system = (f"Write the prediction report for a {seed.get('area') or 'Tower Hill'} (London) digital twin: one sentence per item, concrete numbers, "
               "name the inputs, no hype. Return {\"sentences\": [string per item in order]}.")
     try:
         data = llm.chat_json(system, user, max_tokens=1500)
