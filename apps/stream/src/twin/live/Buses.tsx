@@ -3,13 +3,14 @@
 import { Label } from "./Label";
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef, useState } from "react";
-import type * as THREE from "three";
+import * as THREE from "three";
 import { ATMOS } from "../scene/palette";
-import { BUS_H, blindMaterial, getBusKit, setBusGlow } from "./bus/busKit";
+import { BUS_H, BUS_L, blindMaterial, getBusKit, setBusGlow } from "./bus/busKit";
 import type { AroundBusStop, BusArrival } from "@/platform/around/types";
 import type { TwinGeometry } from "../config";
 import { toLocal } from "../config";
-import { approachPath, pathAt, SNAP_ENABLED, useSnapIndex, type Path } from "../network/snap";
+import { ROAD_Y } from "../network/layout";
+import { pathAt, SNAP_ENABLED, snapVehicle, useSnapIndex, walkPath, type Path, type SnapIndex, type VehicleSnap } from "../network/snap";
 import type { XZ } from "../network/types";
 import { useLive, useNow } from "./store";
 
@@ -18,7 +19,19 @@ const APPROACH_M = 110;
 /** Lane path traced upstream of the stop, so the eased approach never runs off its end. */
 const PATH_M = 150;
 const DWELL_S = 25;
+/** After its dwell a bus pulls away along the road for this long before it is retired. */
+const DEPART_S = 45;
+const DEPART_ACCEL = 1.2;
+const DEPART_MAX_MPS = 10;
+/** Lane path traced downstream of the stop for the departure. */
+const EXIT_M = 400;
+/** Bumper-to-bumper room between buses queued at one stop: 2 m plus a share of their length. */
+const BUS_GAP_M = BUS_L + 2 + 0.04 * 2 * BUS_L;
 const _xz: XZ = [0, 0];
+const _vs: VehicleSnap = { x: 0, z: 0, heading: 0, laneId: -1, s: 0, dist: 0 };
+const _frustum = new THREE.Frustum();
+const _pv = new THREE.Matrix4();
+const _ball = new THREE.Sphere();
 
 interface StopPlace {
   stop: AroundBusStop;
@@ -26,8 +39,19 @@ interface StopPlace {
   z: number;
   dirX: number;
   dirZ: number;
-  /** Keep-left lane path ending at the stop; null when the stop is off the network (straight-line fallback). */
+  /** Keep-left lane path ending at the stop's kerb-side lane edge; null when the stop is off the network (straight-line fallback). */
   path: Path | null;
+  /** Lane path leaving the stop, for the departure. */
+  exit: Path | null;
+}
+
+/** Major-road lane nearest the stop (any road when none is in reach), with the approach and departure paths along it. */
+function stopPaths(snap: SnapIndex, x: number, z: number): Pick<StopPlace, "path" | "exit"> {
+  if (!snapVehicle(snap, x, z, NaN, _vs, 30, -1, true) && !snapVehicle(snap, x, z, NaN, _vs, 30)) return { path: null, exit: null };
+  return {
+    path: walkPath(snap, _vs.laneId, _vs.s, PATH_M, false, true),
+    exit: walkPath(snap, _vs.laneId, _vs.s, EXIT_M, true, true),
+  };
 }
 
 function nearestRoadDir(x: number, z: number, roads: TwinGeometry["roads"]): [number, number] {
@@ -61,12 +85,30 @@ function remainingSeconds(stop: AroundBusStop, a: BusArrival, nowMs: number) {
   return a.seconds - (nowMs - stop.at) / 1000;
 }
 
+/** Signed distance short of the stop (negative once it has pulled away) of a bus with `rem` seconds to go. */
+function stopDistance(rem: number) {
+  if (rem > 0) {
+    const k = Math.min(1, rem / APPROACH_S);
+    return k * k * APPROACH_M;
+  }
+  const t = Math.max(0, -DWELL_S - rem);
+  const ramp = DEPART_MAX_MPS / DEPART_ACCEL;
+  return -(t < ramp ? 0.5 * DEPART_ACCEL * t * t : 0.5 * DEPART_MAX_MPS * ramp + DEPART_MAX_MPS * (t - ramp));
+}
+
+/** Where a bus sits once the buses due before it (`ahead`, soonest first) have taken their places: never closer than BUS_GAP_M behind the one in front. */
+function queuedDistance(stop: AroundBusStop, ahead: BusArrival[], rem: number, nowMs: number) {
+  let floor = -Infinity;
+  for (const a of ahead) floor = Math.max(stopDistance(remainingSeconds(stop, a, nowMs)), floor) + BUS_GAP_M;
+  return Math.max(stopDistance(rem), floor);
+}
+
 function formatDue(seconds: number) {
   if (seconds <= 30) return "due";
   return `${Math.max(1, Math.round(seconds / 60))} min`;
 }
 
-function Bus({ place, arrival }: { place: StopPlace; arrival: BusArrival }) {
+function Bus({ place, arrival, ahead }: { place: StopPlace; arrival: BusArrival; ahead: BusArrival[] }) {
   const group = useRef<THREE.Group>(null);
   const body = useRef<THREE.Group>(null);
   const kit = getBusKit();
@@ -82,22 +124,28 @@ function Bus({ place, arrival }: { place: StopPlace; arrival: BusArrival }) {
     const now = Date.now();
     const rem = remainingSeconds(place.stop, arrival, now);
     const k = Math.min(1, Math.max(0, rem / APPROACH_S));
-    const eased = k * k;
-    const dist = eased * APPROACH_M;
-    const path = place.path;
-    if (path) {
-      g.rotation.y = pathAt(path, path.length - dist, _xz);
-      g.position.set(_xz[0], 0, _xz[1]);
+    const dist = queuedDistance(place.stop, ahead, rem, now);
+    const lane = dist >= 0 ? place.path : place.exit;
+    let inFrame = true;
+    if (lane) {
+      g.rotation.y = pathAt(lane, dist >= 0 ? lane.length - dist : -dist, _xz);
+      g.position.set(_xz[0], ROAD_Y, _xz[1]);
+      // Past the end of its exit road a bus is retired, but only once nobody can see it.
+      if (dist < 0 && -dist >= lane.length) {
+        _ball.center.set(_xz[0], 2, _xz[1]);
+        _ball.radius = BUS_L;
+        inFrame = _frustum.intersectsSphere(_ball);
+      }
     } else {
       g.rotation.y = straightYaw;
-      g.position.set(place.x - place.dirX * dist, 0, place.z - place.dirZ * dist);
+      g.position.set(place.x - place.dirX * dist, ROAD_Y, place.z - place.dirZ * dist);
     }
-    g.visible = rem > -DWELL_S;
+    g.visible = inFrame;
     const b = body.current;
     if (b) {
       // Speed is proportional to k (the approach is eased as k^2), so every motion fades out as the bus stops.
-      const moving = Math.min(1, k * 3);
-      const brake = Math.sin(Math.min(1, k * 5) * Math.PI);
+      const moving = rem > 0 ? Math.min(1, k * 3) : rem < -DWELL_S ? 1 : 0;
+      const brake = rem > 0 ? Math.sin(Math.min(1, k * 5) * Math.PI) : 0;
       b.position.y = Math.sin(now * 0.008 + phase) * 0.012 * moving + Math.sin(now * 0.038 + phase) * 0.0025 * (1 - moving);
       b.rotation.x = Math.sin(now * 0.0061 + phase * 1.7) * 0.0018 * moving + brake * 0.012;
       b.rotation.z = Math.sin(now * 0.0093 + phase * 0.6) * 0.0012 * moving;
@@ -180,7 +228,11 @@ function StopMarker({ place, now }: { place: StopPlace; now: number }) {
 }
 
 export function Buses() {
-  useFrame(() => setBusGlow(ATMOS.windowGlow));
+  useFrame(({ camera }) => {
+    setBusGlow(ATMOS.windowGlow);
+    _pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    _frustum.setFromProjectionMatrix(_pv);
+  });
   const stops = useLive((s) => s.stops);
   const roads = useLive((s) => s.roads);
   const now = useNow();
@@ -191,25 +243,27 @@ export function Buses() {
       stops.map((stop) => {
         const [x, z] = toLocal(stop.lat, stop.lon);
         const [dirX, dirZ] = nearestRoadDir(x, z, roads);
-        const path = snap && SNAP_ENABLED ? approachPath(snap, x, z, PATH_M) : null;
-        return { stop, x, z, dirX, dirZ, path };
+        const paths = snap && SNAP_ENABLED ? stopPaths(snap, x, z) : { path: null, exit: null };
+        return { stop, x, z, dirX, dirZ, ...paths };
       }),
     [stops, roads, snap],
   );
 
   const due = useMemo(() => {
     if (!now) return [];
-    const out: { place: StopPlace; arrival: BusArrival; key: string }[] = [];
+    const out: { place: StopPlace; arrival: BusArrival; ahead: BusArrival[]; key: string }[] = [];
     for (const place of places) {
       // A stop can list the same line and destination twice (back-to-back buses), so the key counts repeats.
       const seen = new Map<string, number>();
-      for (const a of place.stop.arrivals) {
+      const here: BusArrival[] = [];
+      for (const a of [...place.stop.arrivals].sort((p, q) => p.seconds - q.seconds)) {
         const rem = remainingSeconds(place.stop, a, now);
-        if (rem < APPROACH_S && rem > -DWELL_S) {
+        if (rem < APPROACH_S && rem > -(DWELL_S + DEPART_S)) {
           const base = `${place.stop.id}:${a.line}:${a.destination}`;
           const n = seen.get(base) ?? 0;
           seen.set(base, n + 1);
-          out.push({ place, arrival: a, key: `${base}:${n}` });
+          out.push({ place, arrival: a, ahead: [...here], key: `${base}:${n}` });
+          here.push(a);
         }
       }
     }
@@ -222,7 +276,7 @@ export function Buses() {
         <StopMarker key={p.stop.id} place={p} now={now} />
       ))}
       {due.map((d) => (
-        <Bus key={d.key} place={d.place} arrival={d.arrival} />
+        <Bus key={d.key} place={d.place} arrival={d.arrival} ahead={d.ahead} />
       ))}
     </group>
   );

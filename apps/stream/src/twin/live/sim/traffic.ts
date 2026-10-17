@@ -24,6 +24,8 @@ const BORN_CAP = 64;
 const PATH_SAMPLES = 8;
 const SWEPT_MARGIN_M = 0.35;
 const ARC_M = 7;
+/** How far the turn arc's control point swings toward the lane-line crossing (1) rather than the node (0); less keeps wide turns on the carriageway. */
+const ARC_SWING = 0.4;
 const ARC_MIN_TURN = 0.17;
 const LOOKAHEAD_M = 45;
 const MIN_SPAWN_LANE_M = 12;
@@ -58,8 +60,9 @@ const RECYCLE_CHANCE = 0.35;
 const SEEN_PAD_M = 14;
 const SAFE_DIST_M = 60;
 /** Beyond this distance a car is a sub-pixel dot and counts as unseen. With no frustum supplied, nothing past FALLBACK_SIGHT_M is seen. */
-const VISIBLE_FAR_M = 700;
+const VISIBLE_FAR_M = 3000;
 const FALLBACK_SIGHT_M = 150;
+const VIEW_SLACK = 0.04;
 /** Waiting this long at the head of a queue, try another exit; no more than REROUTE_MAX times. */
 const REROUTE_S = 10;
 const REROUTE_MAX = 3;
@@ -660,8 +663,10 @@ export class TrafficSim {
     const p = this.planes;
     if (!p) return d2 < FALLBACK_SIGHT_M * FALLBACK_SIGHT_M;
     if (d2 > VISIBLE_FAR_M * VISIBLE_FAR_M) return false;
+    // Padding grows with distance (about 2.3 degrees), so a camera that swings a little after this frame's planes were read cannot catch a car popping.
+    const slack = pad > 0 ? pad + Math.sqrt(d2) * VIEW_SLACK : 0;
     for (let k = 0; k < 24; k += 4) {
-      if (p[k] * x + p[k + 1] * 0.5 + p[k + 2] * z + p[k + 3] < -pad) return false;
+      if (p[k] * x + p[k + 1] * 0.5 + p[k + 2] * z + p[k + 3] < -slack) return false;
     }
     return true;
   }
@@ -675,7 +680,7 @@ export class TrafficSim {
 
   /** Takes a car off the road. Anything that was in view counts as a pop. */
   private park(v: Vehicle) {
-    if (v.seen && !v.fresh) this.pops++;
+    if (!v.fresh && this.sees(v.x, v.z, 0)) this.pops++;
     v.parked = true;
     v.retiring = false;
     v.lane = -1;
@@ -954,9 +959,10 @@ export class TrafficSim {
     const naz = -Math.sin(ya);
     const nbx = Math.cos(yb);
     const nbz = -Math.sin(yb);
-    const k = 1 / Math.max(0.35, 1 + nax * nbx + naz * nbz);
-    const cx = node.x + (la * nax + lb * nbx) * k;
-    const cz = node.z + (la * naz + lb * nbz) * k;
+    const k = 1 / Math.max(0.6, 1 + nax * nbx + naz * nbz);
+    const swing = ARC_SWING * Math.min(1, 1 / k);
+    const cx = node.x + (la * nax + lb * nbx) * k * swing;
+    const cz = node.z + (la * naz + lb * nbz) * k * swing;
     const w0 = (1 - u) * (1 - u);
     const w1 = 2 * u * (1 - u);
     const w2 = u * u;
@@ -1074,7 +1080,7 @@ export class TrafficSim {
       v.seen = this.sees(v.x, v.z, SEEN_PAD_M * 0.5);
       if (v.retiring) {
         const L0 = v.lane;
-        const atSink = this.laneSink[L0] === 1 && laneLen[L0] - v.s < 3 && !this.sees(v.x, v.z, 3);
+        const atSink = this.laneSink[L0] === 1 && laneLen[L0] - v.s < 3 && !this.sees(v.x, v.z, SEEN_PAD_M * 0.5);
         if (atSink || this.hidden(v)) {
           this.park(v);
           continue;

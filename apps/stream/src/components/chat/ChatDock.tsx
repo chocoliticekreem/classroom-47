@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, MessageSquare, X } from "lucide-react";
+import { ChevronDown, MessageSquare } from "lucide-react";
 import type { ChatMessage } from "@/lib/types";
 import { ChatPanel } from "./ChatPanel";
 
@@ -15,7 +15,10 @@ interface ChatDockProps {
   raised: boolean;
 }
 
-/** Chat as a floating drawer: collapsed to a bubble by default, the crowd engine keeps running behind it. */
+/**
+ * Chat collapsed to a ticker by default; the crowd engine keeps running behind it.
+ * Desktop: a pill in the page toolbar that drops the drawer below it. Phones: a bubble and a bottom sheet.
+ */
 export function ChatDock({ messages, onSend, viewers, live, desktop, raised }: ChatDockProps) {
   const [open, setOpen] = useState(false);
   const last = messages.at(-1);
@@ -23,45 +26,36 @@ export function ChatDock({ messages, onSend, viewers, live, desktop, raised }: C
 
   if (desktop) {
     return (
-      <div className="absolute bottom-3 left-3 z-30 flex flex-col items-start">
-        {open ? (
-          <div className="glass flex h-[min(520px,70vh)] w-[340px] flex-col overflow-hidden rounded-[28px]">
-            <div className="relative min-h-0 flex-1">
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Collapse chat"
-                className="pill pill-sm glass absolute right-2 top-2 z-10 !h-7 !w-7 !px-0"
-              >
-                <X className="size-3.5" />
-              </button>
-              {panel}
-            </div>
+      <div className="relative z-40 min-w-0 max-w-[340px] flex-1">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-label={open ? "Collapse chat" : undefined}
+          className="pill glass h-10 w-full !justify-start !pl-1 !pr-4 text-left !font-medium"
+        >
+          <span className="pill-candy relative grid size-8 shrink-0 place-items-center rounded-full text-white">
+            <MessageSquare className="size-3.5" />
+            {live && <span className="animate-live absolute right-0.5 top-0.5 size-1.5 rounded-full bg-live" />}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[12px] text-text/85">
+            {last ? (
+              <>
+                <span className="font-semibold" style={{ color: last.color }}>
+                  {last.username}
+                </span>{" "}
+                {last.text}
+              </>
+            ) : (
+              <span className="text-muted">Chat</span>
+            )}
+          </span>
+          {live && <span className="shrink-0 font-mono text-[10px] text-dim">{viewers.toLocaleString("en-GB")}</span>}
+        </button>
+        {open && (
+          <div className="glass absolute left-0 top-full mt-2 flex h-[min(520px,70vh)] w-[340px] flex-col overflow-hidden rounded-[28px]">
+            <div className="relative min-h-0 flex-1">{panel}</div>
           </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="pill glass h-11 max-w-[360px] !justify-start !pl-1.5 !pr-4 text-left !font-medium"
-          >
-            <span className="pill-candy relative grid size-8 shrink-0 place-items-center rounded-full text-white">
-              <MessageSquare className="size-3.5" />
-              {live && <span className="animate-live absolute right-0.5 top-0.5 size-1.5 rounded-full bg-live" />}
-            </span>
-            <span className="min-w-0 truncate text-[12px] text-text/85">
-              {last ? (
-                <>
-                  <span className="font-semibold" style={{ color: last.color }}>
-                    {last.username}
-                  </span>{" "}
-                  {last.text}
-                </>
-              ) : (
-                <span className="text-muted">Chat</span>
-              )}
-            </span>
-            {live && <span className="shrink-0 font-mono text-[10px] text-dim">{viewers.toLocaleString("en-GB")}</span>}
-          </button>
         )}
       </div>
     );

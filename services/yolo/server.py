@@ -277,10 +277,14 @@ def finish_track(t: dict) -> dict:
     """Collapse per-frame samples into one class (majority vote) and one colour (median)."""
     classes = t.pop("classes")
     colors = t.pop("colors")
+    sizes = t.pop("sizes")
     t["cls"] = max(set(classes), key=classes.count)
     if colors:
         b, g, r = (int(c) for c in np.median(np.array(colors), axis=0))
         t["color"] = f"#{r:02x}{g:02x}{b:02x}"
+    if sizes:
+        # Median box size (frame fractions); the twin checks the class against it (YOLO calls a red SUV a bus).
+        t["box"] = [round(float(x), 4) for x in np.median(np.array(sizes), axis=0)]
     return t
 
 
@@ -299,9 +303,10 @@ def track_clip(path: str):
                 break
             if idx % STRIDE == 0:
                 h, w = frame.shape[:2]
+                # Class-agnostic NMS: one van seen as both "car" and "truck" is one box, not two overlapping tracks.
                 result = model.track(
                     frame, imgsz=IMGSZ, conf=CONF, persist=idx > 0, tracker="bytetrack.yaml",
-                    classes=sorted(PEOPLE | VEHICLES), verbose=False,
+                    classes=sorted(PEOPLE | VEHICLES), agnostic_nms=True, verbose=False,
                 )[0]
                 boxes = result.boxes
                 classes = [int(c) for c in boxes.cls.tolist()]
@@ -314,13 +319,15 @@ def track_clip(path: str):
                 if boxes.id is not None:
                     for tid, c, (x1, y1, x2, y2) in zip(boxes.id.int().tolist(), classes, boxes.xyxy.tolist()):
                         kind = "person" if c in PEOPLE else "vehicle"
-                        t = tracks.setdefault(tid, {"id": tid, "kind": kind, "pts": [], "classes": [], "colors": []})
+                        t = tracks.setdefault(tid, {"id": tid, "kind": kind, "pts": [], "classes": [], "colors": [], "sizes": []})
                         # Bottom-centre of the box = where the object touches the ground.
                         t["pts"].append([round(idx / fps, 2), round((x1 + x2) / 2 / w, 4), round(y2 / h, 4)])
                         t["classes"].append(CLASS_NAMES.get(c, kind))
                         color = sample_color(frame, kind, x1, y1, x2, y2)
                         if color is not None:
                             t["colors"].append(color)
+                        if x1 > 2 and y1 > 2 and x2 < w - 2 and y2 < h - 2:  # boxes cut by the frame edge would undersize it
+                            t["sizes"].append(((x2 - x1) / w, (y2 - y1) / h))
             idx += 1
     cap.release()
     kept = [finish_track(t) for t in tracks.values() if len(t["pts"]) >= MIN_TRACK_POINTS]
