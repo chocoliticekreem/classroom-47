@@ -24,7 +24,8 @@ export type BusEvent =
       location: StreamLocation;
       viewers: number;
     }
-  | { type: "surroundings.update"; summary: string; level: "calm" | "busy" | "danger" };
+  | { type: "surroundings.update"; summary: string; level: "calm" | "busy" | "danger" }
+  | { type: "sim.trigger"; kind: "chase" | "ambulance" | "clear" };
 
 const CHANNEL = "classroom-47";
 

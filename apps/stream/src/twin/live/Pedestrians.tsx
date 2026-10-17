@@ -4,16 +4,16 @@ import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { toLocal } from "../config";
-import type { XZ } from "../network/types";
+import { useDemoSettings } from "@/platform/demo";
 import { useNetwork } from "../network/useNetwork";
 import { ATMOS } from "../scene/palette";
-import { useGeometry } from "../scene/useGeometry";
+import { getLastField, useCoveredFrames, useFieldStore } from "../sim/useField";
+import { useTwinCounts } from "./sim/counts";
+import { coveredBy, snapToField } from "./sim/field";
 import { writeYawMatrix } from "./sim/matrix";
 import { PedSim } from "./sim/pedestrians";
-import { useLive } from "./store";
 
-const COUNT = 650;
+const CAPACITY = 1400;
 const SEED = 9151;
 const GLOW = { value: 0.4 };
 
@@ -65,48 +65,43 @@ function personHead() {
   return part(new THREE.SphereGeometry(0.12, 8, 6), [1, 1, 1], 0, 1.6, 0);
 }
 
-interface StreamerSeen {
-  lat: number;
-  lon: number;
-}
-
-function step(
-  sim: PedSim,
-  body: THREE.InstancedMesh,
-  stations: XZ[],
-  seen: StreamerSeen,
-  cam: THREE.Vector3,
-  dt: number,
-  frame: number,
-) {
-  const st = useLive.getState().streamer;
-  if (st.lat !== seen.lat || st.lon !== seen.lon) {
-    seen.lat = st.lat;
-    seen.lon = st.lon;
-    sim.setHotspots(toLocal(st.lat, st.lon), stations);
-  }
+function step(sim: PedSim, body: THREE.InstancedMesh, head: THREE.InstancedMesh, cam: THREE.Vector3, dt: number, frame: number) {
   sim.update(dt, cam.x, cam.z, frame);
   const arr = body.instanceMatrix.array;
   const peds = sim.peds;
-  for (let i = 0; i < peds.length; i++) {
+  for (let i = 0; i < sim.active; i++) {
     const p = peds[i];
     if (p.dirty) writeYawMatrix(arr, i * 16, p.x, p.bob, p.z, p.yaw, p.scale, p.scale);
   }
+  body.count = head.count = sim.active;
   body.instanceMatrix.needsUpdate = true;
   GLOW.value = 0.1 + 0.35 * ATMOS.windowGlow;
+  if (frame % 60 === 0 && useTwinCounts.getState().people !== sim.active) useTwinCounts.setState({ people: sim.active });
 }
 
 export function Pedestrians() {
   const net = useNetwork();
-  const geometry = useGeometry();
-  const stations = useMemo(() => geometry.stations.map((s) => s.pos), [geometry]);
-  const sim = useMemo(() => {
-    const { lat, lon } = useLive.getState().streamer;
-    return new PedSim(net, COUNT, SEED, toLocal(lat, lon), stations);
-  }, [net, stations]);
-
+  const sim = useMemo(() => new PedSim(net, CAPACITY, SEED), [net]);
   const frame = useRef(0);
-  const streamerSeen = useRef<StreamerSeen>({ lat: NaN, lon: NaN });
+
+  const fieldAt = useFieldStore((s) => s?.at ?? 0);
+  const covered = useCoveredFrames((s) => s.frames);
+  const crowd = useDemoSettings().crowd;
+  useEffect(() => {
+    const field = getLastField();
+    if (!field) return;
+    const snap = snapToField(sim.mids, field);
+    const fws = net.footways;
+    const weight = new Float32Array(fws.length);
+    let target = 0;
+    for (let i = 0; i < fws.length; i++) {
+      const seg = snap[i];
+      if (seg < 0 || coveredBy(covered, sim.mids[i * 2], sim.mids[i * 2 + 1])) continue;
+      weight[i] = field.segments[seg].peds;
+      target += (weight[i] * fws[i].length) / 100;
+    }
+    sim.setDensities(weight, target * crowd);
+  }, [sim, net, fieldAt, covered, crowd]);
 
   const shared = useMemo(() => {
     const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 });
@@ -127,7 +122,7 @@ export function Pedestrians() {
     const body = new THREE.InstancedMesh(shared.body, shared.material, n);
     const head = new THREE.InstancedMesh(shared.head, shared.material, n);
     head.instanceMatrix = body.instanceMatrix;
-    body.count = head.count = sim.peds.length;
+    body.count = head.count = 0;
     sim.peds.forEach((p, i) => {
       body.setColorAt(i, CLOTHES[(i * 5 + (i >> 3)) % CLOTHES.length]);
       head.setColorAt(i, SKIN[(i * 3 + (i >> 4)) % SKIN.length]);
@@ -155,7 +150,7 @@ export function Pedestrians() {
   );
 
   useFrame(({ camera }, dt) => {
-    step(sim, meshes.body, stations, streamerSeen.current, camera.position, dt, frame.current++);
+    step(sim, meshes.body, meshes.head, camera.position, dt, frame.current++);
   });
 
   return (

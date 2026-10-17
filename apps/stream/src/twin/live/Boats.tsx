@@ -118,6 +118,36 @@ const QUAT = new THREE.Quaternion();
 const EULER = new THREE.Euler();
 const UP = new THREE.Vector3(0, 1, 0);
 
+function stepRig({ fleet, rig }: { fleet: Fleet; rig: Rig }, delta: number) {
+  stepFleet(fleet, Math.min(delta, 0.1));
+  const glow = ATMOS.windowGlow;
+  const m = rig.materials;
+  m.glass.color.setRGB(0.05 + glow * 1.85, 0.09 + glow * 1.4, 0.12 + glow * 0.73);
+  m.lamps.color.setScalar(1.2 + glow * 2.2);
+  m.strobe.color.setScalar(Math.floor(fleet.time * 5) % 2 ? 3.2 : 0.2);
+  m.wake.color.setScalar(0.5 + 0.5 * glow);
+
+  for (let i = 0; i < fleet.boats.length; i++) {
+    const b = fleet.boats[i];
+    QUAT.setFromEuler(EULER.set(b.pitch, b.yaw, b.roll, "YXZ"));
+    POS.set(b.x, b.y, b.z);
+    SCL.setScalar(Math.max(b.fade, 1e-4));
+    M.compose(POS, QUAT, SCL);
+    rig.kinds.get(b.kind)?.hull.setMatrixAt(b.slot, M);
+
+    const length = b.spec.wake * b.fade * Math.min(1, Math.max(0, (b.speed - 0.4) / WAKE_FULL_SPEED));
+    const sx = Math.sin(b.yaw);
+    const sz = Math.cos(b.yaw);
+    POS.set(b.x - sx * b.half * 0.9, WAKE_Y, b.z - sz * b.half * 0.9);
+    QUAT.setFromAxisAngle(UP, b.yaw);
+    SCL.set(length * 0.9, 1, length);
+    M.compose(POS, QUAT, SCL);
+    rig.wake.setMatrixAt(i, M);
+  }
+  for (let i = 0; i < rig.hulls.length; i++) rig.hulls[i].instanceMatrix.needsUpdate = true;
+  rig.wake.instanceMatrix.needsUpdate = true;
+}
+
 export function Boats() {
   const { water } = useGeometry();
   const sim = useMemo(() => {
@@ -142,35 +172,7 @@ export function Boats() {
   }, [sim]);
 
   useFrame((_, delta) => {
-    if (!sim) return;
-    const { fleet, rig } = sim;
-    stepFleet(fleet, Math.min(delta, 0.1));
-    const glow = ATMOS.windowGlow;
-    const m = rig.materials;
-    m.glass.color.setRGB(0.05 + glow * 1.85, 0.09 + glow * 1.4, 0.12 + glow * 0.73);
-    m.lamps.color.setScalar(1.2 + glow * 2.2);
-    m.strobe.color.setScalar(Math.floor(fleet.time * 5) % 2 ? 3.2 : 0.2);
-    m.wake.color.setScalar(0.5 + 0.5 * glow);
-
-    for (let i = 0; i < fleet.boats.length; i++) {
-      const b = fleet.boats[i];
-      QUAT.setFromEuler(EULER.set(b.pitch, b.yaw, b.roll, "YXZ"));
-      POS.set(b.x, b.y, b.z);
-      SCL.setScalar(Math.max(b.fade, 1e-4));
-      M.compose(POS, QUAT, SCL);
-      rig.kinds.get(b.kind)?.hull.setMatrixAt(b.slot, M);
-
-      const length = b.spec.wake * b.fade * Math.min(1, Math.max(0, (b.speed - 0.4) / WAKE_FULL_SPEED));
-      const sx = Math.sin(b.yaw);
-      const sz = Math.cos(b.yaw);
-      POS.set(b.x - sx * b.half * 0.9, WAKE_Y, b.z - sz * b.half * 0.9);
-      QUAT.setFromAxisAngle(UP, b.yaw);
-      SCL.set(length * 0.9, 1, length);
-      M.compose(POS, QUAT, SCL);
-      rig.wake.setMatrixAt(i, M);
-    }
-    for (let i = 0; i < rig.hulls.length; i++) rig.hulls[i].instanceMatrix.needsUpdate = true;
-    rig.wake.instanceMatrix.needsUpdate = true;
+    if (sim) stepRig(sim, delta);
   });
 
   if (!sim) return null;

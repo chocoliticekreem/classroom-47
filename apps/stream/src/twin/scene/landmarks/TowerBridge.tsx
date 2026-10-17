@@ -155,8 +155,8 @@ function buildLeaf(): Kit {
 }
 
 export function TowerBridge() {
-  const fixed = useMemo(buildFixed, []);
-  const leaf = useMemo(buildLeaf, []);
+  const fixed = useMemo(() => buildFixed(), []);
+  const leaf = useMemo(() => buildLeaf(), []);
   const north = useRef<THREE.Group>(null);
   const south = useRef<THREE.Group>(null);
   useFrame(() => {
