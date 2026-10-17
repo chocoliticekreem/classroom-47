@@ -8,6 +8,8 @@ import { Cameras } from "./Cameras";
 import { Disruptions } from "./Disruptions";
 import { Hud } from "./Hud";
 import { LabelHost, LabelLayer } from "./Label";
+import { Crowd } from "../sim/Crowd";
+import { FieldDebug } from "../sim/FieldDebug";
 import { useLiveFeeds } from "./store";
 import { Streamer } from "./Streamer";
 
@@ -16,6 +18,8 @@ export function LiveLayers() {
   useLiveFeeds();
   return (
     <group>
+      <Crowd />
+      <FieldDebug />
       <Agents />
       <Cameras />
       <Buses />

@@ -20,7 +20,8 @@ except ImportError:
     OpenAI = None
 
 LEVELS = ("calm", "busy", "danger")
-WANDB_BASE_URL = "https://api.inference.wandb.ai/v1"
+# Overridable so the same agent can point at CoreWeave-hosted NVIDIA endpoints without a rebuild.
+WANDB_BASE_URL = os.environ.get("WANDB_BASE_URL", "https://api.inference.wandb.ai/v1")
 JWT_SAFETY_MARGIN_S = 60
 DEFAULT_JWT_TTL_S = 50 * 60
 
