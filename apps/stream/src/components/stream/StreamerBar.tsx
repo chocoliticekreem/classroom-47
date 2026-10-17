@@ -64,7 +64,7 @@ export function StreamerBar({ ctx, positionSource = "demo", onLocationChange, on
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <label className="flex h-9 items-center gap-2 rounded-md border border-line bg-surface pl-2.5 pr-2.5 transition-colors focus-within:border-line-strong hover:border-line-strong">
+        <label className="tile !gap-2 !rounded-full !px-4 h-10 cursor-pointer">
           <span className="font-mono text-[10px] tracking-normal text-dim">{demo ? "Demo location" : "At"}</span>
           <span className="relative">
             <span className="invisible block px-1 text-[13px] font-medium">{pickerLabel}</span>
@@ -91,7 +91,7 @@ export function StreamerBar({ ctx, positionSource = "demo", onLocationChange, on
         <button
           type="button"
           onClick={onSimulate}
-          className="flex h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-[13px] font-medium transition-colors hover:border-ember/60 hover:text-text"
+          className="pill glass"
         >
           <Sparkles className="size-3.5 text-ember" aria-hidden />
           Mirror
@@ -102,7 +102,7 @@ export function StreamerBar({ ctx, positionSource = "demo", onLocationChange, on
           type="button"
           onClick={onReveal}
           disabled={revealed}
-          className="flex h-9 items-center gap-1.5 rounded-md bg-ember px-3 text-[13px] font-semibold text-bg transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:border disabled:border-line disabled:bg-surface disabled:text-muted"
+          className={`pill ${revealed ? "glass" : "pill-candy animate-wobble"}`}
         >
           <MapPinned className="size-3.5" aria-hidden />
           {revealed ? (
@@ -113,7 +113,6 @@ export function StreamerBar({ ctx, positionSource = "demo", onLocationChange, on
             "Tell chat my location"
           )}
         </button>
-
       </div>
     </section>
   );

@@ -129,7 +129,7 @@ export function CopilotPanel({ location, live, desktop, open, onOpenChange }: Co
     if (!open) {
       return (
         <aside
-          className="absolute bottom-14 right-3 top-3 z-20 flex flex-col items-center gap-3 rounded-xl border border-line bg-surface py-2 shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
+          className="glass absolute bottom-14 right-3 top-3 z-20 flex flex-col items-center gap-3 rounded-[24px] py-2"
           style={{ width: RAIL_W }}
           aria-label="Copilot, collapsed"
         >
@@ -138,7 +138,7 @@ export function CopilotPanel({ location, live, desktop, open, onOpenChange }: Co
             onClick={() => onOpenChange(true)}
             aria-label="Open copilot"
             title="Open copilot  ]"
-            className="grid size-8 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-text"
+            className="pill pill-sm glass !h-8 !w-8 !px-0"
           >
             <ChevronLeft className="size-4" />
           </button>
@@ -156,7 +156,7 @@ export function CopilotPanel({ location, live, desktop, open, onOpenChange }: Co
     }
     return (
       <aside
-        className="absolute bottom-14 right-3 top-3 z-20 flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
+        className="glass absolute bottom-14 right-3 top-3 z-20 flex flex-col overflow-hidden rounded-[28px]"
         style={{ width: PANEL_W }}
         aria-label="Copilot"
       >
@@ -171,7 +171,7 @@ export function CopilotPanel({ location, live, desktop, open, onOpenChange }: Co
       <button
         type="button"
         onClick={() => onOpenChange(true)}
-        className="absolute bottom-3 left-16 right-3 z-20 flex h-14 items-center gap-3 rounded-xl border border-line-strong bg-surface/95 px-3 text-left shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur"
+        className="glass absolute bottom-3 left-16 right-3 z-20 flex h-14 items-center gap-3 rounded-full px-4 text-left"
       >
         <span className={`h-8 w-1 shrink-0 rounded-full ${level ? LEVEL[level].dot : "bg-line-strong"}`} aria-hidden />
         <span className="min-w-0 flex-1">
@@ -189,7 +189,7 @@ export function CopilotPanel({ location, live, desktop, open, onOpenChange }: Co
   return (
     <div className="absolute inset-x-0 bottom-0 top-[12%] z-20 flex flex-col">
       <button type="button" aria-label="Collapse copilot" onClick={() => onOpenChange(false)} className="h-6 shrink-0" />
-      <div className="animate-sheet-up relative flex min-h-0 flex-1 flex-col rounded-t-xl border-t border-line-strong bg-surface shadow-[0_-24px_60px_rgba(0,0,0,0.6)]">
+      <div className="glass animate-sheet-up relative flex min-h-0 flex-1 flex-col rounded-t-[28px]">
         <button
           type="button"
           aria-label="Collapse copilot"
@@ -217,14 +217,14 @@ function PanelHeader({
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-line px-4">
       <span className={`size-2 rounded-full ${level ? `${LEVEL[level].dot} animate-live` : "bg-dim"}`} aria-hidden />
-      <h2 className="text-[14px] font-semibold text-text">Copilot</h2>
+      <h2 className="text-[14px] font-extrabold tracking-[-0.01em] text-text">Copilot</h2>
       <span className="text-[11px] text-dim">{assessment ? `${assessment.liveCams} live cams` : "VAST agent"}</span>
       <button
         type="button"
         onClick={onCollapse}
         aria-label="Collapse copilot"
         title="Collapse  ]"
-        className="ml-auto grid size-8 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-text"
+        className="pill pill-sm glass ml-auto !h-8 !w-8 !px-0"
       >
         <ChevronRight className="size-4" />
       </button>
