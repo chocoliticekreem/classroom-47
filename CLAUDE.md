@@ -104,7 +104,7 @@ The goal is something that **looks crazy** on stage and **never breaks** during 
 1. **Streaming platform (this repo, Sonion):** a polished IRL stream page.
    - Player sources: webcam, a TfL JamCam, or an uploaded video.
    - A mock chat crowd built from personas.
-   - Streamer controls: **"Tell chat my location"** and **"Simulate first"**.
+   - Streamer controls: **"Tell chat my location"** and **"Mirror"**.
 2. **Awareness layer:** what's around me right now.
    - The nearest TfL JamCams (890, each geotagged) with YOLO crowd counts.
    - TfL disruptions, and Cosmos reasoning over nearby clips for incidents.
@@ -117,7 +117,7 @@ The goal is something that **looks crazy** on stage and **never breaks** during 
 ### Demo arc (3 min)
 1. **Hook:** Union Square plus Oxford Street. "Both started with one message."
 2. **Live stream:** walking from Tower Hill to Tower Bridge, with chat flowing and the surroundings card showing crowd, incidents and a reroute.
-3. **"Should I tell chat?" → Simulate first.** The camera flies into the twin, personas flood in, and a red crush warning fires.
+3. **"Should I tell chat?" → Mirror.** The camera flies into the twin, personas flood in, and a red crush warning fires.
 4. **The agent suggests a safer spot.** The re-run stays green, and the tagline closes.
 
 ### Sponsors
@@ -129,7 +129,7 @@ The goal is something that **looks crazy** on stage and **never breaks** during 
 
 ### Structure and integration
 - **Layout:** CAMP-layered (VAST's stack: Coding agents, Agent runtimes, Model services, Platform). Code lives in `apps/stream/src/agents`, `apps/stream/src/platform`, `apps/stream/src/components` and `apps/stream/src/lib`. See `docs/ARCHITECTURE.md`.
-- **Integration:** the stream page and the city talk over the `classroom-47` BroadcastChannel (`apps/stream/src/platform/bus.ts`). Event names follow Arvin's city contract (`apps/web/src/world/streamerContract.ts`): the stream publishes `reality:fork` (scenario `leak_location_50` on "Simulate first") and `streamer:location_leaked`; the city publishes `surroundings.update`. The city is being rebuilt around **Tower Hill**; mapping stream locations to city x/z comes after that.
+- **Integration:** the stream page and the city talk over the `classroom-47` BroadcastChannel (`apps/stream/src/platform/bus.ts`). Event names follow Arvin's city contract (`apps/web/src/world/streamerContract.ts`): the stream publishes `reality:fork` (scenario `leak_location_50` on "Mirror") and `streamer:location_leaked`; the city publishes `surroundings.update`. The city is being rebuilt around **Tower Hill**; mapping stream locations to city x/z comes after that.
 - **To-dos:** `TODO.md`.
 - **Run:** `npm install && npm run dev -w stream`.
 - **No unit tests:** it's a hackathon. Gate is typecheck, lint and build.

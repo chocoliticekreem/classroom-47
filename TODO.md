@@ -9,7 +9,7 @@ Being built this session:
 - [ ] Player: webcam, TfL JamCam clip, or uploaded/URL video, with LIVE pill, viewer count, location chip
 - [ ] Mock chat crowd (`apps/stream/src/agents/chat-crowd`): personas, archetype lines, London IRL slang, rate scaled to viewers
 - [ ] Location-signal flagging in chat (messages that leak or react to the streamer's location)
-- [ ] Streamer bar: location picker, "Tell chat my location" (reveal), "Simulate first" (sim request)
+- [ ] Streamer bar: location picker, "Tell chat my location" (reveal), "Mirror" (sim request)
 - [ ] Surroundings card, fed by `surroundings.update` on the bus
 - [ ] Cross-tab event bus (`apps/stream/src/platform/bus.ts`, BroadcastChannel `classroom-47`)
 

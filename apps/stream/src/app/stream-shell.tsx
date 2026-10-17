@@ -13,6 +13,8 @@ import type { StreamContext, StreamLocation, StreamSource } from "@/lib/types";
 import { publish } from "@/platform/bus";
 
 const BASE_VIEWERS = 1840;
+// Arvin's parallel-reality city (apps/web, /city).
+const MIRROR_URL = process.env.NEXT_PUBLIC_MIRROR_URL ?? "http://localhost:3000/city";
 const DESKTOP_QUERY = "(min-width: 768px)";
 
 // Why: ChatPanel owns scroll/draft state, so it must be mounted exactly once —
@@ -87,7 +89,12 @@ export function StreamShell() {
     send(`yo I'm at ${location.name} right now, come say hi`);
   }
 
-  function simulate() {
+  function mirror() {
+    const url = new URL(MIRROR_URL);
+    url.searchParams.set("scenario", "leak_location_50");
+    url.searchParams.set("location", location.id);
+    url.searchParams.set("viewers", String(viewers));
+    window.open(url, "_blank", "noopener");
     publish({
       type: "reality:fork",
       scenario: "leak_location_50",
@@ -110,7 +117,7 @@ export function StreamShell() {
             ctx={ctx}
             onLocationChange={changeLocation}
             onReveal={reveal}
-            onSimulate={simulate}
+            onSimulate={mirror}
           />
           <SurroundingsCard />
         </main>
