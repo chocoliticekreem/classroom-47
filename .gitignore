@@ -8,3 +8,14 @@ out/
 next-env.d.ts
 runs/
 .playwright-mcp/
+
+# Organisers' slide deck: contains the venue Wi-Fi password and the lab VM passcode, and is All Rights Reserved. Keep it out of this public repo.
+Builders_Challenge_Slides.pdf
+
+# VAST lab team configs and secrets (live in /config/ on the VM): never copy them into this repo
+*.config
+!*.config.example
+team-configs/
+backend-secret.yaml
+vss-cli-secret.yaml
+*-k8s.yaml

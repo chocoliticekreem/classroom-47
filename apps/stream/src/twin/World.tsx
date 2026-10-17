@@ -1,6 +1,6 @@
 "use client";
 
-import { AdaptiveDpr, PerformanceMonitor, Stats } from "@react-three/drei";
+import { PerformanceMonitor, Stats } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { Suspense, useMemo, useState, type ReactNode } from "react";
 import * as THREE from "three";
@@ -8,16 +8,24 @@ import { DevPanel } from "@/components/DevPanel";
 import { useConditions, useDemoSettings, type Conditions } from "@/platform/demo";
 import { ORIGIN } from "./config";
 import { LiveHud, LiveLayers } from "./live";
+import { Boats } from "./live/Boats";
+import { Pedestrians } from "./live/Pedestrians";
+import { useScenario } from "./live/scenario";
+import { Traffic } from "./live/Traffic";
 import { ModuleBoundary } from "./ModuleBoundary";
+import { Bankside } from "./scene/Bankside";
 import { Buildings } from "./scene/Buildings";
 import { CameraRig } from "./scene/CameraRig";
 import { PRESETS, useCameraStore, type CameraPreset } from "./scene/cameraStore";
 import { Ground } from "./scene/Ground";
+import { Landmarks } from "./scene/Landmarks";
 import { Lights } from "./scene/Lights";
 import { CAMERA_FAR } from "./scene/palette";
 import { Parks } from "./scene/Parks";
+import { perf, readRenderer, stepTier } from "./scene/perf";
 import { Post } from "./scene/Post";
 import { Probe } from "./scene/Probe";
+import { Pavements } from "./scene/Pavements";
 import { Roads } from "./scene/Roads";
 import { Sky } from "./scene/Sky";
 import { GeometryContext, useGeometryLoader } from "./scene/useGeometry";
@@ -52,7 +60,7 @@ function Module({ name, toggles, children }: { name: string; toggles: Toggles; c
   );
 }
 
-const PRESET_ORDER: CameraPreset[] = ["aerial", "street", "skyline"];
+const PRESET_ORDER: CameraPreset[] = ["aerial", "street", "skyline", "bankside"];
 
 function PresetButtons() {
   const preset = useCameraStore((s) => s.preset);
@@ -105,8 +113,10 @@ export function World() {
   const [toggles] = useState(readToggles);
   const conditions = useConditions(ORIGIN);
   const settings = useDemoSettings();
+  const scenario = useScenario((s) => s.scenario);
   const geometry = useGeometryLoader();
-  const [dpr, setDpr] = useState(1.5);
+  const [dpr, setDpr] = useState(perf.dprCap);
+  const [gpu, setGpu] = useState("");
   const camera = useMemo(
     () => ({ position: PRESETS.aerial.pos, fov: 50, near: 2, far: CAMERA_FAR }),
     [],
@@ -117,16 +127,24 @@ export function World() {
       <Canvas
         dpr={dpr}
         camera={camera}
+        performance={{ min: 0.5 }}
         gl={{
-          antialias: true,
+          // Why: Post renders the scene into its own offscreen targets, so native MSAA on the canvas buys nothing.
+          antialias: false,
+          alpha: false,
           powerPreference: "high-performance",
           stencil: false,
+          preserveDrawingBuffer: false,
           toneMapping: THREE.NoToneMapping,
         }}
+        onCreated={({ gl }) => setGpu(readRenderer(gl.getContext()))}
         className="isolate z-0"
       >
-        <PerformanceMonitor onDecline={() => setDpr(1)} onIncline={() => setDpr(1.5)} />
-        <AdaptiveDpr pixelated />
+        <PerformanceMonitor
+          bounds={(refreshRate) => (refreshRate > 100 ? [55, 100] : [48, 58])}
+          onDecline={() => !document.hidden && setDpr(stepTier(-1))}
+          onIncline={() => !document.hidden && setDpr(stepTier(1))}
+        />
         {toggles.stats && <Stats />}
         <Probe />
         <Module name="Sky" toggles={toggles}>
@@ -153,14 +171,38 @@ export function World() {
             <Module name="Roads" toggles={toggles}>
               <Roads />
             </Module>
+            <Module name="Pavements" toggles={toggles}>
+              <Pavements />
+            </Module>
             <Module name="Water" toggles={toggles}>
               <Water />
             </Module>
             <Module name="Parks" toggles={toggles}>
               <Parks />
             </Module>
+            {(settings.estimate || scenario) && (
+              <Module name="Traffic" toggles={toggles}>
+                <Traffic respondersOnly={!settings.estimate} />
+              </Module>
+            )}
+            {settings.estimate && (
+              <Module name="Pedestrians" toggles={toggles}>
+                <Pedestrians />
+              </Module>
+            )}
+            {settings.boats && (
+              <Module name="Boats" toggles={toggles}>
+                <Boats />
+              </Module>
+            )}
+            <Module name="Landmarks" toggles={toggles}>
+              <Landmarks />
+            </Module>
           </GeometryContext.Provider>
         )}
+        <Module name="Bankside" toggles={toggles}>
+          <Bankside />
+        </Module>
         <Module name="Live" toggles={toggles}>
           <LiveLayers />
         </Module>
@@ -191,6 +233,18 @@ export function World() {
           </div>
         )}
         <ConditionsChip conditions={conditions} />
+        {toggles.stats && gpu && (
+          <div
+            title={gpu}
+            className="absolute right-5 top-14 flex max-w-[420px] items-center gap-2 rounded-full border border-white/10 bg-black/50 px-3 py-1 font-mono text-[10px] text-white/70 backdrop-blur-md"
+          >
+            <span className={`size-1.5 shrink-0 rounded-full ${perf.software ? "bg-warn" : "bg-ok"}`} />
+            <span className="truncate">{gpu}</span>
+            <span className="shrink-0 text-white/40">
+              {perf.tier} · dpr {dpr}
+            </span>
+          </div>
+        )}
         <PresetButtons />
         <LiveHud />
         <DevPanel />

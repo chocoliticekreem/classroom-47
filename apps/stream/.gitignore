@@ -45,3 +45,6 @@ next-env.d.ts
 
 # copied from maplibre-gl at predev/prebuild
 /public/maplibre-gl-worker.mjs
+
+# server-side file cache (see src/lib/server/cache.ts)
+/.cache/

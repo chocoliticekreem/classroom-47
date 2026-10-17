@@ -7,10 +7,10 @@ The event provides the infrastructure, and each layer is a sponsor. The requirem
 
 | Layer | Event infrastructure | In this repo today | Target |
 |---|---|---|---|
-| **C**: Coding agent | Cursor (SpaceXAI) on the lab VM over Remote-SSH, with the official skills | `AGENTS.md`, `CLAUDE.md`, `HANDOFF.md`, the `vast-camp` skill | Build the CAMP agent in Cursor on the VM |
-| **A**: Agent runtime | VAST: team Kubernetes namespace, app at `/app` (`/deploy-app-no-registry`) | Mock chat crowd (`apps/stream/src/agents/chat-crowd`), runs in the browser | Python agent and dashboard on the cluster: VSS search-and-answer + YOLO counts → W&B reasoning → `calm/busy/danger` + advice |
+| **C**: Coding agent | Cursor (SpaceXAI) on the lab VM over Remote-SSH, with the official skills | `AGENTS.md`, `CLAUDE.md`, `HANDOFF.md`, `.cursor/rules/classroom-47.mdc`, the `vast-camp` skill, the official guide (`vast-builders-challenge/` submodule) | Build the CAMP agent in Cursor on the VM |
+| **A**: Agent runtime | VAST: team Kubernetes namespace, app at `/app` (`/deploy-app-no-registry`). VSS agent tools at `/api/v1/tools/*` | **`services/agent` deployed** as `classroom47-agent` (Deployment, Service, Ingress `/app`) in the team-47 namespace; `/app/health` → `vss: true, wandb: true`; `apps/stream/src/app/api/agent/assess` calls it. Mock chat crowd (`apps/stream/src/agents/chat-crowd`) in the browser | Add VSS `tools/detections` and store each verdict in our own VastDB table (`vastdb-write`); see `docs/COMPLIANCE.md` |
 | **M**: Model services | NVIDIA Cosmos3-Reason, Cosmos Embed1, YOLO11 and Canary on CoreWeave GPUs. W&B serverless inference + Weave | Local YOLO on TfL (`services/yolo`). Cosmos and W&B clients (`services/vision`) | Cosmos and YOLO through VSS. Agent LLM on W&B, traced in Weave |
-| **P**: Platform | VAST: NVIDIA VSS Blueprint on S3, then DataEngine, then VastDB, with pre-ingested footage | Cross-tab bus (`apps/stream/src/platform/bus.ts`). Live TfL data via `/api/around/*` (outside VAST) | Our team's VSS index, re-ingested with our crowd prompt |
+| **P**: Platform | VAST: NVIDIA VSS Blueprint on S3, then DataEngine, then VastDB, with pre-ingested footage | Cross-tab bus (`apps/stream/src/platform/bus.ts`). Live TfL data via `/api/around/*` (outside VAST) | Our team's VSS index (packs F, E and B), re-ingested with our crowd prompt. Our own VastDB table of agent verdicts (`vastdb-write`) |
 
 Stream UI: `apps/stream/src/components/{stream,chat,around}`. Live-data logic: `apps/stream/src/platform/around`. Shared types: `apps/stream/src/lib`.
 

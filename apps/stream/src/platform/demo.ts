@@ -28,9 +28,13 @@ export interface DemoSettings {
   time: TimeOfDay | null;
   /** Multiplies simulated crowds (1 = mirror reality). */
   crowd: 1 | 3 | 10;
+  /** Draw the inferred crowd field as simulated people and vehicles (an estimate, not real entities). */
+  estimate: boolean;
+  /** Draw illustrative river traffic (not live data). */
+  boats: boolean;
 }
 
-export const LIVE_SETTINGS: DemoSettings = { weather: null, time: null, crowd: 1 };
+export const LIVE_SETTINGS: DemoSettings = { weather: null, time: null, crowd: 1, estimate: false, boats: false };
 
 const KEY = "classroom-47:demo";
 const CHANNEL = "classroom-47-demo";
@@ -45,7 +49,7 @@ function read(): DemoSettings {
 }
 
 export function isLive(s: DemoSettings) {
-  return s.weather === null && s.time === null && s.crowd === 1;
+  return s.weather === null && s.time === null && s.crowd === 1 && !s.estimate && !s.boats;
 }
 
 export function setDemoSettings(next: DemoSettings) {

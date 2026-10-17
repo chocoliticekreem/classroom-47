@@ -3,17 +3,23 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, MessageSquare } from "lucide-react";
 import { useChatCrowd } from "@/agents/chat-crowd/useChatCrowd";
+import { useSceneChat } from "@/agents/chat-crowd/useSceneChat";
 import { AroundMe } from "@/components/around/AroundMe";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { DevPanel } from "@/components/DevPanel";
 import { TopBar } from "@/components/TopBar";
+import { FollowerCard } from "@/components/stream/FollowerCard";
+import { AdvisorCard } from "@/components/stream/AdvisorCard";
 import { Player } from "@/components/stream/Player";
 import { StreamerBar } from "@/components/stream/StreamerBar";
 import { SurroundingsCard } from "@/components/stream/SurroundingsCard";
+import { prefetch } from "@/lib/client/cachedFetch";
 import { LOCATIONS } from "@/lib/locations";
 import type { StreamContext, StreamLocation, StreamSource } from "@/lib/types";
 import { useSurroundings } from "@/platform/around/useSurroundings";
 import { publish } from "@/platform/bus";
+import { useLiveLink } from "@/platform/live/useLiveLink";
+import { useWakeLock } from "@/platform/live/useWakeLock";
 
 const BASE_VIEWERS = 1840;
 // The 3D twin of the streamer's surroundings (/twin).
@@ -35,7 +41,7 @@ function useIsDesktop() {
 
 export function StreamShell() {
   const [source, setSource] = useState<StreamSource>({ kind: "idle" });
-  const [location, setLocation] = useState<StreamLocation>(LOCATIONS[0]);
+  const [demoLocation, setDemoLocation] = useState<StreamLocation>(LOCATIONS[0]);
   const [viewers, setViewers] = useState(0);
   const [revealedAt, setRevealedAt] = useState<number | null>(null);
   const [tab, setTab] = useState<View>("live");
@@ -43,16 +49,34 @@ export function StreamShell() {
   const [chatOpen, setChatOpen] = useState(false);
   const desktop = useIsDesktop();
   const live = source.kind !== "idle";
+  const link = useLiveLink({ live, viewers, demo: demoLocation });
+  const location = link.location;
+  useWakeLock(live);
+  useEffect(() => {
+    // The 3D tab is an iframe of /twin on this origin, so warming the Cache API here makes its first paint instant.
+    // The field is polled with no-store, so it is only fetched to get the server computing it early.
+    const warm = () => {
+      void prefetch("/api/twin/osm");
+      void fetch("/api/twin/field").catch(() => {});
+    };
+    if ("requestIdleCallback" in window) {
+      const id = window.requestIdleCallback(warm, { timeout: 5000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const t = setTimeout(warm, 2000);
+    return () => clearTimeout(t);
+  }, []);
 
   const ctx: StreamContext = {
     streamer: "sonion",
     title: "IRL London walk — Tower Hill to Tower Bridge, pull up?",
     location,
-    viewers,
+    viewers: link.viewers,
     live,
     locationRevealedAt: revealedAt,
   };
-  const { messages, send } = useChatCrowd(ctx);
+  const { messages, send, inject } = useChatCrowd(ctx);
+  useSceneChat(ctx, source, messages, inject);
   useSurroundings(location, live);
 
   useEffect(() => {
@@ -83,7 +107,7 @@ export function StreamShell() {
   }, []);
 
   function changeLocation(next: StreamLocation) {
-    setLocation(next);
+    setDemoLocation(next);
     if (source.kind === "url") {
       setSource({ kind: "url", url: next.camera.url, label: next.camera.label });
     }
@@ -105,6 +129,8 @@ export function StreamShell() {
     url.searchParams.set("scenario", "leak_location_50");
     url.searchParams.set("location", location.id);
     url.searchParams.set("viewers", String(viewers));
+    const session = new URLSearchParams(window.location.search).get("session");
+    if (session) url.searchParams.set("session", session);
     setMirrorUrl(url.pathname + url.search);
     setTab("3d");
     publish({
@@ -128,13 +154,16 @@ export function StreamShell() {
           <ViewTabs tab={tab} onChange={setTab} />
           {/* The player stays mounted across tabs so the stream never drops. */}
           <div className={tab === "live" ? "flex flex-col gap-4 lg:gap-5" : "hidden"}>
-            <Player source={source} onSourceChange={changeSource} ctx={ctx} />
+            <Player source={source} onSourceChange={changeSource} ctx={ctx} positionBadge={link.badge} sync={link.sync} />
             <StreamerBar
               ctx={ctx}
+              positionSource={link.source}
               onLocationChange={changeLocation}
               onReveal={reveal}
               onSimulate={mirror}
             />
+            <FollowerCard />
+            <AdvisorCard location={location} live={live} />
             <SurroundingsCard />
           </div>
           {tab === "around" && (

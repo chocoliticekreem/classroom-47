@@ -8,19 +8,33 @@ import { Cameras } from "./Cameras";
 import { Disruptions } from "./Disruptions";
 import { Hud } from "./Hud";
 import { LabelHost, LabelLayer } from "./Label";
+import { PredictLayers } from "../predict/Ghost";
+import { PredictPanel } from "../predict/Panel";
+import { FieldDebug } from "../sim/FieldDebug";
+import { useField } from "../sim/useField";
+import { useScenarioFeeds } from "./scenario";
 import { useLiveFeeds } from "./store";
 import { Streamer } from "./Streamer";
+import { RouteLine } from "../route/RouteLine";
 
-/** Live data layers rendered inside the <Canvas>: real TfL cams, YOLO tracks, buses, disruptions. */
+/**
+ * Live data layers rendered inside the <Canvas>: real TfL cams, YOLO tracks, buses, disruptions. Also
+ * hosts the field poll and scenario feeds that drive the Traffic and Pedestrians modules.
+ */
 export function LiveLayers() {
   useLiveFeeds();
+  useField();
+  useScenarioFeeds();
   return (
     <group>
+      <FieldDebug />
       <Agents />
       <Cameras />
       <Buses />
       <Disruptions />
       <Streamer />
+      <PredictLayers />
+      <RouteLine />
       <LabelLayer />
     </group>
   );
@@ -34,6 +48,7 @@ export function LiveHud() {
       <Hud />
       <ViewBar />
       <CompareOverlay />
+      <PredictPanel />
     </>
   );
 }

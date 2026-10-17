@@ -1,88 +1,182 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import type { Ring, TwinGeometry } from "../config";
-import { useGeometry } from "./useGeometry";
+import { ROAD_Y, layoutOf, offsetPolyline, subPolyline } from "../network/layout";
+import type { RoadNetwork, XZ } from "../network/types";
+import { useNetwork } from "../network/useNetwork";
+import { MeshBuilder, makeSurfaceMaterial, useSurfaceUniforms } from "./surfaces";
 
-type Kind = TwinGeometry["roads"][number]["kind"];
+const ASPHALT = { major: new THREE.Color("#343842"), minor: new THREE.Color("#2e323c") };
+const PAINT = new THREE.Color("#d6dae2");
+const MARKING_Y = ROAD_Y + 0.02;
 
-const STYLE: Record<Kind, { width: number; y: number; color: string; emissive: string; glow: number }> = {
-  major: { width: 10, y: 0.3, color: "#1a1a20", emissive: "#5a3a1c", glow: 0.35 },
-  minor: { width: 6, y: 0.25, color: "#15161c", emissive: "#3a2a18", glow: 0.25 },
-  path: { width: 2.5, y: 0.2, color: "#121318", emissive: "#20201c", glow: 0.15 },
-  rail: { width: 4, y: 0.35, color: "#1c1e24", emissive: "#2a3444", glow: 0.3 },
-};
+const DASH = { major: { on: 3.5, off: 7 }, minor: { on: 2, off: 5 } };
 
-/** Flat ribbon along a polyline: two triangles per segment, no mitred joins (overlap is invisible at this width). */
-function ribbon(line: Ring, width: number): THREE.BufferGeometry | null {
-  if (line.length < 2) return null;
-  const half = width / 2;
-  const verts: number[] = [];
-  const idx: number[] = [];
-  for (let i = 0; i < line.length - 1; i++) {
-    const [ax, az] = line[i];
-    const [bx, bz] = line[i + 1];
-    const dx = bx - ax;
-    const dz = bz - az;
-    const len = Math.hypot(dx, dz);
-    if (len < 1e-3) continue;
-    const nx = (-dz / len) * half;
-    const nz = (dx / len) * half;
-    const base = verts.length / 3;
-    verts.push(ax + nx, 0, az + nz, ax - nx, 0, az - nz, bx + nx, 0, bz + nz, bx - nx, 0, bz - nz);
-    idx.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+function paintDashes(b: MeshBuilder, pts: XZ[], cum: number[], from: number, to: number, on: number, off: number) {
+  const span = to - from;
+  if (span < on) return;
+  const count = Math.max(1, Math.floor((span + off) / (on + off)));
+  const pitch = count > 1 ? (span - on) / (count - 1) : 0;
+  const start = count > 1 ? from : from + (span - on) / 2;
+  for (let i = 0; i < count; i++) {
+    const s0 = start + pitch * i;
+    const line = subPolyline(pts, cum, s0, s0 + on);
+    b.flatStrip(offsetPolyline(line, 0.08), offsetPolyline(line, -0.08), MARKING_Y, PAINT);
   }
-  if (!idx.length) return null;
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  return geo;
 }
 
-export function Roads() {
-  const { roads } = useGeometry();
-
-  const layers = useMemo(() => {
-    const byKind = new Map<Kind, THREE.BufferGeometry[]>();
-    for (const road of roads) {
-      const g = ribbon(road.line, STYLE[road.kind].width);
-      if (!g) continue;
-      const list = byKind.get(road.kind) ?? [];
-      list.push(g);
-      byKind.set(road.kind, list);
+function buildAsphalt(net: RoadNetwork): THREE.BufferGeometry {
+  const layout = layoutOf(net);
+  const b = new MeshBuilder();
+  net.edges.forEach((edge) => {
+    const strip = layout.strips[edge.id];
+    if (strip) b.flatStrip(strip.leftIn, strip.rightIn, ROAD_Y, ASPHALT[edge.kind]);
+  });
+  for (const { node, poly } of layout.patches) {
+    const n = net.nodes[node];
+    const color = n.edges.some((e) => net.edges[e].kind === "major") ? ASPHALT.major : ASPHALT.minor;
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i];
+      const q = poly[(i + 1) % poly.length];
+      b.tri([n.x, ROAD_Y, n.z], [p[0], ROAD_Y, p[1]], [q[0], ROAD_Y, q[1]], [0, 1, 0], color);
     }
-    const majorGlow = roads
-      .filter((r) => r.kind === "major")
-      .map((r) => ribbon(r.line, 0.7))
-      .filter((g): g is THREE.BufferGeometry => g !== null);
-    return {
-      kinds: [...byKind.entries()].map(([kind, parts]) => ({ kind, geometry: mergeGeometries(parts) })),
-      glow: majorGlow.length ? mergeGeometries(majorGlow) : null,
-    };
-  }, [roads]);
+  }
+  return b.build();
+}
+
+function buildMarkings(net: RoadNetwork): THREE.BufferGeometry {
+  const layout = layoutOf(net);
+  const b = new MeshBuilder();
+  net.edges.forEach((edge) => {
+    const strip = layout.strips[edge.id];
+    if (!strip || strip.length < 8) return;
+    const margin = (atStart: boolean) => (net.nodes[atStart ? edge.from : edge.to].junction ? 2.5 : 0.5);
+    if (!edge.oneway) {
+      const { on, off } = DASH[edge.kind];
+      paintDashes(b, strip.pts, strip.cum, margin(true), strip.length - margin(false), on, off);
+    }
+    if (edge.kind === "major") {
+      for (const side of [1, -1]) {
+        const d = side * (edge.width / 2 - 0.5);
+        b.flatStrip(offsetPolyline(strip.pts, d + 0.06), offsetPolyline(strip.pts, d - 0.06), MARKING_Y, PAINT);
+      }
+    }
+  });
+
+  for (const items of layout.items) {
+    for (const it of items) {
+      if (!it.crossing) continue;
+      const edge = net.edges[it.edge];
+      const strip = layout.strips[it.edge];
+      if (!strip) continue;
+      const n = strip.pts.length;
+      const c = it.atStart ? strip.pts[0] : strip.pts[n - 1];
+      const nb = it.atStart ? strip.pts[1] : strip.pts[n - 2];
+      const dl = Math.hypot(nb[0] - c[0], nb[1] - c[1]) || 1;
+      const dx = (nb[0] - c[0]) / dl;
+      const dz = (nb[1] - c[1]) / dl;
+      const reach = edge.width / 2 - 0.7;
+      for (let lat = -reach; lat <= reach + 0.01; lat += 1) {
+        const x0 = c[0] - dz * (lat - 0.25) - dx * 1.5;
+        const z0 = c[1] + dx * (lat - 0.25) - dz * 1.5;
+        const x1 = c[0] - dz * (lat + 0.25) - dx * 1.5;
+        const z1 = c[1] + dx * (lat + 0.25) - dz * 1.5;
+        b.flatQuad([x0, z0], [x1, z1], [x0 + dx * 3, z0 + dz * 3], [x1 + dx * 3, z1 + dz * 3], MARKING_Y, PAINT);
+      }
+    }
+  }
+  return b.build();
+}
+
+const NODE_COLOURS = [new THREE.Color(2.6, 0.2, 2.2), new THREE.Color(0.2, 1.8, 2.4), new THREE.Color(2.8, 1.3, 0.2)];
+
+function NodeDebug({ net }: { net: RoadNetwork }) {
+  const { mesh, lines } = useMemo(() => {
+    const inst = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(1.1, 10, 8),
+      new THREE.MeshBasicMaterial({ toneMapped: false }),
+      net.nodes.length,
+    );
+    const m = new THREE.Matrix4();
+    net.nodes.forEach((n, i) => {
+      const deg = n.edges.length;
+      const scale = n.junction ? 1.6 : 1;
+      m.makeScale(scale, scale, scale).setPosition(n.x, 1.6, n.z);
+      inst.setMatrixAt(i, m);
+      inst.setColorAt(i, NODE_COLOURS[deg <= 1 ? 0 : deg === 2 ? 1 : 2]);
+    });
+    inst.frustumCulled = false;
+    const verts: number[] = [];
+    for (const e of net.edges) {
+      for (let i = 0; i < e.pts.length - 1; i++) {
+        verts.push(e.pts[i][0], 1, e.pts[i][1], e.pts[i + 1][0], 1, e.pts[i + 1][1]);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+    const seg = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: new THREE.Color(0.4, 2.2, 0.6), toneMapped: false }));
+    seg.frustumCulled = false;
+    return { mesh: inst, lines: seg };
+  }, [net]);
+
+  useEffect(
+    () => () => {
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+      mesh.dispose();
+      lines.geometry.dispose();
+      (lines.material as THREE.Material).dispose();
+    },
+    [mesh, lines],
+  );
 
   return (
     <>
-      {layers.kinds.map(({ kind, geometry }) => (
-        <mesh key={kind} geometry={geometry} position={[0, STYLE[kind].y, 0]}>
-          <meshStandardMaterial
-            color={STYLE[kind].color}
-            emissive={STYLE[kind].emissive}
-            emissiveIntensity={STYLE[kind].glow}
-            roughness={0.95}
-            polygonOffset
-            polygonOffsetFactor={-1}
-          />
-        </mesh>
-      ))}
-      {layers.glow && (
-        <mesh geometry={layers.glow} position={[0, 0.45, 0]}>
-          <meshBasicMaterial color={new THREE.Color(2.4, 1.6, 0.9)} toneMapped={false} />
-        </mesh>
-      )}
+      <primitive object={mesh} />
+      <primitive object={lines} />
+    </>
+  );
+}
+
+export function Roads() {
+  const net = useNetwork();
+  useSurfaceUniforms();
+
+  const { asphalt, markings } = useMemo(
+    () => ({ asphalt: buildAsphalt(net), markings: buildMarkings(net) }),
+    [net],
+  );
+  const materials = useMemo(() => {
+    const paint = makeSurfaceMaterial({ roughness: 0.55 });
+    paint.polygonOffsetFactor = -3;
+    paint.polygonOffsetUnits = -3;
+    paint.emissive.set("#ffffff");
+    paint.emissiveIntensity = 0.12;
+    return { asphalt: makeSurfaceMaterial({ roughness: 0.92, grain: 0.35 }), paint };
+  }, []);
+  const showNodes = useMemo(() => new URLSearchParams(window.location.search).get("nodes") === "1", []);
+
+  useEffect(
+    () => () => {
+      asphalt.dispose();
+      markings.dispose();
+    },
+    [asphalt, markings],
+  );
+  useEffect(
+    () => () => {
+      materials.asphalt.dispose();
+      materials.paint.dispose();
+    },
+    [materials],
+  );
+
+  return (
+    <>
+      <mesh geometry={asphalt} material={materials.asphalt} receiveShadow />
+      <mesh geometry={markings} material={materials.paint} />
+      {showNodes && <NodeDebug net={net} />}
     </>
   );
 }

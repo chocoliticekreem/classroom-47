@@ -4,6 +4,8 @@ import { Label } from "./Label";
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef, useState } from "react";
 import type * as THREE from "three";
+import { ATMOS } from "../scene/palette";
+import { BUS_H, blindMaterial, getBusKit, setBusGlow } from "./bus/busKit";
 import type { AroundBusStop, BusArrival } from "@/platform/around/types";
 import type { TwinGeometry } from "../config";
 import { toLocal } from "../config";
@@ -12,9 +14,6 @@ import { useLive, useNow } from "./store";
 const APPROACH_S = 90;
 const APPROACH_M = 110;
 const DWELL_S = 25;
-const BUS_L = 10.5;
-const BUS_W = 2.5;
-const BUS_H = 4.4;
 
 interface StopPlace {
   stop: AroundBusStop;
@@ -62,6 +61,10 @@ function formatDue(seconds: number) {
 
 function Bus({ place, arrival }: { place: StopPlace; arrival: BusArrival }) {
   const group = useRef<THREE.Group>(null);
+  const body = useRef<THREE.Group>(null);
+  const kit = getBusKit();
+  const blind = blindMaterial(arrival.line, arrival.destination);
+  const phase = place.x * 0.37;
   const [label, setLabel] = useState("");
   const lastLabel = useRef(0);
   const yaw = Math.atan2(place.dirX, place.dirZ);
@@ -76,6 +79,15 @@ function Bus({ place, arrival }: { place: StopPlace; arrival: BusArrival }) {
     const dist = eased * APPROACH_M;
     g.position.set(place.x - place.dirX * dist, 0, place.z - place.dirZ * dist);
     g.visible = rem > -DWELL_S;
+    const b = body.current;
+    if (b) {
+      // Speed is proportional to k (the approach is eased as k^2), so every motion fades out as the bus stops.
+      const moving = Math.min(1, k * 3);
+      const brake = Math.sin(Math.min(1, k * 5) * Math.PI);
+      b.position.y = Math.sin(now * 0.008 + phase) * 0.012 * moving + Math.sin(now * 0.038 + phase) * 0.0025 * (1 - moving);
+      b.rotation.x = Math.sin(now * 0.0061 + phase * 1.7) * 0.0018 * moving + brake * 0.012;
+      b.rotation.z = Math.sin(now * 0.0093 + phase * 0.6) * 0.0012 * moving;
+    }
     if (now - lastLabel.current > 1000) {
       lastLabel.current = now;
       setLabel(formatDue(rem));
@@ -84,22 +96,12 @@ function Bus({ place, arrival }: { place: StopPlace; arrival: BusArrival }) {
 
   return (
     <group ref={group} rotation={[0, yaw, 0]}>
-      <mesh position={[0, BUS_H / 2 + 0.3, 0]} castShadow>
-        <boxGeometry args={[BUS_W, BUS_H, BUS_L]} />
-        <meshStandardMaterial color="#c8102e" roughness={0.45} metalness={0.15} />
-      </mesh>
-      <mesh position={[0, BUS_H * 0.72, 0]}>
-        <boxGeometry args={[BUS_W + 0.05, 0.9, BUS_L - 0.6]} />
-        <meshStandardMaterial color="#ffe3b0" emissive="#ffd08a" emissiveIntensity={1.2} />
-      </mesh>
-      <mesh position={[0, BUS_H * 0.32, 0]}>
-        <boxGeometry args={[BUS_W + 0.05, 0.9, BUS_L - 0.6]} />
-        <meshStandardMaterial color="#ffe3b0" emissive="#ffd08a" emissiveIntensity={1.2} />
-      </mesh>
-      <mesh position={[0, 1.1, BUS_L / 2 + 0.02]}>
-        <planeGeometry args={[BUS_W - 0.4, 0.5]} />
-        <meshStandardMaterial color="#ffffff" emissive="#dfefff" emissiveIntensity={3} />
-      </mesh>
+      <group ref={body}>
+        <mesh geometry={kit.body} material={kit.bodyMat} castShadow />
+        <mesh geometry={kit.glass} material={kit.glassMat} />
+        <mesh geometry={kit.lamps} material={kit.lampMat} />
+        <mesh geometry={kit.blinds} material={blind} />
+      </group>
       <Label position={[0, BUS_H + 2.4, 0]}>
         <div
           style={{
@@ -164,6 +166,7 @@ function StopMarker({ place, now }: { place: StopPlace; now: number }) {
 }
 
 export function Buses() {
+  useFrame(() => setBusGlow(ATMOS.windowGlow));
   const stops = useLive((s) => s.stops);
   const roads = useLive((s) => s.roads);
   const now = useNow();
@@ -182,10 +185,15 @@ export function Buses() {
     if (!now) return [];
     const out: { place: StopPlace; arrival: BusArrival; key: string }[] = [];
     for (const place of places) {
+      // A stop can list the same line and destination twice (back-to-back buses), so the key counts repeats.
+      const seen = new Map<string, number>();
       for (const a of place.stop.arrivals) {
         const rem = remainingSeconds(place.stop, a, now);
         if (rem < APPROACH_S && rem > -DWELL_S) {
-          out.push({ place, arrival: a, key: `${place.stop.id}:${a.line}:${a.destination}` });
+          const base = `${place.stop.id}:${a.line}:${a.destination}`;
+          const n = seen.get(base) ?? 0;
+          seen.set(base, n + 1);
+          out.push({ place, arrival: a, key: `${base}:${n}` });
         }
       }
     }

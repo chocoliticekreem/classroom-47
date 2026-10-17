@@ -11,6 +11,7 @@ const COLUMN_H = 60;
 
 export function Streamer() {
   const streamer = useLive((s) => s.streamer);
+  const heading = useLive((s) => s.streamerHeading);
   const firstPerson = useCameraStore((s) => s.preset === "streamer" && !s.cctv);
   const [x, z] = useMemo(() => toLocal(streamer.lat, streamer.lon), [streamer]);
   const ring = useRef<THREE.Mesh>(null);
@@ -56,6 +57,15 @@ export function Streamer() {
         <ringGeometry args={[4.6, 5, 48]} />
         <meshBasicMaterial color="#ff4d2e" transparent opacity={0.35} depthWrite={false} side={THREE.DoubleSide} />
       </mesh>
+      {heading !== null && (
+        // GPS heading: 0 = north (-z), clockwise. Rotating about y by -heading points the cone that way.
+        <group rotation={[0, (-heading * Math.PI) / 180, 0]}>
+          <mesh position={[0, 0.3, -4.5]} rotation={[-Math.PI / 2, 0, 0]}>
+            <coneGeometry args={[1.6, 4, 3]} />
+            <meshBasicMaterial color="#ffb37a" transparent opacity={0.85} depthWrite={false} />
+          </mesh>
+        </group>
+      )}
       <pointLight ref={light} position={[0, 6, 0]} color="#ff6a3d" intensity={200} distance={70} decay={2} />
     </group>
   );
