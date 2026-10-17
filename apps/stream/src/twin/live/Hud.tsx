@@ -1,5 +1,6 @@
 "use client";
 
+import { useDemoSettings } from "@/platform/demo";
 import { useCompare } from "../compare/store";
 import { useFieldStore } from "../sim/useField";
 import { distanceM } from "@/platform/around/geo";
@@ -75,6 +76,7 @@ export function Hud() {
   const field = useFieldStore();
   const twin = useTwinCounts();
   const scenario = useScenario((s) => s.scenario);
+  const settings = useDemoSettings();
   if (comparing) return null;
 
   let people = 0;
@@ -96,13 +98,15 @@ export function Hud() {
   const analysed = cams.filter((c) => clips[c.id]).length;
 
   const rows: { label: string; value: string; color: string }[] = [
-    { label: "People tracked (cameras)", value: String(people), color: "#ffb37a" },
-    { label: "Vehicles tracked (cameras)", value: String(vehicles), color: "#9fd3ff" },
+    { label: "People (real, cameras)", value: String(people), color: "#ffb37a" },
+    { label: "Vehicles (real, cameras)", value: String(vehicles), color: "#9fd3ff" },
     { label: "Cameras", value: cams.length ? `${analysed}/${cams.length} analysed` : "—", color: "var(--live)" },
-    { label: "Buses due < 5 min (TfL)", value: String(busesDue), color: "#c8102e" },
+    { label: "Buses (TfL), due < 5 min", value: String(busesDue), color: "#c8102e" },
     { label: "Disruptions (TfL)", value: String(uniqueDisruptions), color: "var(--warn)" },
-    { label: "Twin agents", value: `${twin.people} people · ${twin.vehicles} vehicles`, color: "#e8d6c2" },
   ];
+  if (settings.estimate) {
+    rows.push({ label: "Estimated (inferred)", value: `${twin.people} people · ${twin.vehicles} vehicles`, color: "#e8d6c2" });
+  }
   const estimate = field
     ? `${Math.round(field.people * field.crowd)} people · ${Math.round(field.vehicles * field.crowd)} vehicles`
     : "estimating…";
@@ -194,9 +198,11 @@ export function Hud() {
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Swatch color="var(--live)" /> Closed road · <Swatch color="var(--warn)" /> works
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <Swatch color="#9fd3ff" /> Boats · illustrative river traffic, not live data
-        </div>
+        {settings.boats && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Swatch color="#9fd3ff" /> Boats · illustrative river traffic, not live data
+          </div>
+        )}
       </div>
     </div>
   );
