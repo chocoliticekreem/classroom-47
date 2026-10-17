@@ -2,7 +2,7 @@
 
 import { skipHotspot, stopReplay, useReplay } from "./replay";
 import { shownRun, usePredict } from "./store";
-import { Button } from "./ui";
+import { Button, Confidence } from "./ui";
 
 const CSS = `
 .replay-hud { position: absolute; inset: 0; z-index: 50; pointer-events: none; color: var(--text);
@@ -14,16 +14,16 @@ const CSS = `
 .replay-clock .at { font-size: 13px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
 .replay-caption { position: absolute; left: 50%; bottom: 196px; transform: translateX(-50%); max-width: min(760px, calc(100% - 32px));
   padding: 14px 22px; border-radius: 16px; background: rgba(10,10,14,0.8); border: 1px solid rgba(255,106,61,0.55);
-  font-size: 22px; font-weight: 700; line-height: 1.25; text-align: center; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  font-size: 28px; font-weight: 800; line-height: 1.2; text-align: center; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   animation: replay-in 240ms ease-out; }
-.replay-caption .sub { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-top: 4px; }
+.replay-caption .sub { display: block; font-size: 14px; font-weight: 500; color: var(--muted); margin-top: 6px; }
 @keyframes replay-in { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .replay-controls { position: absolute; left: 50%; bottom: 136px; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
   padding: 8px 10px; border-radius: 999px; background: rgba(10,10,14,0.72); border: 1px solid var(--border-strong); pointer-events: auto; }
 .replay-bar { height: 3px; margin-top: 8px; border-radius: 2px; background: rgba(255,255,255,0.1); overflow: hidden; }
 .replay-bar > span { display: block; height: 100%; background: #ff6a3d; }
-.replay-tag { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
-  text-transform: uppercase; color: #ff6a3d; }
+.replay-tag { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); font-size: 17px; font-weight: 800; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #ff6a3d; text-shadow: 0 2px 12px rgba(0,0,0,0.7); white-space: nowrap; }
 @media (max-width: 640px) { .replay-clock .min { font-size: 30px; } .replay-caption { font-size: 15px; bottom: 220px; } .replay-controls { bottom: 160px; } }
 `;
 
@@ -43,7 +43,7 @@ export function ReplayHud() {
     <>
       <style>{CSS}</style>
       <div className="replay-hud">
-        <div className="replay-tag">Replay · predicted next 30 min</div>
+        <div className="replay-tag">Replay · {run.seed.area ?? "Tower Hill"} · next 30 min</div>
         <div className="replay-clock">
           <div className="min">+{m} min</div>
           <div className="at">{at}</div>
@@ -55,7 +55,7 @@ export function ReplayHud() {
           <div className="replay-caption" key={dwellIndex}>
             {hot.caption}
             <span className="sub">
-              {Math.round(hot.item.now)} → {Math.round(hot.item.predicted)} people · confidence {hot.item.confidence.toFixed(2)}
+              {Math.round(hot.item.now)} → {Math.round(hot.item.predicted)} people · <Confidence value={hot.item.confidence} />
               {hot.item.intervention ? " · what-if" : ""}
             </span>
           </div>
@@ -67,7 +67,7 @@ export function ReplayHud() {
           <Button small onClick={skipHotspot}>
             Skip
           </Button>
-          {([1, 2, 4] as const).map((s) => (
+          {([1, 2, 4, 8] as const).map((s) => (
             <Button key={s} small active={speed === s} onClick={() => useReplay.setState({ speed: s })}>
               {s}×
             </Button>

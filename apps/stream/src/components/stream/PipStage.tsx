@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowLeftRight, EyeOff, Maximize, Minimize, Video } from "lucide-react";
 import { useFullscreen } from "../useFullscreen";
 
@@ -49,7 +49,8 @@ export function PipStage({ primary, secondary, primaryLabel, secondaryLabel, cor
   const [size, setSize] = useState(1);
   const [swapped, setSwapped] = useState(false);
   const [hidden, setHidden] = useState(false);
-  const { ref: stageRef, active: fullscreen, toggle: toggleFullscreen } = useFullscreen<HTMLDivElement>();
+  const stageRef = useRef<HTMLDivElement>(null);
+  const { active: fullscreen, toggle: toggleFullscreen } = useFullscreen(stageRef);
 
   const showPip = secondary !== null && !hidden;
   const width = `min(${SIZES[size].width}px, 46cqw)`;

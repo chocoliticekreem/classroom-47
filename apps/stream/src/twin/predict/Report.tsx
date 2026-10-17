@@ -1,6 +1,6 @@
 "use client";
 
-import { Chip, Delta, card, label } from "./ui";
+import { Chip, Confidence, Delta, card, label } from "./ui";
 import type { PredictRun } from "./types";
 
 const ARCHETYPE_LABEL: Record<string, string> = {
@@ -41,13 +41,7 @@ export function Report({ run }: { run: PredictRun }) {
               {it.intervention ? " · what-if" : ""}
             </div>
             {it.reasons.length > 0 && <div style={{ fontSize: 12, color: "#c9c8d0" }}>{it.reasons.join("; ")}</div>}
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={label}>confidence</span>
-              <span style={{ flex: 1, height: 3, borderRadius: 2, background: "var(--border-strong)", overflow: "hidden" }}>
-                <span style={{ display: "block", width: `${Math.round(it.confidence * 100)}%`, height: "100%", background: "var(--ok)" }} />
-              </span>
-              <span style={{ ...label, fontVariantNumeric: "tabular-nums" }}>{it.confidence.toFixed(2)}</span>
-            </div>
+            <Confidence value={it.confidence} />
           </div>
         ))}
       </div>
@@ -84,7 +78,7 @@ export function Report({ run }: { run: PredictRun }) {
           </a>
         )}
         <span style={{ ...label, marginLeft: "auto" }}>
-          run {run.runId} · {run.seed.observedSegments}/{run.seed.segmentCount} segments observed
+          run {run.runId} · observed {run.seed.observedSegments} of {run.seed.segmentCount} segments, inferred the rest
         </span>
       </div>
     </div>
