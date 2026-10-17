@@ -1,0 +1,323 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  /* Older stylesheets still name the previous fonts; they all resolve to the two current ones. */
+  --font-geist-sans: var(--font-ui);
+  --font-inter: var(--font-ui);
+  --font-geist-mono: var(--font-code);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ---- Hamyway desk console ("/") — additive; the /city page does not use these. ----
+   Look: calm, flat, one dark theme, one accent (Hamyway orange, used sparingly). No gradients, glows
+   or glass. Surfaces step up in lightness: sidebar < canvas < panel < card < raised.
+   Spacing scale (Tailwind steps): 1=4px 2=8px 3=12px 4=16px 6=24px 8=32px 12=48px. Use gap-2/3
+   inside a control, gap-4 between controls, gap-6 between cards, gap-8+ between page sections.
+   Type scale: text-rv-hero 40 · text-rv-big 30 · text-rv-title 18 · text-rv-heading 15 ·
+   text-rv-body 14 · text-rv-small 13 · text-rv-caption 12. Big numbers use tabular numerals. */
+@theme inline {
+  --color-rv-canvas: #1f1f23;
+  --color-rv-sidebar: #19191d;
+  --color-rv-panel: #222227;
+  --color-rv-card: #26262b;
+  --color-rv-raised: #303037;
+  --color-rv-line: rgba(255, 255, 255, 0.08);
+  --color-rv-orange: #ff6a1a;
+  --color-rv-orange-hi: #ff8443;
+  /* Status colours. Sent = green, Asked = blue, Needs a person = amber, Stopped = red,
+     Didn't finish = grey. Violet is only for "made up" data labels. */
+  --color-rv-green: #3ecf8e;
+  --color-rv-blue: #5aa9ff;
+  --color-rv-amber: #f5a524;
+  --color-rv-red: #f2555a;
+  --color-rv-grey: #8b8b96;
+  --color-rv-violet: #a78bfa;
+  --font-console: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+
+  --text-rv-hero: 2.5rem;
+  --text-rv-hero--line-height: 1.05;
+  --text-rv-hero--letter-spacing: -0.03em;
+  --text-rv-big: 1.875rem;
+  --text-rv-big--line-height: 1.1;
+  --text-rv-big--letter-spacing: -0.025em;
+  --text-rv-title: 1.125rem;
+  --text-rv-title--line-height: 1.4;
+  --text-rv-heading: 0.9375rem;
+  --text-rv-heading--line-height: 1.4;
+  --text-rv-body: 0.875rem;
+  --text-rv-body--line-height: 1.55;
+  --text-rv-small: 0.8125rem;
+  --text-rv-small--line-height: 1.5;
+  --text-rv-caption: 0.75rem;
+  --text-rv-caption--line-height: 1.45;
+}
+
+.console-root {
+  font-family: var(--font-ui), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  letter-spacing: -0.005em;
+  background: #1f1f23;
+  color: #e9e9ee;
+  color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Cards and panels: a flat fill and a hairline border, nothing else. */
+.console-root :is(.bg-rv-card, .bg-rv-panel):not(.react-flow *) {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.console-root .react-flow :is(.bg-rv-card, .bg-rv-panel, .bg-rv-raised) {
+  background-color: #2a2a31;
+}
+
+.console-root :is(code, kbd, pre, .font-mono) {
+  font-family: var(--font-code), ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: -0.01em;
+}
+
+.console-root .tabular,
+.console-root table {
+  font-variant-numeric: tabular-nums;
+}
+
+.console-root ::selection {
+  background: rgba(255, 106, 26, 0.35);
+  color: #fff;
+}
+
+/* n8n-like dotted canvas background (for workflow canvases and empty areas). */
+.rv-dotgrid {
+  background-color: transparent;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Thin dark scrollbars inside the console. */
+.console-root * {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a42 transparent;
+}
+.console-root *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.console-root *::-webkit-scrollbar-thumb {
+  background: #3a3a42;
+  border-radius: 8px;
+}
+.console-root *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Keyboard focus: one clear orange ring on everything focusable, only for keyboard users.
+   Text fields get the ring inside so it never gets clipped by a scrolling parent. */
+.console-root :focus-visible,
+.rv-toaster :focus-visible {
+  outline: 2px solid #ff6a1a;
+  outline-offset: 2px;
+}
+.console-root :is(input, textarea, select):focus-visible {
+  outline-offset: -1px;
+}
+.console-root tr:focus-visible {
+  outline-offset: -2px;
+}
+.console-root :focus:not(:focus-visible) {
+  outline: none;
+}
+
+@keyframes rv-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.rv-pulse {
+  animation: rv-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes rv-shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: 200px 0; }
+}
+.rv-skeleton {
+  background: linear-gradient(90deg, #2c2c32 0, #35353c 60px, #2c2c32 120px);
+  background-size: 400px 100%;
+  animation: rv-shimmer 1.4s linear infinite;
+  border-radius: 6px;
+}
+
+/* Toasts (console/ui/Toast.tsx). */
+@keyframes rv-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.rv-toast {
+  animation: rv-toast-in 160ms ease-out;
+}
+
+/* Indeterminate progress bar (console/ui/ProgressBar). */
+@keyframes rv-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+.rv-indeterminate {
+  animation: rv-indeterminate 1.3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rv-pulse,
+  .rv-skeleton,
+  .rv-toast,
+  .rv-indeterminate {
+    animation: none;
+  }
+  .console-root *,
+  .rv-toaster * {
+    transition-duration: 0ms !important;
+  }
+}
+
+/* === NGL Fluffy Volumetric Design System (ngl-fluffy-ui skill) === */
+:root {
+  --ngl-grad-primary: linear-gradient(135deg, #EC1187 0%, #FF8D10 100%);
+  --ngl-grad-vertical: linear-gradient(180deg, #FE831B 0%, #ED1980 100%);
+  --ngl-grad-berry: linear-gradient(157deg, #FF4079 0%, #5403D9 100%);
+  --ngl-grad-cyber: linear-gradient(131deg, #5F0055 0%, #00FFFF 100%);
+  --ngl-pink: #EC1187;
+  --ngl-orange: #FF8D10;
+  --ngl-font-display: "Plus Jakarta Sans", "Fredoka", "Avenir Next", "Inter", system-ui, sans-serif;
+  --ngl-font-body: "Avenir Next", "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+}
+
+.ngl-bubble {
+  border-radius: 32px 32px 28px 28px;
+  filter: drop-shadow(0 20px 36px rgba(140, 0, 70, 0.28));
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  font-family: var(--ngl-font-body);
+}
+
+.ngl-bubble-header {
+  background: #FFFFFF;
+  border-radius: 28px 28px 0 0;
+  color: #000000;
+  box-shadow:
+    inset 0 4px 6px rgba(255, 255, 255, 1),
+    inset 0 -3px 6px rgba(236, 17, 135, 0.08);
+}
+
+.ngl-bubble-body {
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-radius: 0 0 26px 26px;
+  color: #000000;
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.8),
+    inset 0 -6px 12px rgba(255, 141, 16, 0.16);
+}
+
+.ngl-pill-candy {
+  background: linear-gradient(135deg, #EC1187 0%, #FF8D10 100%);
+  color: #FFFFFF;
+  border-radius: 9999px;
+  font-weight: 800;
+  box-shadow:
+    inset 0 4px 8px rgba(255, 255, 255, 0.55),
+    inset 0 -5px 10px rgba(140, 0, 70, 0.32),
+    0 14px 28px -6px rgba(236, 17, 135, 0.48);
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+}
+
+.ngl-pill-candy:hover {
+  transform: translateY(-2px) scale(1.03);
+}
+
+.ngl-pill-candy:active {
+  transform: translateY(1px) scale(0.95);
+}
+
+.ngl-pill-white {
+  background: linear-gradient(180deg, #FFFFFF 0%, #FFF0F6 100%);
+  color: #111111;
+  border-radius: 9999px;
+  font-weight: 800;
+  box-shadow:
+    inset 0 4px 6px rgba(255, 255, 255, 1),
+    inset 0 -4px 8px rgba(236, 17, 135, 0.16),
+    0 12px 24px -4px rgba(0, 0, 0, 0.22);
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.ngl-pill-white:hover {
+  transform: translateY(-2px) scale(1.03);
+}
+
+.ngl-pill-white:active {
+  transform: translateY(1px) scale(0.95);
+}
+
+.ngl-pill-black {
+  background: #000000;
+  color: #FFFFFF;
+  border-radius: 9999px;
+  font-weight: 800;
+  box-shadow:
+    inset 0 3px 6px rgba(255, 255, 255, 0.28),
+    inset 0 -4px 8px rgba(255, 255, 255, 0.08),
+    0 12px 24px -4px rgba(0, 0, 0, 0.42);
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.ngl-pill-black:hover {
+  transform: translateY(-2px) scale(1.03);
+}
+
+.ngl-pill-black:active {
+  transform: translateY(1px) scale(0.95);
+}
+
+.ngl-sticker-text {
+  font-family: var(--ngl-font-display);
+  font-weight: 900;
+  color: #000000;
+  -webkit-text-stroke: 6px #FFFFFF;
+  paint-order: stroke fill;
+  filter: drop-shadow(0 6px 14px rgba(236, 17, 135, 0.32));
+}
+
+@keyframes ngl-wobble-shake {
+  0%, 12%, 65%, 100% {
+    transform: rotate(0deg) scale(1);
+  }
+  30%, 40% {
+    transform: rotate(-1.4deg) scale(1.04);
+  }
+  35%, 45% {
+    transform: rotate(1.4deg) scale(1.04);
+  }
+}
+
+.ngl-wobble {
+  animation: ngl-wobble-shake 2.4s ease-in-out infinite;
+}
+

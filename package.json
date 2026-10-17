@@ -1,0 +1,36 @@
+{
+  "name": "delivery-ops-agent",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w api\" \"npm run dev -w web\"",
+    "build": "npm run build -w api && npm run build -w web",
+    "lint": "npm run lint -w api && npm run lint -w web",
+    "data": "node scripts/build-data.mjs",
+    "gen:cases": "node --env-file-if-exists=.env.local --env-file-if-exists=apps/api/.env.local scripts/eval/gen-cases.mjs",
+    "gen:haiku": "node --env-file-if-exists=.env.local --env-file-if-exists=apps/api/.env --env-file-if-exists=apps/api/.env.local scripts/eval/gen-haiku.mjs",
+    "eval": "node --env-file-if-exists=.env.local --env-file-if-exists=apps/api/.env.local scripts/eval/run-eval.mjs",
+    "test:eval": "node --test scripts/eval/*.test.mjs",
+    "index:cases": "node scripts/eval/index-cases.mjs",
+    "learn:cases": "node scripts/eval/learn-cases.mjs",
+    "eval:chain": "node scripts/eval/chained-run.mjs",
+    "demo:workflows": "node scripts/demo-workflows.mjs",
+    "validate:cases": "node scripts/eval/validate-cases.mjs",
+    "gen:bulk": "node scripts/eval/gen-bulk.mjs",
+    "load:check": "node scripts/eval/load-check.mjs --probe --quiet",
+    "test:bulk": "node --test scripts/eval/gen-bulk.test.mjs",
+    "render:adversarial": "node scripts/eval/render-raw.mjs",
+    "answer": "node --env-file-if-exists=.env.local --env-file-if-exists=apps/api/.env.local apps/api/src/agent/cli.ts",
+    "test:agent": "node --test apps/api/src/agent/*.test.ts",
+    "replay": "node apps/api/src/agent/replay.ts",
+    "test:voice": "node --test apps/api/src/voice/*.test.ts",
+    "reality": "node --env-file-if-exists=.env.local --env-file-if-exists=apps/api/.env --env-file-if-exists=apps/api/.env.local apps/api/src/agent/reality.ts"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "concurrently": "^9",
+    "zod": "^4.6.5"
+  }
+}

@@ -1,0 +1,184 @@
+/* Workflow editor styling on top of @xyflow/react's base styles. */
+.wf-canvas .react-flow {
+  --xy-background-color: #1f1f23;
+  --xy-edge-stroke-default: #5d5d68;
+  --xy-edge-stroke-width-default: 2;
+  --xy-edge-stroke-selected-default: #ff6a1a;
+  --xy-connectionline-stroke-default: #ff6a1a;
+  --xy-connectionline-stroke-width-default: 2;
+  --xy-attribution-background-color-default: transparent;
+  --xy-minimap-background-color-default: #222227;
+  --xy-minimap-mask-background-color-default: rgba(15, 15, 18, 0.72);
+  --xy-minimap-node-background-color-default: #3a3a42;
+  --xy-controls-button-background-color-default: #2a2a30;
+  --xy-controls-button-background-color-hover-default: #34343b;
+  --xy-controls-button-color-default: #d4d4d8;
+  --xy-controls-button-color-hover-default: #ffffff;
+  --xy-controls-button-border-color-default: #3a3a42;
+  --xy-controls-box-shadow-default: 0 4px 14px rgba(0, 0, 0, 0.4);
+  --xy-edge-label-background-color-default: #1f1f23;
+  --xy-edge-label-color-default: #d4d4d8;
+  font-family: var(--font-ui), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.wf-canvas .react-flow__node-card {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 12px;
+}
+.wf-canvas .react-flow__minimap {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  opacity: 0.88;
+  transition: opacity 0.15s ease;
+}
+.wf-canvas .react-flow__minimap:hover { opacity: 1; }
+.wf-canvas .react-flow__controls {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #3a3a42;
+}
+.wf-canvas .react-flow__edge-textbg {
+  rx: 4;
+}
+
+.wf-handle.react-flow__handle {
+  width: 11px;
+  height: 11px;
+  background: #6b6b76;
+  border: 2px solid #1f1f23;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+.wf-handle.react-flow__handle:hover {
+  transform: translate(var(--wf-hx, 0), -50%) scale(1.35);
+  background: #ff6a1a;
+}
+.wf-handle.react-flow__handle-left { --wf-hx: -50%; }
+.wf-handle.react-flow__handle-right { --wf-hx: 50%; }
+
+.wf-canvas .react-flow__edge.wf-taken .react-flow__edge-path {
+  stroke: #22c55e;
+  stroke-width: 2.5;
+}
+.wf-canvas .react-flow__edge.wf-faded .react-flow__edge-path {
+  stroke: #36363d;
+}
+.wf-canvas .react-flow__edge.wf-extra .react-flow__edge-path {
+  stroke: #22c55e;
+  stroke-dasharray: 2 6;
+}
+
+@keyframes wf-spin { to { transform: rotate(360deg); } }
+.wf-spin { animation: wf-spin 0.8s linear infinite; }
+
+@keyframes wf-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 106, 26, 0.45); }
+  50% { box-shadow: 0 0 0 6px rgba(255, 106, 26, 0); }
+}
+.wf-pulse { animation: wf-pulse 1.2s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wf-spin, .wf-pulse { animation: none; }
+}
+
+@keyframes wf-pulse-soft { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.45; transform: scale(0.85); } }
+.wf-pulse-soft { display: inline-block; animation: wf-pulse-soft 1.1s ease-in-out infinite; }
+
+@keyframes wf-appear {
+  from { opacity: 0; transform: translateY(8px) scale(0.92); }
+  to { opacity: 1; transform: none; }
+}
+.wf-appear { animation: wf-appear 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+
+
+@media (prefers-reduced-motion: reduce) {
+  .wf-pulse-soft, .wf-appear { animation: none; }
+}
+
+/* Suggested-changes diff: flat colours, no glow */
+.wf-canvas .react-flow__edge.wf-diff-added .react-flow__edge-path {
+  stroke: #22c55e;
+  stroke-width: 2.5;
+}
+.wf-canvas .react-flow__edge.wf-diff-removed .react-flow__edge-path {
+  stroke: #ef4444;
+  stroke-width: 2;
+  stroke-dasharray: 6 5;
+  opacity: 0.8;
+}
+
+/* Selected step: the path from the start to it */
+.wf-canvas .react-flow__edge.wf-path .react-flow__edge-path {
+  stroke: #ff6a1a;
+  stroke-width: 3;
+}
+
+/* "Make a playbook": the newest step glows, and its edge draws in */
+@keyframes wf-fresh {
+  0% { box-shadow: 0 0 0 0 rgba(255, 106, 26, 0.55); }
+  100% { box-shadow: 0 0 0 10px rgba(255, 106, 26, 0); }
+}
+.wf-fresh { animation: wf-appear 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2) both, wf-fresh 0.9s ease-out 0.1s; }
+@keyframes wf-draw { from { stroke-dashoffset: 600; } to { stroke-dashoffset: 0; } }
+.wf-canvas .react-flow__edge.wf-edge-new .react-flow__edge-path {
+  stroke: #ff6a1a;
+  stroke-dasharray: 600;
+  animation: wf-draw 0.4s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-fresh, .wf-canvas .react-flow__edge.wf-edge-new .react-flow__edge-path { animation: none; stroke-dasharray: none; }
+}
+
+/* Practice: a running case row breathes along its bottom edge */
+@keyframes wf-row-pulse {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.wf-row-pulse {
+  background: linear-gradient(90deg, transparent, rgba(255, 106, 26, 0.85), transparent);
+  animation: wf-row-pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-row-pulse { animation: none; background: rgba(255, 106, 26, 0.5); }
+}
+
+/* ---------- n8n-feel polish ---------- */
+
+/* Cards lift a little on hover; handles show on hover. */
+.wf-canvas .react-flow__node-card { transition: transform 0.12s ease; }
+.wf-canvas .react-flow__node-card:hover .wf-card:not(.opacity-35) {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.wf-canvas .react-flow__node-card .wf-handle.react-flow__handle { opacity: 0.75; }
+.wf-canvas .react-flow__node-card:hover .wf-handle.react-flow__handle { opacity: 1; background: #8b8b96; }
+.wf-canvas .react-flow__node-card.dragging .wf-card { box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5); }
+
+/* Edges: hover highlight, and a smooth flowing dash on the path a run took. */
+.wf-canvas .react-flow__edge:hover .react-flow__edge-path { stroke: #8b8b96; }
+.wf-canvas .react-flow__edge.wf-taken:hover .react-flow__edge-path { stroke: #3ecf8e; }
+@keyframes wf-flow { to { stroke-dashoffset: -28; } }
+.wf-canvas .react-flow__edge.animated.wf-taken .react-flow__edge-path {
+  stroke: #3ecf8e;
+  stroke-width: 2.75;
+  stroke-dasharray: 9 5;
+  animation: wf-flow 0.8s linear infinite;
+}
+.wf-canvas .react-flow__edge.wf-taken .react-flow__edge-path { stroke: #3ecf8e; }
+
+/* Case counts: hops recent cases took are solid; unused ones fade. */
+.wf-canvas .react-flow__edge.wf-busy .react-flow__edge-path {
+  stroke: #3ecf8e99;
+  stroke-width: 2.5;
+}
+
+/* Run badge pops in as the replay reaches a step. */
+@keyframes wf-mark-in { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.wf-mark { animation: wf-mark-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.3) both; box-shadow: 0 0 0 2px #1f1f23; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wf-mark, .wf-canvas .react-flow__edge.animated.wf-taken .react-flow__edge-path { animation: none; }
+  .wf-canvas .react-flow__edge.animated.wf-taken .react-flow__edge-path { stroke-dasharray: none; }
+}
