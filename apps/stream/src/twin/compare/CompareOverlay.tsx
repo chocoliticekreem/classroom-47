@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { isVirtualCam, liveOffsetS } from "@/lib/vcams";
 import type { AroundCam } from "@/platform/around/types";
 import { calibrationFor, camFrame, usePoseVersion } from "../live/project";
 import { AlignBar } from "./AlignBar";
@@ -73,8 +74,10 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
   usePoseVersion((s) => s.v); // re-render the caption while a pose is being aligned
   const frame = camFrame(cam);
   const cal = calibrationFor(cam.id);
+  const virtual = isVirtualCam(cam.id);
   // Play the exact clip YOLO tracked (TfL overwrites its URL every few minutes); a new analysis swaps both together.
-  const src = clip ? `/api/around/clip?id=${encodeURIComponent(cam.id)}&at=${clip.at}` : cam.videoUrl;
+  // A virtual cam's video is the tracked footage itself, joined at the wall-clock "live" moment.
+  const src = clip && !virtual ? `/api/around/clip?id=${encodeURIComponent(cam.id)}&at=${clip.at}` : cam.videoUrl;
 
   useEffect(() => {
     const el = root.current;
@@ -152,6 +155,9 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
             muted
             loop
             playsInline
+            onLoadedMetadata={(e) => {
+              if (virtual) e.currentTarget.currentTime = liveOffsetS(e.currentTarget.duration);
+            }}
             onError={() => {
               setFailed(true);
               setFrameAt(Date.now());

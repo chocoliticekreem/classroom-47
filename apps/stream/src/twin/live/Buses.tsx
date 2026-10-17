@@ -116,7 +116,7 @@ function Bus({ place, arrival }: { place: StopPlace; arrival: BusArrival }) {
         <mesh geometry={kit.lamps} material={kit.lampMat} />
         <mesh geometry={kit.blinds} material={blind} />
       </group>
-      <Label position={[0, BUS_H + 2.4, 0]}>
+      <Label position={[0, BUS_H + 2.4, 0]} priority={60}>
         <div
           style={{
             fontFamily: "var(--font-figtree), system-ui, sans-serif",
@@ -153,7 +153,7 @@ function StopMarker({ place, now }: { place: StopPlace; now: number }) {
         <cylinderGeometry args={[0.34, 0.34, 0.14, 20]} />
         <meshStandardMaterial color="#f4f3f0" emissive="#f4f3f0" emissiveIntensity={0.4} />
       </mesh>
-      <Label position={[0, 4.6, 0]}>
+      <Label position={[0, 4.6, 0]} priority={60}>
         <div
           style={{
             fontFamily: "var(--font-figtree), system-ui, sans-serif",

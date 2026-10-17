@@ -55,12 +55,14 @@ export interface PredictRun {
   runId: string;
   at: number;
   horizonMin: number;
-  seed: { segmentCount: number; observedSegments: number; zoneCount: number };
+  seed: { segmentCount: number; observedSegments: number; zoneCount: number; area?: string; origin?: { lat: number; lon: number } };
   personas: Persona[];
   timeline: TimelineStep[];
   report: { headline: string; items: ReportItem[]; assumptions: string[]; mode: "llm" | "rules" };
   interventions: (Intervention & { source?: string; affectedSegments?: number[] })[];
   camSegments?: { camId: string; segmentId: number; zoneId: string | null; seedPeds: number }[];
+  /** Zones named in the report: the ghost layer draws only these. */
+  keyZoneSegments?: Record<string, { name: string; x: number; z: number; segmentIds: number[] }>;
   trace?: { weave_project: string; model: string };
 }
 
@@ -70,7 +72,17 @@ export interface ScoreResult {
   error?: string;
   forecastMinute?: number;
   comparedAt?: number;
-  cams?: { camId: string; zoneId: string | null; predictedPeople: number; actualPeople: number; actualAt: number }[];
-  zones?: { zoneId: string; predicted: number; actual: number; errorPct: number | null; verdict: "right" | "wrong" }[];
+  cams?: { camId: string; zoneId: string | null; predictedPeople: number; nowPeople: number; actualPeople: number; actualAt: number }[];
+  zones?: {
+    zoneId: string;
+    predicted: number;
+    now: number;
+    actual: number;
+    errorPct: number | null;
+    predictedDirection: "busier" | "quieter" | "flat";
+    actualDirection: "busier" | "quieter" | "flat";
+    verdict: "right" | "wrong";
+    verdictText: string;
+  }[];
   summary?: { zonesRight: number; zonesWrong: number; meanAbsError: number | null };
 }

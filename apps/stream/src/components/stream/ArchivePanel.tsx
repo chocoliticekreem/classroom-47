@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Database, Film, Search } from "lucide-react";
+import { Database, Film } from "lucide-react";
 import type { AdviceLevel, ArchiveMoment, ArchiveSearch, VerdictsResponse } from "@/platform/agent/types";
 
 const LEVEL_TEXT: Record<AdviceLevel, string> = { calm: "text-ok", busy: "text-warn", danger: "text-live" };
@@ -135,17 +135,11 @@ export function ArchivePanel() {
   const byLevel = verdicts.data?.last_hour_by_level;
 
   return (
-    <section className="rounded-xl border border-line bg-surface">
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pb-2 pt-3.5">
-        <span className="flex items-center gap-1.5 text-[13px] font-semibold text-text">
-          <Search className="size-3.5 text-ember" aria-hidden />
-          Ask the archive
-        </span>
-        <span className="ml-auto text-[12px] text-dim">
-          {loading ? <span className="animate-pulse text-muted">Searching VSS…</span> : result ? `${result.latency_ms} ms` : "VSS search over the city cameras"}
-        </span>
-      </header>
-      <div className="px-4 pb-4">
+    <section>
+      <p className="mb-2 text-[12px] text-dim">
+        {loading ? <span className="animate-pulse text-muted">Searching VSS…</span> : result ? `${result.latency_ms} ms` : "VSS search over the city cameras"}
+      </p>
+      <div>
         <form onSubmit={submit} className="flex items-center gap-2">
           <input
             value={draft}

@@ -137,7 +137,7 @@ function StationMarker({ s }: { s: Station }) {
           <meshBasicMaterial map={tex} transparent alphaTest={0.2} toneMapped={false} side={THREE.DoubleSide} color={new THREE.Color(1.5, 1.5, 1.5)} />
         </mesh>
       </Billboard>
-      <Label position={[0, top + 5, 0]}>
+      <Label position={[0, top + 5, 0]} priority={40}>
         <div
           style={{
             fontFamily: "var(--font-figtree), system-ui, sans-serif",

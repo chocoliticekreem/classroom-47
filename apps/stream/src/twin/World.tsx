@@ -6,6 +6,7 @@ import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import { DevPanel } from "@/components/DevPanel";
 import { useConditions, useDemoSettings, type Conditions } from "@/platform/demo";
+import { ViewBar } from "./compare/ViewBar";
 import { LiveHud, LiveLayers } from "./live";
 import { Boats } from "./live/Boats";
 import { Pedestrians } from "./live/Pedestrians";
@@ -66,7 +67,7 @@ function PresetButtons() {
   const preset = useCameraStore((s) => s.preset);
   const fly = useCameraStore((s) => s.fly);
   return (
-    <div className="pointer-events-auto absolute bottom-16 left-5 flex gap-1 rounded-full border border-white/10 bg-black/50 p-1 backdrop-blur-md">
+    <div className="pointer-events-auto flex gap-1 rounded-full border border-white/10 bg-black/50 p-1 backdrop-blur-md">
       {PRESET_ORDER.map((p) => (
         <button
           key={p}
@@ -92,12 +93,14 @@ const WEATHER_LABEL: Record<Conditions["weather"], string> = {
 };
 const TIME_LABEL: Record<Conditions["time"], string> = { day: "Day", dusk: "Dusk", night: "Night" };
 
-function ConditionsChip({ conditions }: { conditions: Conditions }) {
+function ConditionsChip({ conditions, embedded }: { conditions: Conditions; embedded: boolean }) {
   const temp = conditions.live ? ` · ${Math.round(conditions.live.temperatureC)} °C` : "";
   const text = `${WEATHER_LABEL[conditions.weather]}${temp} · ${TIME_LABEL[conditions.time]}`;
   return (
     <div
-      className={`absolute right-5 top-5 flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] font-medium backdrop-blur-md ${
+      className={`absolute right-3 flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] font-medium backdrop-blur-md sm:right-5 ${
+        embedded ? "top-12" : "top-5"
+      } ${
         conditions.isLive
           ? "border-white/10 bg-black/50 text-white/85"
           : "border-warn/40 bg-black/60 text-warn"
@@ -111,6 +114,8 @@ function ConditionsChip({ conditions }: { conditions: Conditions }) {
 
 export function World() {
   const [toggles] = useState(readToggles);
+  // Why: inside the stream page's iframe the host draws its "New tab" toolbar over the top edge.
+  const [embedded] = useState(() => typeof window !== "undefined" && window.self !== window.top);
   const origin = useOrigin((s) => s.origin);
   const version = useOrigin((s) => s.version);
   const swapping = useOrigin((s) => s.swapping);
@@ -252,7 +257,7 @@ export function World() {
           className="absolute inset-0 bg-[#1c2546]"
           style={{ opacity: swapping ? 1 : 0, transition: `opacity ${SWAP_FADE_MS}ms ease`, pointerEvents: "none" }}
         />
-        <ConditionsChip conditions={conditions} />
+        <ConditionsChip conditions={conditions} embedded={embedded} />
         {toggles.stats && gpu && (
           <div
             title={gpu}
@@ -265,7 +270,10 @@ export function World() {
             </span>
           </div>
         )}
-        <PresetButtons />
+        <div className="absolute bottom-3 left-3 right-3 z-30 flex flex-wrap items-end gap-1.5 sm:bottom-16 sm:left-5 sm:right-auto sm:gap-2">
+          <PresetButtons />
+          <ViewBar />
+        </div>
         <LiveHud />
         <DevPanel />
       </div>

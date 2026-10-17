@@ -1,22 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronDown, ExternalLink, Maximize, MessageSquare, RectangleHorizontal } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ExternalLink, Maximize, RectangleHorizontal } from "lucide-react";
 import { useChatCrowd } from "@/agents/chat-crowd/useChatCrowd";
 import { normalizePlace } from "@/agents/chat-crowd/scene";
 import { useSceneChat } from "@/agents/chat-crowd/useSceneChat";
 import { AroundMe } from "@/components/around/AroundMe";
-import { ChatPanel } from "@/components/chat/ChatPanel";
+import { ChatDock } from "@/components/chat/ChatDock";
+import { CopilotPanel, PANEL_W, RAIL_W, useCopilotOpen } from "@/components/copilot/CopilotPanel";
 import { DevPanel } from "@/components/DevPanel";
 import { TopBar } from "@/components/TopBar";
 import { useFullscreen } from "@/components/useFullscreen";
 import { PipStage } from "@/components/stream/PipStage";
-import { FollowerCard } from "@/components/stream/FollowerCard";
-import { AdvisorCard } from "@/components/stream/AdvisorCard";
-import { ArchivePanel } from "@/components/stream/ArchivePanel";
 import { Player } from "@/components/stream/Player";
 import { StreamerBar } from "@/components/stream/StreamerBar";
-import { SurroundingsCard } from "@/components/stream/SurroundingsCard";
 import { prefetch } from "@/lib/client/cachedFetch";
 import { LOCATIONS } from "@/lib/locations";
 import type { StreamContext, StreamLocation, StreamSource } from "@/lib/types";
@@ -33,7 +30,7 @@ const BASE_VIEWERS = 1840;
 const MIRROR_URL = process.env.NEXT_PUBLIC_MIRROR_URL ?? "/twin";
 const DESKTOP_QUERY = "(min-width: 768px)";
 
-// Why: ChatPanel owns scroll/draft state, so it must be mounted exactly once —
+// Why: ChatPanel and the copilot own scroll/draft state, so it must be mounted exactly once —
 // a CSS-only show/hide of two copies would fork that state.
 function useIsDesktop() {
   const [desktop, setDesktop] = useState(() => window.matchMedia(DESKTOP_QUERY).matches);
@@ -53,13 +50,13 @@ export function StreamShell() {
   const [revealedAt, setRevealedAt] = useState<number | null>(null);
   const [tab, setTab] = useState<View>("live");
   const [mirrorUrl, setMirrorUrl] = useState<string | null>(null);
-  const [chatOpen, setChatOpen] = useState(false);
-  // Theatre: the player takes the full content width and chat floats over it.
+  // Theatre: the player takes the full content width and the copilot folds to its rail.
   const [wide, setWide] = useState(false);
-  const [chatFloat, setChatFloat] = useState(false);
   const [camStream, setCamStream] = useState<MediaStream | null>(null);
-  const playerFs = useFullscreen<HTMLDivElement>();
+  const playerRef = useRef<HTMLDivElement>(null);
+  const playerFs = useFullscreen(playerRef);
   const desktop = useIsDesktop();
+  const [copilotOpen, setCopilotOpen] = useCopilotOpen(desktop);
   const live = source.kind !== "idle";
   const link = useLiveLink({ live, viewers, demo: demoLocation });
   const location = link.location;
@@ -146,7 +143,7 @@ export function StreamShell() {
     const session = new URLSearchParams(window.location.search).get("session");
     if (session) url.searchParams.set("session", session);
     setMirrorUrl(url.pathname + url.search);
-    changeTab("3d");
+    setTab("3d");
     publish({
       type: "reality:fork",
       scenario: "leak_location_50",
@@ -156,19 +153,7 @@ export function StreamShell() {
     });
   }
 
-  // Chat sits beside the player only on the plain Live view; elsewhere it floats over the content.
-  const docked = desktop && tab === "live" && !wide;
-  const floating = desktop && !docked;
-  const chat = (
-    <ChatPanel
-      messages={messages}
-      onSend={send}
-      viewers={viewers}
-      live={live}
-      onCollapse={floating ? () => setChatFloat(false) : undefined}
-    />
-  );
-  const lastMessage = messages.at(-1);
+  const mainStyle = desktop ? { paddingRight: (copilotOpen ? PANEL_W : RAIL_W) + 24 } : undefined;
 
   const feedStream = source.kind === "webcam" ? camStream : source.kind === "idle" ? phone.stream : null;
   const clipUrl = source.kind === "url" || source.kind === "file" ? source.url : null;
@@ -178,13 +163,8 @@ export function StreamShell() {
     ) : null;
 
   function toggleWide() {
-    setChatFloat(!wide);
-    setWide(!wide);
-  }
-
-  function changeTab(next: View) {
-    setChatFloat(false);
-    setTab(next);
+    if (!wide) setCopilotOpen(false);
+    setWide((w) => !w);
   }
 
   return (
@@ -193,20 +173,21 @@ export function StreamShell() {
       <DevPanel />
       <div className="relative flex min-h-0 flex-1">
         <main
-          className={`scrollbar-thin flex min-w-0 flex-1 flex-col overflow-y-auto p-3 pb-20 md:pb-3 ${
+          className={`scrollbar-thin flex min-w-0 flex-1 flex-col overflow-y-auto p-3 pb-24 transition-[padding] duration-200 sm:pb-24 md:pb-3 ${
             tab === "live" ? "gap-4 sm:p-4 md:pb-4 lg:gap-5 lg:p-6" : "gap-3"
           }`}
+          style={mainStyle}
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <ViewTabs tab={tab} onChange={changeTab} />
-            <div className="flex items-center gap-2">
+            <ViewTabs tab={tab} onChange={setTab} />
+            <div className="hidden items-center gap-2 md:flex">
               {tab === "live" && (
                 <>
                   <button
                     type="button"
                     onClick={toggleWide}
                     aria-pressed={wide}
-                    title="Theatre: wider player, chat floats over it"
+                    title="Theatre: wider player, copilot folds to its rail"
                     className={`pill ${wide ? "pill-candy" : "glass"}`}
                   >
                     <RectangleHorizontal className="size-4" aria-hidden />
@@ -218,23 +199,11 @@ export function StreamShell() {
                   </button>
                 </>
               )}
-              {floating && (
-                <button
-                  type="button"
-                  onClick={() => setChatFloat((o) => !o)}
-                  aria-pressed={chatFloat}
-                  className={`pill ${chatFloat ? "pill-white" : "glass"}`}
-                >
-                  <MessageSquare className="size-4" aria-hidden />
-                  Chat
-                  {live && <span className="animate-live size-1.5 rounded-full bg-live" />}
-                </button>
-              )}
             </div>
           </div>
           {/* The player stays mounted across tabs so the stream never drops. */}
           <div className={tab === "live" ? "flex flex-col gap-4 lg:gap-5" : "hidden"}>
-            <div ref={playerFs.ref}>
+            <div ref={playerRef}>
               <Player
                 source={source}
                 onSourceChange={changeSource}
@@ -253,10 +222,6 @@ export function StreamShell() {
               onReveal={reveal}
               onSimulate={mirror}
             />
-            <FollowerCard />
-            <AdvisorCard location={location} live={live} />
-            <ArchivePanel />
-            <SurroundingsCard />
           </div>
           {tab === "around" && (
             <AroundMe location={location} activeCamUrl={source.kind === "url" ? source.url : null} feed={feed} />
@@ -264,69 +229,8 @@ export function StreamShell() {
           {tab === "3d" && <TwinView src={mirrorUrl ?? `/twin?lat=${location.lat}&lon=${location.lon}`} feed={feed} />}
         </main>
 
-        {desktop ? (
-          // One element for both modes, so ChatPanel keeps its scroll and draft when it floats.
-          <aside
-            className={
-              docked
-                ? "flex w-[340px] shrink-0 flex-col border-l border-line bg-surface xl:w-[380px]"
-                : chatFloat
-                  ? "absolute bottom-4 right-4 z-30 flex h-[min(600px,calc(100%-2rem))] w-[380px] max-w-[calc(100%-2rem)] flex-col overflow-hidden rounded-[28px] shadow-[0_0_0_1px_rgb(255_255_255/0.1),0_30px_70px_-16px_rgb(0_0_0/0.85)]"
-                  : "hidden"
-            }
-          >
-            {chat}
-          </aside>
-        ) : chatOpen ? (
-          <div className="absolute inset-x-0 bottom-0 top-[18%] z-20 flex flex-col">
-            <button
-              type="button"
-              aria-label="Collapse chat"
-              onClick={() => setChatOpen(false)}
-              className="h-6 shrink-0 bg-gradient-to-b from-transparent to-bg/80"
-            />
-            <div className="animate-sheet-up relative flex min-h-0 flex-1 flex-col rounded-t-xl border-t border-line-strong bg-surface shadow-[0_-24px_60px_rgba(0,0,0,0.6)]">
-              <button
-                type="button"
-                aria-label="Collapse chat"
-                onClick={() => setChatOpen(false)}
-                className="absolute left-1/2 top-1.5 z-10 grid h-5 w-12 -translate-x-1/2 place-items-center text-dim"
-              >
-                <ChevronDown className="size-4" />
-              </button>
-              <div className="min-h-0 flex-1 pt-3">{chat}</div>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setChatOpen(true)}
-            className="absolute inset-x-3 bottom-3 z-20 flex h-12 items-center gap-3 rounded-lg border border-line-strong bg-surface-2/95 px-3 text-left shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur"
-          >
-            <span className="relative grid size-8 shrink-0 place-items-center rounded-md bg-surface-3 text-text">
-              <MessageSquare className="size-4" />
-              {live && <span className="animate-live absolute right-1 top-1 size-1.5 rounded-full bg-live" />}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block font-mono text-[9px] tracking-normal text-muted">
-                Chat {live ? `· ${viewers.toLocaleString("en-GB")} watching` : ""}
-              </span>
-              <span className="block truncate text-[13px] text-text/85">
-                {lastMessage ? (
-                  <>
-                    <span className="font-semibold" style={{ color: lastMessage.color }}>
-                      {lastMessage.username}
-                    </span>{" "}
-                    {lastMessage.text}
-                  </>
-                ) : (
-                  <span className="text-muted">Chat opens when you go live</span>
-                )}
-              </span>
-            </span>
-            <ChevronDown className="size-4 rotate-180 text-muted" />
-          </button>
-        )}
+        <CopilotPanel location={location} live={live} desktop={desktop} open={copilotOpen} onOpenChange={setCopilotOpen} />
+        <ChatDock messages={messages} onSend={send} viewers={viewers} live={live} desktop={desktop} raised={!copilotOpen} />
       </div>
     </div>
   );

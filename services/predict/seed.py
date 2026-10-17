@@ -1,4 +1,4 @@
-"""Seed the parallel world from the live Tower Hill state.
+"""Seed the parallel world from the live twin state at any origin (Tower Hill by default).
 
 Prefers GET /api/twin/field (one contract, see README). Falls back to assembling the same shape
 from the live routes the twin already exposes. Nothing here is invented: inferred loads are
@@ -17,9 +17,9 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 TWIN_URL = os.environ.get("TWIN_URL", "http://localhost:3047")
-ORIGIN = (51.5098, -0.0766)
+TOWER_HILL = (51.5098, -0.0766)
+ORIGIN = TOWER_HILL
 M_PER_DEG_LAT = 111_320.0
-M_PER_DEG_LON = M_PER_DEG_LAT * math.cos(math.radians(ORIGIN[0]))
 LONDON = ZoneInfo("Europe/London")
 
 # Real places around the origin (lat, lon, weight, kind). Weight = relative pull as a destination.
@@ -42,14 +42,22 @@ ANCHORS: list[tuple[str, float, float, float, str]] = [
     ("Mansell Street / Goodmans Yard", 51.5112, -0.0730, 0.3, "poi"),
 ]
 ZONE_RADIUS_M = 220.0
+ANCHOR_PICK_M = 550.0
+ANCHOR_MIN_GAP_M = 120.0
+ANCHOR_MIN_WEIGHT = 0.25
 CAM_SNAP_M = 80.0
 INFER_RADIUS_M = 250.0
 # A JamCam frame covers roughly 80 m of street; people-in-frame -> people per 100 m.
 CAM_VIEW_M = 80.0
 
 
-def to_local(lat: float, lon: float) -> tuple[float, float]:
-    return ((lon - ORIGIN[1]) * M_PER_DEG_LON, -(lat - ORIGIN[0]) * M_PER_DEG_LAT)
+def to_local(lat: float, lon: float, origin: tuple[float, float] = ORIGIN) -> tuple[float, float]:
+    m_per_deg_lon = M_PER_DEG_LAT * math.cos(math.radians(origin[0]))
+    return ((lon - origin[1]) * m_per_deg_lon, -(lat - origin[0]) * M_PER_DEG_LAT)
+
+
+def is_tower_hill(origin: tuple[float, float]) -> bool:
+    return dist(to_local(origin[0], origin[1], TOWER_HILL), (0.0, 0.0)) < 150.0
 
 
 def dist(a: tuple[float, float], b: tuple[float, float]) -> float:
@@ -69,30 +77,46 @@ def try_fetch(path: str, timeout: float = 25.0) -> Any | None:
         return None
 
 
-def around(path: str, radius: int | None = None) -> str:
-    q = {"lat": ORIGIN[0], "lon": ORIGIN[1]}
+def around(path: str, radius: int | None = None, origin: tuple[float, float] = ORIGIN) -> str:
+    q = {"lat": origin[0], "lon": origin[1]}
     if radius:
         q["radius"] = radius
     return f"/api/around/{path}?{urllib.parse.urlencode(q)}"
 
 
-def anchors_local() -> list[dict]:
+def anchors_local(field: dict | None = None, origin: tuple[float, float] = ORIGIN) -> list[dict]:
+    """Tower Hill keeps its curated anchors; any other origin builds zones from the field's own POIs/stations."""
+    if field is not None and not is_tower_hill(origin):
+        seen: set[str] = set()
+        out = []
+        near = [a for a in field.get("anchors", []) if a.get("name") and dist((a["x"], a["z"]), (0.0, 0.0)) <= ANCHOR_PICK_M
+                and (a.get("kind") == "station" or float(a.get("weight", 0)) >= ANCHOR_MIN_WEIGHT)]
+        for a in sorted(near, key=lambda a: (a.get("kind") != "station", -float(a.get("weight", 0)), dist((a["x"], a["z"]), (0.0, 0.0)))):
+            if a["name"] in seen or any(dist((a["x"], a["z"]), (o["x"], o["z"])) < ANCHOR_MIN_GAP_M for o in out):
+                continue
+            seen.add(a["name"])
+            out.append({"name": a["name"], "x": round(float(a["x"]), 1), "z": round(float(a["z"]), 1),
+                        "weight": max(0.2, float(a.get("weight", 0.3))), "kind": a.get("kind", "poi")})
+            if len(out) >= 16:
+                break
+        if len(out) >= 3:
+            return out
     out = []
     for name, lat, lon, weight, kind in ANCHORS:
-        x, z = to_local(lat, lon)
+        x, z = to_local(lat, lon, origin)
         out.append({"name": name, "x": round(x, 1), "z": round(z, 1), "weight": weight, "kind": kind})
     return out
 
 
-def fetch_field() -> dict | None:
-    data = try_fetch("/api/twin/field", 30.0)
+def fetch_field(origin: tuple[float, float] = ORIGIN) -> dict | None:
+    data = try_fetch(f"/api/twin/field?lat={origin[0]}&lon={origin[1]}", 30.0)
     if isinstance(data, dict) and isinstance(data.get("segments"), list) and data["segments"]:
         return data
     return None
 
 
-def fetch_cams_with_counts() -> list[dict]:
-    cams = (try_fetch(around("cams", 700)) or {}).get("cams", [])
+def fetch_cams_with_counts(origin: tuple[float, float] = ORIGIN) -> list[dict]:
+    cams = (try_fetch(around("cams", 700, origin)) or {}).get("cams", [])
     if not cams:
         return []
     ids = ",".join(c["id"] for c in cams)
@@ -103,7 +127,7 @@ def fetch_cams_with_counts() -> list[dict]:
         r = by_id.get(c["id"])
         if not r:
             continue
-        x, z = to_local(c["lat"], c["lon"])
+        x, z = to_local(c["lat"], c["lon"], origin)
         out.append({"id": c["id"], "name": c.get("name"), "x": round(x, 1), "z": round(z, 1),
                     "people": r.get("people", 0), "vehicles": r.get("vehicles", 0), "at": r.get("at")})
     return out
@@ -119,9 +143,9 @@ def polyline_len(line: list[list[float]]) -> float:
     return sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(line, line[1:]))
 
 
-def fallback_field(cams: list[dict]) -> dict:
+def fallback_field(cams: list[dict], origin: tuple[float, float] = ORIGIN) -> dict:
     """Build the field contract from OSM roads + camera counts when /api/twin/field is absent."""
-    osm = fetch_json("/api/twin/osm", 60.0)
+    osm = fetch_json(f"/api/twin/osm?lat={origin[0]}&lon={origin[1]}", 60.0)
     segments = []
     for i, road in enumerate(osm.get("roads", [])):
         line = road["line"]
@@ -132,7 +156,7 @@ def fallback_field(cams: list[dict]) -> dict:
                "source": "inferred", "confidence": 0.1}
         segments.append(seg)
     attach_cam_loads(segments, cams)
-    return {"at": int(time.time() * 1000), "segments": segments, "anchors": anchors_local(), "cams": cams}
+    return {"at": int(time.time() * 1000), "segments": segments, "anchors": anchors_local(None, origin), "cams": cams}
 
 
 def attach_cam_loads(segments: list[dict], cams: list[dict]) -> None:
@@ -174,8 +198,7 @@ def segment_line(seg: dict) -> list[list[float]]:
     return seg.get("line") or [seg["a"], seg["b"]]
 
 
-def build_zones(field: dict) -> list[dict]:
-    anchors = anchors_local()
+def build_zones(field: dict, anchors: list[dict]) -> list[dict]:
     zones = {a["name"]: {"id": f"z{i}", "name": a["name"], "x": a["x"], "z": a["z"], "kind": a["kind"],
                          "weight": a["weight"], "people": 0.0, "vehicles": 0.0, "observedPeople": 0,
                          "camIds": [], "segmentIds": [], "observedShare": 0.0}
@@ -224,7 +247,7 @@ def london_time(now: float | None = None) -> dict:
             "isWeekend": dt.weekday() >= 5, "daypart": daypart}
 
 
-def compact_disruptions(raw: dict | None) -> list[dict]:
+def compact_disruptions(raw: dict | None, origin: tuple[float, float] = ORIGIN) -> list[dict]:
     out = []
     seen = set()
     for d in (raw or {}).get("items", []):
@@ -233,7 +256,7 @@ def compact_disruptions(raw: dict | None) -> list[dict]:
             continue
         seen.add(key)
         line = d.get("line") or []
-        pts = [to_local(lat, lon) for lon, lat in line]
+        pts = [to_local(lat, lon, origin) for lon, lat in line]
         where = midpoint([list(p) for p in pts]) if pts else None
         out.append({"id": d.get("id"), "street": d.get("street"), "severity": d.get("severity"),
                     "closure": d.get("closure"), "comments": d.get("comments"),
@@ -242,34 +265,38 @@ def compact_disruptions(raw: dict | None) -> list[dict]:
     return out
 
 
-def compact_buses(raw: dict | None) -> list[dict]:
+def compact_buses(raw: dict | None, origin: tuple[float, float] = ORIGIN) -> list[dict]:
     out = []
     for s in (raw or {}).get("stops", []):
-        x, z = to_local(s["lat"], s["lon"])
+        x, z = to_local(s["lat"], s["lon"], origin)
         arrivals = sorted(a.get("seconds", 0) for a in s.get("arrivals", []))
         out.append({"stop": s["name"], "indicator": s.get("indicator"), "x": round(x, 1), "z": round(z, 1),
                     "arrivalsSec": arrivals, "lines": sorted({a["line"] for a in s.get("arrivals", [])})})
     return out
 
 
-def build_seed(interventions: list[dict] | None = None) -> dict:
-    field = fetch_field()
+def build_seed(interventions: list[dict] | None = None, origin: tuple[float, float] = ORIGIN,
+               area: str | None = None) -> dict:
+    field = fetch_field(origin)
     source = "field"
     if field is None:
-        cams = fetch_cams_with_counts()
-        field = fallback_field(cams)
+        cams = fetch_cams_with_counts(origin)
+        field = fallback_field(cams, origin)
         source = "fallback(osm+jamcams)"
     for seg in field["segments"]:
         seg.setdefault("line", [seg["a"], seg["b"]])
         seg.setdefault("lengthM", round(polyline_len(seg["line"]), 1))
     attach_cam_ids(field["segments"], field.get("cams", []))
-    zones = build_zones(field)
-    weather = try_fetch(around("weather")) or {}
+    anchors = anchors_local(field, origin)
+    zones = build_zones(field, anchors)
+    weather = try_fetch(around("weather", None, origin)) or {}
     seed = {
         "at": int(time.time() * 1000), "source": source, "time": london_time(), "weather": weather,
-        "disruptions": compact_disruptions(try_fetch(around("disruptions", 1000))),
-        "buses": compact_buses(try_fetch(around("buses"))),
-        "zones": zones, "segments": field["segments"], "anchors": anchors_local(),
+        "origin": {"lat": origin[0], "lon": origin[1]},
+        "area": area or ("Tower Hill" if is_tower_hill(origin) else f"{origin[0]:.4f}, {origin[1]:.4f}"),
+        "disruptions": compact_disruptions(try_fetch(around("disruptions", 1000, origin)), origin),
+        "buses": compact_buses(try_fetch(around("buses", None, origin)), origin),
+        "zones": zones, "segments": field["segments"], "anchors": anchors,
         "fieldPoiCount": len(field.get("anchors", [])),
         "cams": field.get("cams", []), "interventions": interventions or [],
         "assumptions": seed_assumptions(field, source, weather),
@@ -295,6 +322,7 @@ def seed_summary(seed: dict) -> dict:
     zones = [z for z in seed["zones"] if z["people"] > 0 or z["camIds"]]
     return {
         "at": seed["at"], "source": seed["source"], "time": seed["time"], "weather": seed["weather"],
+        "area": seed.get("area"), "origin": seed.get("origin"),
         "zones": [{k: z[k] for k in ("id", "name", "kind", "people", "vehicles", "observedPeople", "camIds")}
                   for z in sorted(zones, key=lambda z: -z["people"])],
         "zoneCount": len(seed["zones"]), "segmentCount": len(seed["segments"]),

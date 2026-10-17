@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useDemoSettings } from "@/platform/demo";
 import { useCompare } from "../compare/store";
 import { useFieldStore } from "../sim/useField";
@@ -7,10 +8,22 @@ import { distanceM } from "@/platform/around/geo";
 import { insideGeometryBounds, toLocal } from "../config";
 import { areaName, useOrigin } from "../origin";
 import { useScenario } from "./scenario";
-import { useTwinCounts } from "./sim/counts";
 import { useLive, useLiveFeeds, useNow } from "./store";
 
 const DUE_SOON_S = 300;
+const MOBILE_QUERY = "(max-width: 640px)";
+
+function useMobile() {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_QUERY);
+    const sync = () => setMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  return mobile;
+}
 
 function StreamerStatus() {
   const streamer = useLive((s) => s.streamer);
@@ -54,6 +67,24 @@ function StreamerStatus() {
   );
 }
 
+function CrowdChip({ crowd }: { crowd: number }) {
+  return (
+    <span
+      style={{
+        padding: "1px 7px",
+        borderRadius: 999,
+        fontSize: 11,
+        fontWeight: 700,
+        color: "var(--warn)",
+        border: "1px solid color-mix(in srgb, var(--warn) 45%, transparent)",
+        background: "color-mix(in srgb, var(--warn) 12%, transparent)",
+      }}
+    >
+      ×{crowd} crowd
+    </span>
+  );
+}
+
 function Swatch({ color, glow }: { color: string; glow?: boolean }) {
   return (
     <span
@@ -81,10 +112,11 @@ export function Hud() {
   const now = useNow();
   const comparing = useCompare((s) => s.camId !== null);
   const field = useFieldStore();
-  const twin = useTwinCounts();
   const scenario = useScenario((s) => s.scenario);
   const settings = useDemoSettings();
   const origin = useOrigin((s) => s.origin);
+  const mobile = useMobile();
+  const [expanded, setExpanded] = useState(false);
   if (comparing) return null;
 
   let people = 0;
@@ -108,28 +140,64 @@ export function Hud() {
   const rows: { label: string; value: string; color: string }[] = [
     { label: "People (real, cameras)", value: String(people), color: "#ffb37a" },
     { label: "Vehicles (real, cameras)", value: String(vehicles), color: "#9fd3ff" },
-    { label: "Cameras", value: cams.length ? `${analysed}/${cams.length} analysed` : "—", color: "var(--live)" },
+    { label: "Cameras", value: cams.length ? `${analysed}/${cams.length} analysed` : "loading…", color: "var(--live)" },
     { label: "Buses (TfL), due < 5 min", value: String(busesDue), color: "#c8102e" },
     { label: "Disruptions (TfL)", value: String(uniqueDisruptions), color: "var(--warn)" },
   ];
-  if (settings.estimate) {
-    rows.push({ label: "Estimated (inferred)", value: `${twin.people} people · ${twin.vehicles} vehicles`, color: "#e8d6c2" });
-  }
   const estimate = field
     ? `${Math.round(field.people * field.crowd)} people · ${Math.round(field.vehicles * field.crowd)} vehicles`
     : "estimating…";
-  const basis = field
-    ? `${field.observed} observed segments, ${field.inferred} inferred${field.crowd !== 1 ? ` · ×${field.crowd} demo` : ""}`
-    : "";
+  const basis = field ? `${field.observed} observed segments, ${field.inferred} inferred` : "";
+  const crowd = field?.crowd ?? settings.crowd;
+
+  if (mobile && !expanded) {
+    return (
+      <button
+        type="button"
+        data-twin-block
+        onClick={() => setExpanded(true)}
+        aria-expanded={false}
+        style={{
+          position: "absolute",
+          top: 76,
+          left: 12,
+          zIndex: 30,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 12px",
+          borderRadius: 999,
+          background: "rgba(12,12,16,0.72)",
+          border: "1px solid var(--border)",
+          backdropFilter: "blur(14px)",
+          WebkitBackdropFilter: "blur(14px)",
+          color: "var(--text)",
+          fontFamily: "var(--font-figtree), system-ui, sans-serif",
+          fontSize: 12,
+          fontWeight: 600,
+          cursor: "pointer",
+          pointerEvents: "auto",
+        }}
+      >
+        <Swatch color="var(--live)" glow />
+        Live · {people} people · {vehicles} vehicles
+        {crowd !== 1 && <CrowdChip crowd={crowd} />}
+      </button>
+    );
+  }
 
   return (
     <div
+      data-twin-block
+      onClick={mobile ? () => setExpanded(false) : undefined}
       style={{
         position: "absolute",
-        top: 16,
-        left: 16,
+        top: mobile ? 76 : 16,
+        left: mobile ? 12 : 16,
         zIndex: 30,
         width: 236,
+        maxHeight: mobile ? "50vh" : undefined,
+        overflowY: mobile ? "auto" : undefined,
         padding: "12px 14px",
         borderRadius: 14,
         background: "rgba(12,12,16,0.72)",
@@ -140,12 +208,14 @@ export function Hud() {
         fontFamily: "var(--font-figtree), system-ui, sans-serif",
         fontSize: 13,
         lineHeight: 1.35,
-        pointerEvents: "none",
+        pointerEvents: mobile ? "auto" : "none",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 14 }}>
         <Swatch color="var(--live)" glow />
-        Live · {areaName(origin)}
+        <span style={{ flex: 1 }}>Live · {areaName(origin)}</span>
+        {crowd !== 1 && <CrowdChip crowd={crowd} />}
+        {mobile && <span style={{ color: "var(--muted)", fontSize: 11, fontWeight: 500 }}>hide</span>}
       </div>
       <div style={{ color: "var(--muted)", fontSize: 11, marginTop: 2 }}>
         {updatedAt ? `Updated ${new Date(updatedAt).toLocaleTimeString("en-GB")}` : "Connecting…"}

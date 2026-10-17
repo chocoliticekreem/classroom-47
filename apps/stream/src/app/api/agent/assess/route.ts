@@ -20,14 +20,15 @@ async function getJson<T>(url: string, fallback: T): Promise<T> {
   }
 }
 
-async function askCluster(body: AssessRequest): Promise<ClusterReply | null> {
+async function askCluster(body: AssessRequest, client: AbortSignal): Promise<ClusterReply | null> {
   try {
     const res = await fetch(`${AGENT_URL}/assess`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
       // The cluster agent runs a VSS search and an LLM call; 20–40 s is normal.
-      signal: AbortSignal.timeout(45_000),
+      // Stop the cluster call too when the browser gives up, so abandoned requests don't pile up on the agent.
+      signal: AbortSignal.any([client, AbortSignal.timeout(45_000)]),
       cache: "no-store",
     });
     if (!res.ok) return null;
@@ -183,7 +184,7 @@ export async function POST(request: NextRequest) {
   const origin = request.nextUrl.origin;
   const loc = body.location ?? null;
   const [cluster, signals] = await Promise.all([
-    askCluster(body),
+    askCluster(body, request.signal),
     loc ? localSignals(origin, loc) : Promise.resolve<LocalSignals>(NO_SIGNALS),
   ]);
   const liveCams = signals.cams.length || (body.yolo ? 1 : 0);
