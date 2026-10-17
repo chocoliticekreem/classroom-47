@@ -1,10 +1,8 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import type { NextRequest } from "next/server";
-import { cached, TTL } from "@/lib/server/cache";
 import { cacheShort, json } from "@/lib/server/json";
 import { distanceM, parsePoint } from "@/platform/around/geo";
 import type { AroundLiveCam } from "@/platform/around/types";
+import CATALOGUE from "@/data/london_live.json";
 
 interface CatalogueCam {
   id: string;
@@ -18,14 +16,9 @@ interface CatalogueCam {
   resolve: { video_id: string };
 }
 
-/** Chris's catalogue lives with the vision service; we only ever embed the YouTube player (ToS). */
-const CATALOGUE = join(process.cwd(), "..", "..", "services", "vision", "cameras", "london_live.json");
-
-const catalogue = () =>
-  cached("london-live-cams", { ttlMs: TTL.hour, persist: false }, async () => {
-    const text = await readFile(CATALOGUE, "utf8");
-    return (JSON.parse(text) as { cameras: CatalogueCam[] }).cameras;
-  });
+// Bundled copy of services/vision/cameras/london_live.json so it ships with the deployed app;
+// refresh with `cp services/vision/cameras/london_live.json apps/stream/src/data/`. Embed-only (YouTube ToS).
+const catalogue = async () => (CATALOGUE as unknown as { cameras: CatalogueCam[] }).cameras;
 
 export async function GET(request: NextRequest) {
   const point = parsePoint(request.nextUrl.searchParams, 5000);
