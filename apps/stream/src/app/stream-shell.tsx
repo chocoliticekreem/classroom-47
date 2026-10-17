@@ -11,7 +11,8 @@ import { CopilotPanel, PANEL_W, RAIL_W, useCopilotOpen } from "@/components/copi
 import { DevPanel } from "@/components/DevPanel";
 import { TopBar } from "@/components/TopBar";
 import { useFullscreen } from "@/components/useFullscreen";
-import { PipStage } from "@/components/stream/PipStage";
+import { MENU_ITEM, MoreMenu } from "@/components/MoreMenu";
+import { PipStage, StageToolbarSlot } from "@/components/stream/PipStage";
 import { Player } from "@/components/stream/Player";
 import { StreamerBar } from "@/components/stream/StreamerBar";
 import { prefetch } from "@/lib/client/cachedFetch";
@@ -53,6 +54,7 @@ export function StreamShell() {
   // Theatre: the player takes the full content width and the copilot folds to its rail.
   const [wide, setWide] = useState(false);
   const [camStream, setCamStream] = useState<MediaStream | null>(null);
+  const [toolbarSlot, setToolbarSlot] = useState<HTMLDivElement | null>(null);
   const playerRef = useRef<HTMLDivElement>(null);
   const playerFs = useFullscreen(playerRef);
   const desktop = useIsDesktop();
@@ -167,6 +169,9 @@ export function StreamShell() {
     setWide((w) => !w);
   }
 
+  const chat = <ChatDock messages={messages} onSend={send} viewers={viewers} live={live} desktop={desktop} raised={!copilotOpen} />;
+  const twinSrc = mirrorUrl ?? `/twin?lat=${location.lat}&lon=${location.lon}`;
+
   return (
     <div className="flex h-full flex-col">
       <TopBar live={live} />
@@ -178,26 +183,43 @@ export function StreamShell() {
           }`}
           style={mainStyle}
         >
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 md:flex-nowrap md:justify-start">
             <ViewTabs tab={tab} onChange={setTab} />
-            <div className="hidden items-center gap-2 md:flex">
+            {desktop && chat}
+            <div className="hidden shrink-0 items-center gap-2 md:ml-auto md:flex">
+              <div ref={setToolbarSlot} className="contents" />
               {tab === "live" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={toggleWide}
-                    aria-pressed={wide}
-                    title="Theatre: wider player, copilot folds to its rail"
-                    className={`pill ${wide ? "pill-candy" : "glass"}`}
-                  >
-                    <RectangleHorizontal className="size-4" aria-hidden />
-                    Theatre
-                  </button>
-                  <button type="button" onClick={playerFs.toggle} className="pill glass">
-                    <Maximize className="size-4" aria-hidden />
-                    Full screen
-                  </button>
-                </>
+                <button type="button" onClick={playerFs.toggle} className="pill glass">
+                  <Maximize className="size-4" aria-hidden />
+                  Full screen
+                </button>
+              )}
+              {tab !== "around" && (
+                <MoreMenu>
+                  {(close) =>
+                    tab === "live" ? (
+                      <button
+                        type="button"
+                        role="menuitemcheckbox"
+                        aria-checked={wide}
+                        onClick={() => {
+                          toggleWide();
+                          close();
+                        }}
+                        className={MENU_ITEM}
+                      >
+                        <RectangleHorizontal className="size-4" aria-hidden />
+                        Theatre mode
+                        {wide && <span className="ml-auto size-2 rounded-full bg-[image:var(--grad-candy)]" />}
+                      </button>
+                    ) : (
+                      <a href={twinSrc} target="_blank" rel="noopener" role="menuitem" onClick={close} className={MENU_ITEM}>
+                        <ExternalLink className="size-4" aria-hidden />
+                        Open 3D in new tab
+                      </a>
+                    )
+                  }
+                </MoreMenu>
               )}
             </div>
           </div>
@@ -223,14 +245,16 @@ export function StreamShell() {
               onSimulate={mirror}
             />
           </div>
-          {tab === "around" && (
-            <AroundMe location={location} activeCamUrl={source.kind === "url" ? source.url : null} feed={feed} />
-          )}
-          {tab === "3d" && <TwinView src={mirrorUrl ?? `/twin?lat=${location.lat}&lon=${location.lon}`} feed={feed} />}
+          <StageToolbarSlot.Provider value={desktop ? toolbarSlot : null}>
+            {tab === "around" && (
+              <AroundMe location={location} activeCamUrl={source.kind === "url" ? source.url : null} feed={feed} />
+            )}
+            {tab === "3d" && <TwinView src={twinSrc} feed={feed} newTabInStage={!desktop} />}
+          </StageToolbarSlot.Provider>
         </main>
 
         <CopilotPanel location={location} live={live} desktop={desktop} open={copilotOpen} onOpenChange={setCopilotOpen} />
-        <ChatDock messages={messages} onSend={send} viewers={viewers} live={live} desktop={desktop} raised={!copilotOpen} />
+        {!desktop && chat}
       </div>
     </div>
   );
@@ -266,21 +290,28 @@ function ViewTabs({ tab, onChange }: { tab: View; onChange: (v: View) => void })
   );
 }
 
-function TwinView({ src, feed }: { src: string; feed: ReactNode | null }) {
+// Why: the twin draws its view bar along the bottom edge and panels in both top corners.
+const TWIN_BAR_CLEARANCE = 112;
+
+function TwinView({ src, feed, newTabInStage }: { src: string; feed: ReactNode | null; newTabInStage: boolean }) {
   return (
     <PipStage
       className="min-h-[560px] flex-1"
       corner="bottom-right"
+      size="S"
+      bottomInset={TWIN_BAR_CLEARANCE}
       toolbarAlign="center"
       primaryLabel="3D mirror"
       secondaryLabel="stream"
       secondary={feed}
       primary={<iframe src={src} title="3D mirror" className="absolute inset-0 size-full border-0" allow="fullscreen; geolocation" />}
       toolbar={
-        <a href={src} target="_blank" rel="noopener" className="pill pill-sm glass">
-          <ExternalLink className="size-3.5" aria-hidden />
-          New tab
-        </a>
+        newTabInStage && (
+          <a href={src} target="_blank" rel="noopener" className="pill pill-sm glass">
+            <ExternalLink className="size-3.5" aria-hidden />
+            New tab
+          </a>
+        )
       }
     />
   );
