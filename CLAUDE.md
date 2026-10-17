@@ -80,5 +80,56 @@ The goal is something that **looks crazy** on stage and **never breaks** during 
 - Keep the README current: what it does, which sponsor tools and where, how to run it, demo GIF/video.
 - **Don't commit or push unless Sonion asks.**
 
-## Project
-_TBD: idea, architecture and run commands go here once decided._
+## Project: Classroom 47 (working name)
+**One line:** situational awareness for IRL streamers in London, plus a parallel London where they rehearse a decision before they make it.
+**Tagline:** *Know what's around you. Rehearse the future before you cause it.*
+
+### Problem (sourced)
+- **IRL streaming is growing fast.** 36.4B hours watched in 2025 (+6% YoY). IRL streams grew +19% on Twitch, Kick grew +131% YoY, and TikTok Live's growth is mostly IRL streams.
+- **One message can summon a crowd.**
+  - Kai Cenat's Union Square giveaway (4 Aug 2023): 3,000–5,000 people showed up, a riot followed, 65+ were arrested, and he was charged with inciting a riot. The crowd went from 300 to thousands in minutes.
+  - London, Aug 2023: TikTok and Snapchat posts ("Oxford Circus JD robbery, 3pm") pulled hundreds of teenagers onto Oxford Street. 34 dispersal orders, 9 arrests.
+- **Being findable is dangerous.** Stream snipers locate creators from visual clues.
+  - Valkyrae, Cinna and Emiru were threatened at the Santa Monica Pier.
+  - IShowSpeed was mobbed in Oslo and the Netherlands.
+  - Tokyo streamer Airi Sato was tracked through her stream and killed on air.
+- **The gap:** streamers broadcast their location live to thousands with zero awareness of what's around them, and no way to predict what one message to chat will set off.
+
+### Team
+- **Sonion (+ Claude):** streaming platform (this repo's UI, chat, bus).
+- **Chris:** data sourcing (JamCams, TfL, Reddit, etc.) and linking feeds into the stream + city over the bus.
+- **Arvin:** 3D city / parallel-reality sim.
+
+### Product (three layers)
+1. **Streaming platform (this repo, Sonion):** a polished IRL stream page.
+   - Player sources: webcam, a TfL JamCam, or an uploaded video.
+   - A mock chat crowd built from personas.
+   - Streamer controls: **"Tell chat my location"** and **"Simulate first"**.
+2. **Awareness layer:** what's around me right now.
+   - The nearest TfL JamCams (890, each geotagged) with YOLO crowd counts.
+   - TfL disruptions, and Cosmos reasoning over nearby clips for incidents.
+   - An advisor agent turns it into suggestions ("crowd building at Leicester Sq, take Charing Cross Rd").
+3. **Parallel reality (Arvin):** a 3D twin of London seeded with *live* crowd counts.
+   - A "what if I tell chat?" triggers synthetic personas: Reddit-derived archetypes (superfan, opportunist, hater, local) decide who comes, from where and how fast.
+   - The sim shows density over time and crush risk, then suggests a safer spot and re-runs.
+   - Video grounds the sim in "right now". That's the bridge the judges need to see.
+
+### Demo arc (3 min)
+1. **Hook:** Union Square plus Oxford Street. "Both started with one message."
+2. **Live stream:** walking through the West End, with chat flowing and the surroundings card showing crowd, incidents and a reroute.
+3. **"Should I tell chat?" → Simulate first.** The camera flies into the twin, personas flood in, and a red crush warning fires.
+4. **The agent suggests a safer spot.** The re-run stays green, and the tagline closes.
+
+### Sponsors
+- **YOLO:** crowd counts.
+- **Cosmos:** incident reasoning.
+- **W&B:** persona and advisor agents, with Weave traces.
+- **VAST:** clip ingest and search.
+- **CoreWeave and Cursor** come with the stack.
+
+### Structure and integration
+- **Layout:** CAMP-layered (VAST's stack: Coding agents, Agent runtimes, Model services, Platform). Code lives in `src/agents`, `src/platform`, `src/components` and `src/lib`. See `docs/ARCHITECTURE.md`.
+- **Integration:** the stream page and the city talk over the `classroom-47` BroadcastChannel (`src/platform/bus.ts`). The city listens for `location.reveal` and `sim.request`, and publishes `surroundings.update`.
+- **To-dos:** `TODO.md`.
+- **Run:** `pnpm install && pnpm dev`.
+- **No unit tests:** it's a hackathon. Gate is typecheck, lint and build.
