@@ -45,13 +45,17 @@ float hash21(vec2 p) {
   return fract(p.x * p.y);
 }
 
-vec2 waveSlope(vec2 p, float t, float detail) {
+// Why: each wave fades out once it is finer than a pixel, otherwise the fresnel term aliases into moire stripes.
+vec2 waveSlope(vec2 p, float t, float detail, float dist) {
+  float w2 = 1.0 - 0.8 * smoothstep(300.0, 900.0, dist);
+  float w3 = 1.0 - smoothstep(80.0, 350.0, dist);
+  float w4 = 1.0 - smoothstep(30.0, 140.0, dist);
   vec2 s = vec2(0.0);
   s += vec2(0.96, 0.28) * cos(dot(vec2(0.96, 0.28), p) * 0.28 + t * 0.8) * 0.098;
-  s += vec2(-0.5, 0.87) * cos(dot(vec2(-0.5, 0.87), p) * 0.51 + t * 1.1) * 0.102;
-  s += vec2(0.2, -0.98) * cos(dot(vec2(0.2, -0.98), p) * 1.1 + t * 1.6) * 0.11;
-  s += vec2(-0.85, -0.53) * cos(dot(vec2(-0.85, -0.53), p) * 2.3 + t * 2.2) * 0.115;
-  s += detail * vec2(sin(p.x * 3.1 + t * 2.3 + sin(p.y * 2.7)), cos(p.y * 3.7 - t * 2.0 + sin(p.x * 2.2)));
+  s += vec2(-0.5, 0.87) * cos(dot(vec2(-0.5, 0.87), p) * 0.51 + t * 1.1) * 0.102 * w2;
+  s += vec2(0.2, -0.98) * cos(dot(vec2(0.2, -0.98), p) * 1.1 + t * 1.6) * 0.11 * w3;
+  s += vec2(-0.85, -0.53) * cos(dot(vec2(-0.85, -0.53), p) * 2.3 + t * 2.2) * 0.115 * w4;
+  s += detail * w4 * vec2(sin(p.x * 3.1 + t * 2.3 + sin(p.y * 2.7)), cos(p.y * 3.7 - t * 2.0 + sin(p.x * 2.2)));
   return s;
 }
 
@@ -60,9 +64,8 @@ void main() {
   float dist = length(toCam);
   vec3 V = toCam / dist;
 
-  float far = 1.0 / (1.0 + dist * 0.004);
-  float detail = (0.05 + 0.12 * uWet) * far;
-  vec2 s = waveSlope(vWorld.xz, uTime, detail) * mix(0.8, 1.5, uWet);
+  float detail = 0.05 + 0.12 * uWet;
+  vec2 s = waveSlope(vWorld.xz, uTime, detail, dist) * mix(0.7, 1.4, uWet);
   vec3 N = normalize(vec3(-s.x, 1.0, -s.y));
 
   float cosT = clamp(dot(N, V), 0.0, 1.0);
@@ -73,7 +76,8 @@ void main() {
   vec3 sky = mix(uHorizon, uTop, pow(h, 0.45));
   sky += uGlow * 0.35 * exp(-h * 5.0);
 
-  vec3 col = mix(uBody + uHorizon * 0.05, sky, fresnel);
+  vec3 body = (uBody * 0.5 + uHorizon * 0.04) * (0.75 + 0.5 * max(dot(N, uSunDir), 0.0));
+  vec3 col = mix(body, sky, fresnel);
 
   float cosSun = max(dot(R, uSunDir), 0.0);
   float glint = pow(cosSun, 1400.0) * 20.0 + pow(cosSun, 180.0) * 1.5 + pow(cosSun, 18.0) * 0.12;
@@ -87,7 +91,7 @@ void main() {
   float twinkle = 0.6 + 0.4 * sin(uTime * 1.6 + seed * 40.0);
   vec3 lamp = mix(vec3(1.0, 0.62, 0.3), vec3(0.55, 0.75, 1.0), step(0.6, fract(seed * 7.0)));
   float reach = 1.0 - smoothstep(600.0, 1400.0, dist);
-  col += lamp * step(0.72, seed) * spot * spot * twinkle * uLights * (0.4 + 1.6 * fresnel) * 1.6 * reach;
+  col += lamp * step(0.8, seed) * spot * spot * twinkle * uLights * (0.4 + 1.6 * fresnel) * 1.6 * reach;
 
   gl_FragColor = vec4(col, 1.0);
   #include <fog_fragment>

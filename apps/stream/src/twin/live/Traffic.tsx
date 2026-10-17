@@ -1,13 +1,15 @@
 "use client";
 
 import { useFrame } from "@react-three/fiber";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { toLocal } from "../config";
 import { useNetwork } from "../network/useNetwork";
 import { ATMOS } from "../scene/palette";
 import { writeYawMatrix } from "./sim/matrix";
 import { TrafficSim } from "./sim/traffic";
+import { useLive } from "./store";
 
 const COUNTS = [170, 22, 34];
 const SEED = 4717;
@@ -145,14 +147,27 @@ function beam() {
   return g;
 }
 
+interface StreamerSeen {
+  lat: number;
+  lon: number;
+}
+
 function step(
   sim: TrafficSim,
   meshes: { bodies: THREE.InstancedMesh[]; pool: THREE.InstancedMesh },
   lights: THREE.MeshBasicMaterial,
   pool: THREE.MeshBasicMaterial,
+  seen: StreamerSeen,
+  cam: THREE.Vector3,
   dt: number,
 ) {
-  sim.update(dt);
+  const st = useLive.getState().streamer;
+  if (st.lat !== seen.lat || st.lon !== seen.lon) {
+    seen.lat = st.lat;
+    seen.lon = st.lon;
+    sim.setFocus(toLocal(st.lat, st.lon));
+  }
+  sim.update(dt, cam.x, cam.z);
   const poolArr = meshes.pool.instanceMatrix.array;
   const vs = sim.vehicles;
   for (let i = 0; i < vs.length; i++) {
@@ -170,7 +185,11 @@ function step(
 
 export function Traffic() {
   const net = useNetwork();
-  const sim = useMemo(() => new TrafficSim(net, COUNTS, SEED), [net]);
+  const sim = useMemo(() => {
+    const { lat, lon } = useLive.getState().streamer;
+    return new TrafficSim(net, COUNTS, SEED, toLocal(lat, lon));
+  }, [net]);
+  const streamerSeen = useRef<StreamerSeen>({ lat: NaN, lon: NaN });
 
   const shared = useMemo(() => {
     const paint = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.2 });
@@ -237,7 +256,9 @@ export function Traffic() {
     [shared],
   );
 
-  useFrame((_, dt) => step(sim, meshes, shared.lights, shared.pool, dt));
+  useFrame(({ camera }, dt) =>
+    step(sim, meshes, shared.lights, shared.pool, streamerSeen.current, camera.position, dt),
+  );
 
   return (
     <group>

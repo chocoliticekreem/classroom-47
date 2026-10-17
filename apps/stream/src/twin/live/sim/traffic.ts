@@ -22,6 +22,11 @@ const MAJOR_SPEED = 10.5;
 const MINOR_SPEED = 7;
 const YAW_RATE = 9;
 const LANE_KEY = 1e5;
+const FOCUS_SIGMA_M = 260;
+const RECYCLE_FOCUS_M = 380;
+const RECYCLE_CAMERA_M = 150;
+const SPAWN_CAMERA_M = 60;
+const RECYCLE_CHANCE = 0.35;
 
 export class Vehicle {
   slot = 0;
@@ -69,6 +74,8 @@ export class TrafficSim {
   private readonly laneHead: Int32Array;
   private readonly laneExits: Int32Array[];
   private readonly laneExitCum: Float64Array[];
+  private readonly laneMid: Float32Array;
+  private focus: XZ | null;
   private spawnLanes: Int32Array = new Int32Array(0);
   private spawnCum: Float64Array = new Float64Array(0);
   private order: Int32Array;
@@ -78,8 +85,10 @@ export class TrafficSim {
     private readonly net: RoadNetwork,
     counts: number[],
     seed: number,
+    focus: XZ | null,
   ) {
     this.rng = mulberry32(seed);
+    this.focus = focus;
     const edges = net.edges;
     const lanes = edges.length * 2;
     this.edgeId = new Int32Array(lanes);
@@ -89,6 +98,7 @@ export class TrafficSim {
     this.laneYawStart = new Float32Array(lanes);
     this.laneYawEnd = new Float32Array(lanes);
     this.laneJunction = new Uint8Array(lanes);
+    this.laneMid = new Float32Array(lanes * 2);
     this.laneHead = new Int32Array(lanes).fill(-1);
     this.laneExits = new Array<Int32Array>(lanes);
     this.laneExitCum = new Array<Float64Array>(lanes);
@@ -110,6 +120,9 @@ export class TrafficSim {
       const eps = Math.min(0.05, e.length * 0.4);
       const h0 = net.sample(e.id, eps, 0, out);
       const h1 = net.sample(e.id, Math.max(e.length - eps, eps), 0, out);
+      net.sample(e.id, e.length * 0.5, 0, out);
+      this.laneMid[fwd * 2] = this.laneMid[rev * 2] = out[0];
+      this.laneMid[fwd * 2 + 1] = this.laneMid[rev * 2 + 1] = out[1];
       this.laneYawStart[fwd] = h0;
       this.laneYawEnd[fwd] = h1;
       this.laneYawStart[rev] = wrapAngle(h1 + Math.PI);
@@ -196,18 +209,31 @@ export class TrafficSim {
     let best = 0;
     for (let i = 1; i < compLen.length; i++) if (compLen[i] > compLen[best]) best = i;
     const lanes: number[] = [];
-    const cum: number[] = [];
-    let total = 0;
     for (let L = 0; L < valid.length; L++) {
       if (!valid[L] || this.laneLen[L] < MIN_SPAWN_LANE_M || !this.laneExits[L].length) continue;
       const a = nodeById.get(edges[L >> 1].from);
-      if (a === undefined || find(a) !== best) continue;
-      total += this.laneLen[L];
-      lanes.push(L);
-      cum.push(total);
+      if (a !== undefined && find(a) === best) lanes.push(L);
     }
     this.spawnLanes = Int32Array.from(lanes);
-    this.spawnCum = Float64Array.from(cum);
+    this.setFocus(this.focus);
+  }
+
+  /** Biases where vehicles (re)spawn towards a point of interest (local metres), e.g. the streamer. */
+  setFocus(focus: XZ | null) {
+    this.focus = focus;
+    const cum = new Float64Array(this.spawnLanes.length);
+    let total = 0;
+    for (let i = 0; i < cum.length; i++) {
+      const L = this.spawnLanes[i];
+      let density = 1;
+      if (focus) {
+        const d2 = (this.laneMid[L * 2] - focus[0]) ** 2 + (this.laneMid[L * 2 + 1] - focus[1]) ** 2;
+        density = 0.15 + 2 * Math.exp(-d2 / (2 * FOCUS_SIGMA_M ** 2));
+      }
+      total += this.laneLen[L] * density;
+      cum[i] = total;
+    }
+    this.spawnCum = cum;
   }
 
   private pickNext(lane: number): number {
@@ -229,14 +255,14 @@ export class TrafficSim {
     v.stopAtEnd = v.next >= 0 && this.laneJunction[lane] === 1 && this.rng() < STOP_CHANCE;
   }
 
-  private place(v: Vehicle) {
+  private place(v: Vehicle, camX = NaN, camZ = NaN) {
     const rng = this.rng;
     let lane = 0;
     let s = 0;
     for (let attempt = 0; attempt < 24; attempt++) {
       lane = this.spawnLanes[pickCumulative(this.spawnCum, rng())];
       s = rng() * this.laneLen[lane];
-      let clear = true;
+      let clear = !((this.laneMid[lane * 2] - camX) ** 2 + (this.laneMid[lane * 2 + 1] - camZ) ** 2 < SPAWN_CAMERA_M ** 2);
       for (const o of this.vehicles) {
         if (o !== v && o.lane === lane && Math.abs(o.s - s) < SPAWN_CLEARANCE_M) {
           clear = false;
@@ -253,7 +279,7 @@ export class TrafficSim {
     v.fresh = true;
   }
 
-  update(dtRaw: number) {
+  update(dtRaw: number, camX: number, camZ: number) {
     const vs = this.vehicles;
     const n = vs.length;
     if (!n) return;
@@ -339,10 +365,20 @@ export class TrafficSim {
       for (let guard = 0; guard < 3 && v.s >= laneLen[v.lane]; guard++) {
         const carry = v.s - laneLen[v.lane];
         if (v.next < 0) {
-          this.place(v);
+          this.place(v, camX, camZ);
           break;
         }
         this.enter(v, v.next, carry);
+        const f = this.focus;
+        if (
+          f &&
+          this.rng() < RECYCLE_CHANCE &&
+          (v.x - f[0]) ** 2 + (v.z - f[1]) ** 2 > RECYCLE_FOCUS_M ** 2 &&
+          (v.x - camX) ** 2 + (v.z - camZ) ** 2 > RECYCLE_CAMERA_M ** 2
+        ) {
+          this.place(v, camX, camZ);
+          break;
+        }
       }
 
       const lane = v.lane;

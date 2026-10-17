@@ -9,7 +9,7 @@ export const PAVE_W = 2.8;
 export const KERB_W = 0.3;
 /** Lateral distance from the road edge to the pedestrian line on a pavement. */
 export const WALK_OFF = 1.4;
-export const PATH_W = 2.2;
+export const PATH_W = 1.8;
 
 const TAU = Math.PI * 2;
 const CORNER_STEPS = 6;
