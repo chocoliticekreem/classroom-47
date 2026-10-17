@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useGeometryLoader } from "../scene/useGeometry";
-import { polyCum, segmentAt } from "./layout";
+import { layoutOf, polyCum, segmentAt } from "./layout";
 import { getNetwork } from "./useNetwork";
 import type { RoadNetwork, XZ } from "./types";
 
@@ -15,6 +15,8 @@ import type { RoadNetwork, XZ } from "./types";
 
 const CELL = 16;
 export const VEHICLE_SNAP_M = 8;
+/** Furthest a vehicle is pulled onto the carriageway: the road grid is padded by this much. */
+export const VEHICLE_REACH_M = 24;
 export const PERSON_SNAP_M = 6;
 export const ON_LANE_M = 1.5;
 
@@ -77,7 +79,7 @@ function build(net: RoadNetwork): SnapIndex {
       seg.push(e.pts[i][0], e.pts[i][1], e.pts[i + 1][0], e.pts[i + 1][1]);
       segEdge.push(e.id);
       segS0.push(e.cum[i]);
-      addSeg(cells, ref, e.pts[i][0], e.pts[i][1], e.pts[i + 1][0], e.pts[i + 1][1], VEHICLE_SNAP_M + 2);
+      addSeg(cells, ref, e.pts[i][0], e.pts[i][1], e.pts[i + 1][0], e.pts[i + 1][1], VEHICLE_REACH_M);
     }
   }
   const fseg: number[] = [];
@@ -118,9 +120,20 @@ export function snapIndexOf(net: RoadNetwork): SnapIndex {
 /**
  * Nearest lane within `maxM` whose direction agrees with `heading` (NaN = unknown: the lane on the
  * point's own side wins, which is the keep-left lane for a vehicle already on the road). Writes the
- * pose on the lane line into `out`; returns false when nothing is close enough.
+ * pose on the lane line into `out`; returns false when nothing is close enough. `prefer` is a lane id
+ * that wins ties against a lane up to ~3x further away (stops a track flickering between lanes);
+ * `majorOnly` skips minor streets (buses).
  */
-export function snapVehicle(idx: SnapIndex, x: number, z: number, heading: number, out: VehicleSnap, maxM = VEHICLE_SNAP_M): boolean {
+export function snapVehicle(
+  idx: SnapIndex,
+  x: number,
+  z: number,
+  heading: number,
+  out: VehicleSnap,
+  maxM = VEHICLE_SNAP_M,
+  prefer = -1,
+  majorOnly = false,
+): boolean {
   const list = idx.cells.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));
   if (!list) return false;
   const hx = Number.isNaN(heading) ? 0 : Math.sin(heading);
@@ -147,6 +160,7 @@ export function snapVehicle(idx: SnapIndex, x: number, z: number, heading: numbe
     // Left of travel (from→to) is (tz, -tx), matching RoadNetwork.sample.
     const side = (x - px) * tz - (z - pz) * tx;
     const edge = net.edges[segEdge[r]];
+    if (majorOnly && edge.kind !== "major") continue;
     const lat = laneLateral(edge.width);
     const dot = tx * hx + tz * hz;
     let rev: boolean;
@@ -158,8 +172,9 @@ export function snapVehicle(idx: SnapIndex, x: number, z: number, heading: numbe
     const lz = pz + (rev ? tx : -tx) * lat;
     const dx = x - lx;
     const dz = z - lz;
-    const d2 = dx * dx + dz * dz;
-    if (d2 >= best) continue;
+    const dist2 = dx * dx + dz * dz;
+    const d2 = edge.id * 2 + (rev ? 1 : 0) === prefer ? dist2 * 0.3 : dist2;
+    if (d2 >= best || dist2 >= maxM * maxM) continue;
     best = d2;
     found = true;
     out.x = lx;
@@ -167,9 +182,37 @@ export function snapVehicle(idx: SnapIndex, x: number, z: number, heading: numbe
     out.heading = Math.atan2(rev ? -tx : tx, rev ? -tz : tz);
     out.laneId = edge.id * 2 + (rev ? 1 : 0);
     out.s = segS0[r] + t * len;
-    out.dist = Math.sqrt(d2);
+    out.dist = Math.sqrt(dist2);
   }
   return found;
+}
+
+/**
+ * How far inside the drawn asphalt (x, z) is, in metres; negative when it is off the carriageway.
+ * Best of every nearby road strip (half width minus distance to its centre line) and junction disc.
+ */
+export function asphaltMargin(idx: SnapIndex, x: number, z: number): number {
+  let best = -Infinity;
+  const list = idx.cells.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));
+  const { seg, segEdge, net } = idx;
+  for (let n = 0; list && n < list.length; n++) {
+    const r = list[n];
+    const ax = seg[r * 4];
+    const az = seg[r * 4 + 1];
+    const vx = seg[r * 4 + 2] - ax;
+    const vz = seg[r * 4 + 3] - az;
+    const len2 = vx * vx + vz * vz;
+    if (len2 < 1e-6) continue;
+    const t = Math.min(1, Math.max(0, ((x - ax) * vx + (z - az) * vz) / len2));
+    const margin = net.edges[segEdge[r]].width / 2 - Math.hypot(x - ax - vx * t, z - az - vz * t);
+    if (margin > best) best = margin;
+  }
+  const radius = layoutOf(net).nodeRadius;
+  for (const node of net.nodes) {
+    const margin = radius[node.id] - Math.hypot(x - node.x, z - node.z);
+    if (margin > best) best = margin;
+  }
+  return best;
 }
 
 export interface PersonSnap {
@@ -220,62 +263,71 @@ export interface Path {
   length: number;
 }
 
+/** Metres over which a stopping bus eases from its lane line to the kerb-side edge of the carriageway. */
+const KERB_BLEND_M = 30;
+/** Gap kept between a stopped bus's near side and the kerb. */
+const KERB_INSET_M = 1.4;
+
 /**
- * Lane polyline that arrives at the lane point nearest (x, z), tracing back `metres` through the
- * network keep-left (choosing the straightest upstream edge at each node). Null when off-network.
+ * Lane polyline walked from (laneId, s) through the network keep-left. `forward` follows the lane
+ * downstream (at each node the exit with the smallest turn); otherwise it traces upstream (the
+ * straightest incoming lane). Points come out in the direction of travel, so a backward walk ends at
+ * the anchor. With `kerb` the anchor end sits on the kerb-side lane edge instead of the lane line
+ * (a bus at its stop), easing to the lane line over KERB_BLEND_M. Null when it yields fewer than two points.
  */
-export function approachPath(idx: SnapIndex, x: number, z: number, metres: number): Path | null {
-  const snap: VehicleSnap = { x: 0, z: 0, heading: 0, laneId: -1, s: 0, dist: 0 };
-  if (!snapVehicle(idx, x, z, NaN, snap, 30)) return null;
+export function walkPath(idx: SnapIndex, laneId: number, s0: number, metres: number, forward: boolean, kerb = false): Path | null {
   const net = idx.net;
   const out: XZ[] = [];
-  let edge = net.edges[snap.laneId >> 1];
-  let rev = (snap.laneId & 1) === 1;
-  let s = snap.s;
+  let edge = net.edges[laneId >> 1];
+  let rev = (laneId & 1) === 1;
+  let s = s0;
   let left = metres;
   const p: XZ = [0, 0];
-  for (let guard = 0; guard < 12 && left > 0; guard++) {
+  for (let guard = 0; guard < 24 && left > 0; guard++) {
     const lat = laneLateral(edge.width);
-    const lateral = rev ? -lat : lat;
-    // Walk from s back toward the lane's upstream end (0 for from→to, edge.length for to→from).
-    const upstream = rev ? edge.length : 0;
-    const span = Math.min(left, Math.abs(s - upstream));
+    const kerbLat = Math.max(lat, edge.width / 2 - KERB_INSET_M);
+    // Direction of increasing s along the walk: downstream follows the lane's travel, upstream opposes it.
+    const dir = forward !== rev ? 1 : -1;
+    const end = dir > 0 ? edge.length : 0;
+    const span = Math.min(left, Math.abs(end - s));
     const steps = Math.max(1, Math.ceil(span / 4));
     let tangent = 0;
     for (let i = 0; i <= steps; i++) {
-      const d = s + ((upstream > s ? 1 : -1) * (span * i)) / steps;
-      tangent = net.sample(edge.id, d, lateral, p);
+      const along = (span * i) / steps;
+      const k = kerb ? Math.min(1, (metres - left + along) / KERB_BLEND_M) : 1;
+      const mag = kerbLat + (lat - kerbLat) * (k * k * (3 - 2 * k));
+      tangent = net.sample(edge.id, s + dir * along, rev ? -mag : mag, p);
       out.push([p[0], p[1]]);
     }
     left -= span;
     if (left <= 0) break;
     const travel = rev ? tangent + Math.PI : tangent;
-    const node = net.nodes[rev ? edge.to : edge.from];
-    let nextEdge = edge;
+    const node = net.nodes[dir > 0 ? edge.to : edge.from];
+    let next = edge;
     let nextRev = rev;
-    let bestScore = -2;
+    let bestScore = -0.5;
     for (const eid of node.edges) {
       const cand = net.edges[eid];
       if (cand.id === edge.id) continue;
-      // Arriving at this node along cand: from→to when cand ends here, else to→from (its reverse lane).
-      const candRev = cand.from === node.id;
+      // Downstream we leave along cand (to→from when it ends here); upstream we arrive along it (to→from when it starts here).
+      const candRev = forward ? cand.to === node.id : cand.from === node.id;
       if (candRev && cand.oneway) continue;
       const eps = Math.min(0.5, cand.length * 0.4);
-      const h = net.sample(cand.id, candRev ? eps : cand.length - eps, 0, p);
+      const h = net.sample(cand.id, (forward ? candRev : !candRev) ? cand.length - eps : eps, 0, p);
       const score = Math.cos((candRev ? h + Math.PI : h) - travel);
       if (score > bestScore) {
         bestScore = score;
-        nextEdge = cand;
+        next = cand;
         nextRev = candRev;
       }
     }
-    if (nextEdge === edge) break;
-    edge = nextEdge;
+    if (next === edge) break;
+    edge = next;
     rev = nextRev;
-    s = rev ? 0 : edge.length;
+    s = forward === rev ? edge.length : 0;
   }
   if (out.length < 2) return null;
-  out.reverse();
+  if (!forward) out.reverse();
   const cum = polyCum(out);
   return { pts: out, cum, length: cum[cum.length - 1] };
 }
