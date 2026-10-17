@@ -4,6 +4,7 @@ import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useDemoSettings } from "@/platform/demo";
+import { useCompare } from "../compare/store";
 import { useNetwork } from "../network/useNetwork";
 import { ATMOS } from "../scene/palette";
 import { getLastField, useCoveredFrames, useFieldStore } from "../sim/useField";
@@ -96,8 +97,11 @@ export function Pedestrians() {
     step(sim, meshes.body, meshes.head, camera.position, dt, frame.current++);
   });
 
+  // An estimate of the crowd, not people the camera saw: the compare view leaves it out.
+  const comparing = useCompare((s) => s.camId !== null);
+
   return (
-    <group>
+    <group visible={!comparing}>
       <primitive object={meshes.body} />
       <primitive object={meshes.head} />
     </group>

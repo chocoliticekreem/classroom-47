@@ -65,6 +65,8 @@ export interface TrackedObject {
   cls?: TrackedClass;
   /** Median colour of the object in the real frame, "#rrggbb" (torso for people, body panel for vehicles). */
   color?: string;
+  /** Median [width, height] of the box as frame fractions, from frames where it isn't cut by the edge. */
+  box?: [number, number];
   /** [seconds into clip, u, v]: bottom-centre of the box, normalised to the frame. */
   pts: [number, number, number][];
 }
