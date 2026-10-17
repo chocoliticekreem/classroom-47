@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
   const ids = request.nextUrl.searchParams.get("ids") ?? "";
   try {
     const res = await fetch(`${JAMCAM_YOLO_URL}/counts?ids=${encodeURIComponent(ids)}`, {
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(15_000),
     });
     return Response.json(await res.json(), { status: res.status });
   } catch {

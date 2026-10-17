@@ -5,6 +5,7 @@ import { toggleGps, useLive } from "../live/store";
 import { PRESETS, useCameraStore } from "../scene/cameraStore";
 import { useCompare } from "./store";
 import { calibrationFor, camHeadingDeg } from "../live/project";
+import { CamSearch } from "../search/CamSearch";
 
 const CSS = `
 .twin-chip { padding: 6px 14px; }
@@ -145,6 +146,7 @@ export function ViewBar() {
           </div>
         )}
       </div>
+      <CamSearch />
     </div>
   );
 }

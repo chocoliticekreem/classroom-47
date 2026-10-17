@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   const id = request.nextUrl.searchParams.get("id") ?? "";
   try {
     const res = await fetch(`${JAMCAM_YOLO_URL}/clip?id=${encodeURIComponent(id)}`, {
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(25_000),
     });
     // Buffered (clips are ~100 KB) so the <video> gets a Content-Length and can loop cleanly.
     const body = await res.arrayBuffer();
