@@ -1,7 +1,7 @@
 import type { TwinPoi } from "@/twin/config";
 import type { WeatherKind } from "@/platform/demo";
 import type { AroundCam, CamReading } from "@/platform/around/types";
-import { camFrame, FAR_M, FOV_DEG, NEAR_M } from "@/twin/live/project";
+import { camFrame, inViewCone } from "@/twin/live/project";
 import type { GraphSegment } from "./graph";
 import {
   ANCHOR_BOOST_MAX,
@@ -85,24 +85,7 @@ function anchorBoost(x: number, z: number, anchors: FieldAnchor[]) {
   return 1 + Math.min(ANCHOR_BOOST_MAX, sum);
 }
 
-interface Cone {
-  x: number;
-  z: number;
-  headingRad: number;
-}
 
-function inCone(c: Cone, x: number, z: number) {
-  const dx = x - c.x;
-  const dz = z - c.z;
-  const d = Math.hypot(dx, dz);
-  if (d < NEAR_M || d > FAR_M) return false;
-  // bearing measured clockwise from north (-z), matching camFrame
-  const bearing = Math.atan2(dx, -dz);
-  let diff = bearing - c.headingRad;
-  while (diff > Math.PI) diff -= 2 * Math.PI;
-  while (diff < -Math.PI) diff += 2 * Math.PI;
-  return Math.abs(diff) <= (FOV_DEG / 2) * (Math.PI / 180);
-}
 
 /** Pure estimator: observed densities inside cam cones, inferred prior × residual elsewhere. */
 export function estimate(input: EstimateInput): FieldResponse {
@@ -150,7 +133,7 @@ export function estimate(input: EstimateInput): FieldResponse {
     let priorRoad = 0;
     const inside: number[] = [];
     for (let i = 0; i < n; i++) {
-      if (!inCone(frame, mid[i * 2], mid[i * 2 + 1])) continue;
+      if (!inViewCone(frame, mid[i * 2], mid[i * 2 + 1])) continue;
       inside.push(i);
       const s = segments[i];
       footLen += s.length;

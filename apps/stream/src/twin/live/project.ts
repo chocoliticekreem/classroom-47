@@ -74,6 +74,24 @@ export function camFrame(cam: AroundCam): CamFrame {
   };
 }
 
+/**
+ * True when ground point (x, z) is inside the camera's calibrated ground footprint: within the
+ * horizontal field of view, beyond where the bottom edge of the frame meets the ground, and
+ * within CONE_M. Shared by the crowd field and the sim so "observed" matches what YOLO can see.
+ */
+export function inViewCone(frame: CamFrame, x: number, z: number) {
+  const dx = x - frame.x;
+  const dz = z - frame.z;
+  const d = Math.hypot(dx, dz);
+  const lowest = frame.pitchRad + Math.atan(frame.tanV);
+  const near = lowest >= Math.PI / 2 ? 0 : frame.heightM / Math.tan(lowest);
+  if (d < near || d > CONE_M) return false;
+  let diff = Math.atan2(dx, -dz) - frame.headingRad;
+  while (diff > Math.PI) diff -= 2 * Math.PI;
+  while (diff < -Math.PI) diff += 2 * Math.PI;
+  return Math.abs(diff) <= Math.atan(frame.tanH);
+}
+
 /** Unit-free forward direction of the camera as [x, y, z]. */
 export function forwardOf(frame: CamFrame): [number, number, number] {
   const sh = Math.sin(frame.headingRad);
