@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #07070a;
+  --surface: #0f0f14;
+  --surface-2: #16161d;
+  --border: #23232d;
+  --text: #f2f2f5;
+  --muted: #8a8a99;
+  --ember: #ff4d2e;
+  --ember-soft: #ff4d2e22;
+  --live: #ff2d55;
+  --ok: #3ddc97;
+  --warn: #ffb020;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-ember: var(--ember);
+  --color-ember-soft: var(--ember-soft);
+  --color-live: var(--live);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+@keyframes chat-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-chat-in {
+  animation: chat-in 180ms ease-out;
+}
+
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.animate-live {
+  animation: live-pulse 1.4s ease-in-out infinite;
+}
