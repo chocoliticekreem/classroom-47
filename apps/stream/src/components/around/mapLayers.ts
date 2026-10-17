@@ -40,6 +40,16 @@ export function disruptionCollection(items: AroundDisruption[]): GeoJSON.Feature
   };
 }
 
+export function lineFeature(polyline: [number, number][]): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features:
+      polyline.length >= 2
+        ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: polyline.map(([lat, lon]) => [lon, lat]) } }]
+        : [],
+  };
+}
+
 export function setData(map: MapLibreMap, sourceId: string, data: GeoJSON.GeoJSON) {
   const src = map.getSource(sourceId);
   if (src && "setData" in src) (src as { setData: (d: GeoJSON.GeoJSON) => void }).setData(data);
@@ -112,5 +122,28 @@ export function addAroundLayers(map: MapLibreMap, point: Point) {
       "line-opacity": 0.6,
     },
   });
-}
 
+  map.addSource("around-route-fast", { type: "geojson", data: lineFeature([]) });
+  map.addLayer({
+    id: "around-route-fast",
+    type: "line",
+    source: "around-route-fast",
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#9a99a6", "line-width": 3, "line-dasharray": [1.5, 1.5], "line-opacity": 0.8 },
+  });
+  map.addSource("around-route-calm", { type: "geojson", data: lineFeature([]) });
+  map.addLayer({
+    id: "around-route-calm-glow",
+    type: "line",
+    source: "around-route-calm",
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#ff4d2e", "line-width": 12, "line-opacity": 0.18, "line-blur": 4 },
+  });
+  map.addLayer({
+    id: "around-route-calm",
+    type: "line",
+    source: "around-route-calm",
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#ff4d2e", "line-width": 4, "line-opacity": 0.95 },
+  });
+}

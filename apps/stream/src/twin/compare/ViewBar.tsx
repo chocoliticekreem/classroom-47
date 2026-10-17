@@ -4,6 +4,7 @@ import { useState, type CSSProperties } from "react";
 import { toggleGps, useLive } from "../live/store";
 import { PRESETS, useCameraStore } from "../scene/cameraStore";
 import { useCompare } from "./store";
+import { calibrationFor, camHeadingDeg } from "../live/project";
 
 const pill: CSSProperties = {
   display: "flex",
@@ -124,7 +125,14 @@ export function ViewBar() {
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
                 {c.name}
-                <span style={{ color: "var(--muted)", fontSize: 11 }}> · {c.heading === null ? "facing Tower Hill" : `${c.heading}°`}</span>
+                <span style={{ color: "var(--muted)", fontSize: 11 }}>
+                  {" · "}
+                  {calibrationFor(c.id)
+                    ? `facing ${Math.round(camHeadingDeg(c))}°, calibrated`
+                    : c.heading === null
+                      ? "facing Tower Hill"
+                      : `${c.heading}°`}
+                </span>
               </button>
             ))}
           </div>

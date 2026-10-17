@@ -6,12 +6,11 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import type { MapControls as MapControlsImpl } from "three-stdlib";
 import { toLocal } from "../config";
-import { FAR_M, FOV_DEG } from "../live/project";
+import { forwardOf } from "../live/project";
 import { useLive } from "../live/store";
-import { PRESETS, useCameraStore } from "./cameraStore";
+import { PRESETS, useCameraStore, type CctvPose } from "./cameraStore";
 
 const DEFAULT_FOV = 50;
-const CCTV_HEIGHT_M = 6;
 const EYE_HEIGHT_M = 1.7;
 const STREAMER_FOV = 65;
 const TOWER_BRIDGE = { lat: 51.5055, lon: -0.0754 };
@@ -24,16 +23,14 @@ const streamerGoal = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const toLocalBridge = toLocal(TOWER_BRIDGE.lat, TOWER_BRIDGE.lon);
 
-/** Vertical FOV that gives a 60° horizontal FOV (project.ts) at the given aspect. */
-function verticalFovDeg(aspect: number) {
-  const half = Math.tan((FOV_DEG * Math.PI) / 360) / aspect;
-  return (Math.atan(half) * 360) / Math.PI;
-}
-
-/** Pitch so the far edge of the YOLO ground band (85 m) sits in the upper part of the frame. */
-function cctvPitchRad(vfovDeg: number) {
-  const toFar = Math.atan(CCTV_HEIGHT_M / FAR_M);
-  return toFar + ((vfovDeg / 2) * Math.PI * 0.35) / 180;
+/**
+ * Vertical FOV for the compare half so the real frame's field of view fits it the way the <video>
+ * (object-fit: contain) fits the other half: same horizontal FOV when the panel is narrower than the
+ * clip, same vertical FOV when it is wider. The real frame then sits centred in both halves, pixel for pixel.
+ */
+function cctvFovDeg(pose: CctvPose, panelAspect: number) {
+  const tanV = Math.max(pose.tanV, pose.tanH / panelAspect);
+  return (Math.atan(tanV) * 360) / Math.PI;
 }
 
 function bearingRad(ax: number, az: number, bx: number, bz: number) {
@@ -60,15 +57,10 @@ export function CameraRig() {
 
   useEffect(() => {
     if (cctv) {
-      const vfov = verticalFovDeg(size.width / 2 / size.height);
-      const pitch = cctvPitchRad(vfov);
-      goalPos.set(cctv.x, CCTV_HEIGHT_M, cctv.z);
+      const [fx, fy, fz] = forwardOf(cctv);
       const d = 30;
-      goalTarget.set(
-        cctv.x + d * Math.cos(pitch) * Math.sin(cctv.headingRad),
-        CCTV_HEIGHT_M - d * Math.sin(pitch),
-        cctv.z - d * Math.cos(pitch) * Math.cos(cctv.headingRad),
-      );
+      goalPos.set(cctv.x, cctv.heightM, cctv.z);
+      goalTarget.set(cctv.x + d * fx, cctv.heightM + d * fy, cctv.z + d * fz);
       flying.current = true;
       return;
     }
@@ -89,11 +81,14 @@ export function CameraRig() {
   }, [cctv, firstPerson, size.width, size.height]);
 
   useEffect(() => {
-    const apply = (s: { streamer: { lat: number; lon: number } }) => {
+    const apply = (s: { streamer: { lat: number; lon: number }; streamerHeading: number | null }) => {
       const [x, z] = toLocal(s.streamer.lat, s.streamer.lon);
       const dx = x - streamerGoal.x;
       const dz = z - streamerGoal.z;
-      if (streamerGoal.lengthSq() > 0 && dx * dx + dz * dz > TRAVEL_MIN_M * TRAVEL_MIN_M) {
+      if (s.streamerHeading !== null) {
+        fp.current.travelYaw = (s.streamerHeading * Math.PI) / 180;
+        fp.current.hasTravel = true;
+      } else if (streamerGoal.lengthSq() > 0 && dx * dx + dz * dz > TRAVEL_MIN_M * TRAVEL_MIN_M) {
         fp.current.travelYaw = bearingRad(streamerGoal.x, streamerGoal.z, x, z);
         fp.current.hasTravel = true;
       }
@@ -138,7 +133,7 @@ export function CameraRig() {
     if (projectionDirty.current) {
       projectionDirty.current = false;
       if (cctv) {
-        cam.fov = verticalFovDeg(size.width / 2 / size.height);
+        cam.fov = cctvFovDeg(cctv, size.width / 2 / size.height);
         cam.setViewOffset(size.width / 2, size.height, -size.width / 2, 0, size.width, size.height);
       } else {
         cam.fov = firstPerson ? STREAMER_FOV : DEFAULT_FOV;
@@ -176,6 +171,10 @@ export function CameraRig() {
     camera.position.lerp(goalPos, k);
     c.target.lerp(goalTarget, k);
     if (camera.position.distanceTo(goalPos) < 0.3 && c.target.distanceTo(goalTarget) < 0.3) {
+      // Snap the last few centimetres: in CCTV mode the pose has to be exact for the overlay to line up.
+      camera.position.copy(goalPos);
+      c.target.copy(goalTarget);
+      c.update();
       flying.current = false;
     }
   });

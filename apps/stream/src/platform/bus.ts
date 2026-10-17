@@ -24,7 +24,19 @@ export type BusEvent =
       location: StreamLocation;
       viewers: number;
     }
-  | { type: "surroundings.update"; summary: string; level: "calm" | "busy" | "danger" };
+  | { type: "surroundings.update"; summary: string; level: "calm" | "busy" | "danger" }
+  | { type: "follower.alert"; personId: number; visibleS: number; appearances: number; movedM: number }
+  | {
+      type: "route.suggested";
+      to: string;
+      /** Calmer route as local twin metres [x, z] and as [lat, lon]. */
+      xz: [number, number][];
+      polyline: [number, number][];
+      lengthM: number;
+      etaMin: number;
+      extraMin: number;
+      lessCrowd: number;
+    };
 
 const CHANNEL = "classroom-47";
 
