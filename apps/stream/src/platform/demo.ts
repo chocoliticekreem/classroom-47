@@ -59,9 +59,11 @@ export function setDemoSettings(next: DemoSettings) {
 }
 
 export function useDemoSettings(): DemoSettings {
-  const [settings, setSettings] = useState<DemoSettings>(LIVE_SETTINGS);
+  // Lazy init is safe: every consumer is client-only (ssr: false).
+  const [settings, setSettings] = useState<DemoSettings>(() =>
+    typeof window === "undefined" ? LIVE_SETTINGS : read(),
+  );
   useEffect(() => {
-    setSettings(read());
     const channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(CHANNEL) : null;
     const onRemote = (e: MessageEvent<DemoSettings>) => setSettings(e.data);
     const onLocal = (e: Event) => setSettings((e as CustomEvent<DemoSettings>).detail);
