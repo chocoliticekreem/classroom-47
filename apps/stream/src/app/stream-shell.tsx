@@ -1,13 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, MessageSquare } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { ChevronDown, ExternalLink, Maximize, MessageSquare, RectangleHorizontal } from "lucide-react";
 import { useChatCrowd } from "@/agents/chat-crowd/useChatCrowd";
 import { useSceneChat } from "@/agents/chat-crowd/useSceneChat";
 import { AroundMe } from "@/components/around/AroundMe";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { DevPanel } from "@/components/DevPanel";
 import { TopBar } from "@/components/TopBar";
+import { useFullscreen } from "@/components/useFullscreen";
+import { PipStage } from "@/components/stream/PipStage";
 import { FollowerCard } from "@/components/stream/FollowerCard";
 import { AdvisorCard } from "@/components/stream/AdvisorCard";
 import { ArchivePanel } from "@/components/stream/ArchivePanel";
@@ -19,7 +21,7 @@ import { LOCATIONS } from "@/lib/locations";
 import type { StreamContext, StreamLocation, StreamSource } from "@/lib/types";
 import { useSurroundings } from "@/platform/around/useSurroundings";
 import { publish } from "@/platform/bus";
-import { StreamVideo } from "@/components/stream/PhoneFeed";
+import { FeedPreview } from "@/components/stream/PhoneFeed";
 import { usePhoneVideo } from "@/platform/live/rtc/usePhoneVideo";
 import { useLiveLink } from "@/platform/live/useLiveLink";
 import { sessionFromUrl } from "@/platform/live/useRemoteLive";
@@ -51,6 +53,11 @@ export function StreamShell() {
   const [tab, setTab] = useState<View>("live");
   const [mirrorUrl, setMirrorUrl] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  // Theatre: the player takes the full content width and chat floats over it.
+  const [wide, setWide] = useState(false);
+  const [chatFloat, setChatFloat] = useState(false);
+  const [camStream, setCamStream] = useState<MediaStream | null>(null);
+  const playerFs = useFullscreen<HTMLDivElement>();
   const desktop = useIsDesktop();
   const live = source.kind !== "idle";
   const link = useLiveLink({ live, viewers, demo: demoLocation });
@@ -148,19 +155,91 @@ export function StreamShell() {
     });
   }
 
-  const chat = <ChatPanel messages={messages} onSend={send} viewers={viewers} live={live} />;
+  // Chat sits beside the player only on the plain Live view; elsewhere it floats over the content.
+  const docked = desktop && tab === "live" && !wide;
+  const floating = desktop && !docked;
+  const chat = (
+    <ChatPanel
+      messages={messages}
+      onSend={send}
+      viewers={viewers}
+      live={live}
+      onCollapse={floating ? () => setChatFloat(false) : undefined}
+    />
+  );
   const lastMessage = messages.at(-1);
+
+  const feedStream = source.kind === "webcam" ? camStream : source.kind === "idle" ? phone.stream : null;
+  const clipUrl = source.kind === "url" || source.kind === "file" ? source.url : null;
+  const feed =
+    feedStream || clipUrl ? (
+      <FeedPreview stream={feedStream} clipUrl={clipUrl} label={location.name} viewers={link.viewers} />
+    ) : null;
+
+  function toggleWide() {
+    if (!wide) setChatFloat(true);
+    setWide((w) => !w);
+  }
 
   return (
     <div className="flex h-full flex-col">
       <TopBar live={live} />
       <DevPanel />
       <div className="relative flex min-h-0 flex-1">
-        <main className="scrollbar-thin flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-3 pb-20 sm:p-4 md:pb-4 lg:gap-5 lg:p-6">
-          <ViewTabs tab={tab} onChange={setTab} />
+        <main
+          className={`scrollbar-thin flex min-w-0 flex-1 flex-col overflow-y-auto p-3 pb-20 md:pb-3 ${
+            tab === "live" ? "gap-4 sm:p-4 md:pb-4 lg:gap-5 lg:p-6" : "gap-3"
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <ViewTabs tab={tab} onChange={setTab} />
+            <div className="flex items-center gap-2">
+              {tab === "live" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={toggleWide}
+                    aria-pressed={wide}
+                    title="Theatre: wider player, chat floats over it"
+                    className={`pill ${wide ? "pill-candy" : "glass"}`}
+                  >
+                    <RectangleHorizontal className="size-4" aria-hidden />
+                    Theatre
+                  </button>
+                  <button type="button" onClick={playerFs.toggle} className="pill glass">
+                    <Maximize className="size-4" aria-hidden />
+                    Full screen
+                  </button>
+                </>
+              )}
+              {floating && (
+                <button
+                  type="button"
+                  onClick={() => setChatFloat((o) => !o)}
+                  aria-pressed={chatFloat}
+                  className={`pill ${chatFloat ? "pill-white" : "glass"}`}
+                >
+                  <MessageSquare className="size-4" aria-hidden />
+                  Chat
+                  {live && <span className="animate-live size-1.5 rounded-full bg-live" />}
+                </button>
+              )}
+            </div>
+          </div>
           {/* The player stays mounted across tabs so the stream never drops. */}
           <div className={tab === "live" ? "flex flex-col gap-4 lg:gap-5" : "hidden"}>
-            <Player source={source} onSourceChange={changeSource} ctx={ctx} positionBadge={link.badge} sync={link.sync} remote={phone} />
+            <div ref={playerFs.ref}>
+              <Player
+                source={source}
+                onSourceChange={changeSource}
+                ctx={ctx}
+                positionBadge={link.badge}
+                sync={link.sync}
+                remote={phone}
+                size={playerFs.active ? "full" : wide ? "wide" : "default"}
+                onCamStream={setCamStream}
+              />
+            </div>
             <StreamerBar
               ctx={ctx}
               positionSource={link.source}
@@ -174,13 +253,22 @@ export function StreamShell() {
             <SurroundingsCard />
           </div>
           {tab === "around" && (
-            <AroundMe location={location} activeCamUrl={source.kind === "url" ? source.url : null} />
+            <AroundMe location={location} activeCamUrl={source.kind === "url" ? source.url : null} feed={feed} />
           )}
-          {tab === "3d" && <TwinView src={mirrorUrl ?? `/twin?lat=${location.lat}&lon=${location.lon}`} pip={phone.stream} />}
+          {tab === "3d" && <TwinView src={mirrorUrl ?? `/twin?lat=${location.lat}&lon=${location.lon}`} feed={feed} />}
         </main>
 
         {desktop ? (
-          <aside className="flex w-[340px] shrink-0 flex-col border-l border-line bg-surface xl:w-[380px]">
+          // One element for both modes, so ChatPanel keeps its scroll and draft when it floats.
+          <aside
+            className={
+              docked
+                ? "flex w-[340px] shrink-0 flex-col border-l border-line bg-surface xl:w-[380px]"
+                : chatFloat
+                  ? "absolute bottom-4 right-4 z-30 flex h-[min(600px,calc(100%-2rem))] w-[380px] max-w-[calc(100%-2rem)] flex-col overflow-hidden rounded-[28px] shadow-[0_0_0_1px_rgb(255_255_255/0.1),0_30px_70px_-16px_rgb(0_0_0/0.85)]"
+                  : "hidden"
+            }
+          >
             {chat}
           </aside>
         ) : chatOpen ? (
@@ -248,15 +336,17 @@ const VIEWS: { id: View; label: string }[] = [
 
 function ViewTabs({ tab, onChange }: { tab: View; onChange: (v: View) => void }) {
   return (
-    <nav className="flex w-fit gap-1 rounded-xl border border-line bg-surface p-1" aria-label="Views">
+    <nav className="glass flex w-fit gap-1 rounded-full p-1.5" aria-label="Views">
       {VIEWS.map((v) => (
         <button
           key={v.id}
           type="button"
           onClick={() => onChange(v.id)}
           aria-current={tab === v.id ? "page" : undefined}
-          className={`rounded-lg px-3.5 py-1.5 text-[13px] font-semibold transition-colors ${
-            tab === v.id ? "bg-text text-bg" : "text-muted hover:text-text"
+          className={`h-9 rounded-full px-4 text-[14px] font-extrabold tracking-[-0.01em] transition-[transform,background-color,color,box-shadow] duration-200 ease-[var(--ease-spring)] active:scale-95 ${
+            tab === v.id
+              ? "bg-white text-black shadow-[inset_0_2px_3px_#fff,inset_0_-3px_6px_rgb(236_17_135/0.2),0_6px_14px_-4px_rgb(0_0_0/0.5)]"
+              : "text-white/60 hover:text-white"
           }`}
         >
           {v.label}
@@ -266,27 +356,21 @@ function ViewTabs({ tab, onChange }: { tab: View; onChange: (v: View) => void })
   );
 }
 
-function TwinView({ src, pip }: { src: string; pip: MediaStream | null }) {
+function TwinView({ src, feed }: { src: string; feed: ReactNode | null }) {
   return (
-    <section className="relative min-h-[520px] flex-1 overflow-hidden rounded-xl border border-line bg-black">
-      <iframe src={src} title="3D mirror" className="absolute inset-0 size-full" allow="fullscreen; geolocation" />
-      {pip && (
-        <div className="absolute bottom-3 left-3 w-[200px] overflow-hidden rounded-lg border border-line-strong bg-black shadow-[0_12px_40px_rgba(0,0,0,0.55)] sm:w-[260px]">
-          <StreamVideo stream={pip} className="aspect-video size-full object-cover" />
-          <span className="absolute left-2 top-2 flex h-5 items-center gap-1 rounded-[4px] bg-live px-1.5 font-mono text-[10px] font-semibold text-white">
-            <span className="animate-live size-1.5 rounded-full bg-white" />
-            Phone
-          </span>
-        </div>
-      )}
-      <a
-        href={src}
-        target="_blank"
-        rel="noopener"
-        className="absolute right-3 top-3 rounded-lg border border-line-strong bg-surface/90 px-2.5 py-1 text-[12px] font-semibold text-text backdrop-blur hover:border-text/40"
-      >
-        Open full screen
-      </a>
-    </section>
+    <PipStage
+      className="min-h-[560px] flex-1"
+      corner="bottom-left"
+      primaryLabel="3D mirror"
+      secondaryLabel="stream"
+      secondary={feed}
+      primary={<iframe src={src} title="3D mirror" className="absolute inset-0 size-full border-0" allow="fullscreen; geolocation" />}
+      toolbar={
+        <a href={src} target="_blank" rel="noopener" className="pill pill-sm glass">
+          <ExternalLink className="size-3.5" aria-hidden />
+          New tab
+        </a>
+      }
+    />
   );
 }

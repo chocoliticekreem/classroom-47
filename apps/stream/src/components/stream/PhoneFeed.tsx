@@ -18,6 +18,42 @@ export function StreamVideo({ stream, className }: { stream: MediaStream; classN
   return <video ref={ref} autoPlay muted playsInline data-phone-video className={className} />;
 }
 
+/** The stream as a small preview for the map and twin views: a live MediaStream, or the clip/upload that is playing. */
+export function FeedPreview({
+  stream,
+  clipUrl,
+  label,
+  viewers,
+}: {
+  stream: MediaStream | null;
+  clipUrl: string | null;
+  label: string;
+  viewers: number;
+}) {
+  return (
+    <div className="relative size-full bg-black">
+      {stream ? (
+        <StreamVideo stream={stream} className="size-full object-cover" />
+      ) : (
+        <video src={clipUrl ?? undefined} autoPlay muted loop playsInline className="size-full object-cover" />
+      )}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/60 to-transparent" />
+      <div className="pointer-events-none absolute left-2.5 top-2.5 flex items-center gap-1.5">
+        <span className="live-badge">
+          <span className="animate-live size-1.5 rounded-full bg-white" />
+          Live
+        </span>
+        <span className="flex h-[1.6rem] items-center rounded-full bg-black/55 px-2.5 text-[11px] font-bold text-white backdrop-blur-sm">
+          {viewers.toLocaleString("en-GB")}
+        </span>
+      </div>
+      <p className="pointer-events-none absolute inset-x-3 bottom-2.5 truncate text-[12px] font-bold text-white/90 drop-shadow">
+        {label}
+      </p>
+    </div>
+  );
+}
+
 export function phoneChip(remote: PhoneVideo) {
   if (remote.status === "connected" && remote.stream) {
     return remote.latencyS === null ? "Live from phone" : `Live from phone · ${remote.latencyS.toFixed(1)} s`;

@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   ArrowDown,
   BadgeCheck,
+  ChevronDown,
   Crown,
   Eye,
   Gem,
@@ -21,6 +22,8 @@ interface ChatPanelProps {
   onSend: (text: string) => void;
   viewers: number;
   live: boolean;
+  /** Set while chat floats over the content, to fold it away. */
+  onCollapse?: () => void;
 }
 
 const BADGE_ICON: Record<Badge, { Icon: typeof Shield; className: string; label: string }> = {
@@ -124,7 +127,7 @@ function MessageRow({ m }: { m: ChatMessage }) {
   );
 }
 
-export function ChatPanel({ messages, onSend, viewers, live }: ChatPanelProps) {
+export function ChatPanel({ messages, onSend, viewers, live, onCollapse }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [stuck, setStuck] = useState(true);
   const [seenId, setSeenId] = useState<string | undefined>();
@@ -188,6 +191,11 @@ export function ChatPanel({ messages, onSend, viewers, live }: ChatPanelProps) {
           <span className="text-muted">
             <span className="text-text">{live ? formatViewers(viewers) : "—"}</span> watching
           </span>
+          {onCollapse && (
+            <button type="button" onClick={onCollapse} aria-label="Collapse chat" className="pill pill-sm !h-7 !w-7 !px-0">
+              <ChevronDown className="size-4" aria-hidden />
+            </button>
+          )}
         </div>
       </header>
 
@@ -224,7 +232,7 @@ export function ChatPanel({ messages, onSend, viewers, live }: ChatPanelProps) {
       </div>
 
       <div className="shrink-0 border-t border-line p-2.5">
-        <div className="flex items-center gap-2 rounded-md border border-line bg-bg pl-3 pr-1.5 transition-colors focus-within:border-ember/60">
+        <div className="flex items-center gap-2 rounded-full bg-bg pl-4 pr-1.5 shadow-[inset_0_2px_4px_rgb(0_0_0/0.5),0_0_0_1px_rgb(255_255_255/0.07)] transition-shadow focus-within:shadow-[inset_0_2px_4px_rgb(0_0_0/0.5),0_0_0_2px_rgb(255_141_16/0.7)]">
           <span className="font-mono text-[10px] tracking-normal text-ember">You</span>
           <input
             value={draft}
@@ -238,7 +246,7 @@ export function ChatPanel({ messages, onSend, viewers, live }: ChatPanelProps) {
             onClick={submit}
             disabled={!draft.trim()}
             aria-label="Send"
-            className="grid size-7 place-items-center rounded-[4px] bg-ember text-bg transition-opacity disabled:bg-transparent disabled:text-dim"
+            className="pill-candy grid size-8 place-items-center rounded-full text-white transition-transform active:scale-90 disabled:bg-transparent disabled:bg-none disabled:text-dim disabled:shadow-none"
           >
             <Send className="size-3.5" />
           </button>

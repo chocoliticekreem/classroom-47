@@ -48,6 +48,9 @@ export function useAroundMap(
     if (!container) return;
     let cancelled = false;
     let map: MapLibreMap | null = null;
+    // Why: the container changes size when the PiP swaps, the stage goes fullscreen or the window resizes.
+    const resizer = new ResizeObserver(() => map?.resize());
+    resizer.observe(container);
 
     import("maplibre-gl").then((lib) => {
       if (cancelled) return;
@@ -93,6 +96,7 @@ export function useAroundMap(
 
     return () => {
       cancelled = true;
+      resizer.disconnect();
       streamerRef.current = null;
       map?.remove();
       mapRef.current = null;
