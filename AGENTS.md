@@ -143,7 +143,9 @@ Cursor credits: check that requests show `Free` at cursor.com/dashboard/usage. I
     - `/api/twin/osm`: OpenStreetMap geometry for the twin.
   - `apps/web`: the 3D city and console (Next 16, three.js).
   - `services/yolo`: a local YOLO server on TfL JamCams (port 8047).
-  - `services/vision`: Python model clients (YOLO, Cosmos, W&B) and the London live-camera catalogue (uv).
+  - `services/vision`: Python model clients (YOLO, Cosmos, W&B), the London live-camera catalogue, and camera calibration (uv).
+  - `services/agent`: **the CAMP agent** for the VAST cluster at `/app` (VSS search-and-answer → W&B + Weave → `calm/busy/danger`). Deploy steps are in its README.
+  - `services/predict`: a MiroFish-style 30-minute crowd forecast seeded from the live twin (port 8048, W&B + Weave).
   - `docs/`: `ARCHITECTURE.md` (CAMP mapping and the bus contract), `PMF.md` (market research), `superpowers/plans/` (the data-sourcing plan).
   - `vast-builders-challenge/`: the **official VAST guide and Cursor skills** (git submodule, read-only).
   - Agent config:
@@ -168,7 +170,7 @@ Cursor credits: check that requests show `Free` at cursor.com/dashboard/usage. I
   - No personal emails or contact details in files.
 - **Many people and agents push at once:**
   - `git pull --rebase` before you push, and keep commits small.
-  - Work on a branch and open a PR. PRs #1–#7 went to `main` this way.
+  - Work on a branch and open a PR. PRs #1–#12 went to `main` this way.
   - Don't rewrite another person's files without telling them.
   - Commit or push only when your human asks.
 - **Pre-compute and cache** every network-dependent result the demo needs, and put a timeout on every external call. The demo can't depend on venue wifi.

@@ -1,6 +1,12 @@
 # HANDOFF: repo state and next steps
 
-**Snapshot:** 2026-10-17, 12:20 BST. `main` includes PRs #5–#7 (Around me, the 3D twin, the CCTV compare) and Chris's `services/`.
+**Snapshot:** 2026-10-17, 12:25 BST. `main` includes PRs #5–#12:
+- Around me;
+- the 3D twin and the CCTV compare;
+- **the CAMP agent (`services/agent`)**;
+- a twin calibrated to the live cameras;
+- **Predict (`services/predict`)**;
+- Arvin's twin roads, traffic and buildings.
 
 Event facts, rules, CAMP requirements, the **official schedule and judging criteria** (from the organisers' slides) are in [`AGENTS.md`](AGENTS.md). The how-to for the infrastructure is the [`vast-camp` skill](.agents/skills/vast-camp/SKILL.md).
 
@@ -10,9 +16,9 @@ The **official VAST guide and skills** are in `vast-builders-challenge/`, a subm
 
 ## TL;DR
 
-1. **CAMP is mandatory, and nothing runs on it yet.** The project has to sit on VAST's stack: Cursor, then an agent on VAST's cluster, then Cosmos/YOLO/W&B on CoreWeave, then VSS/VastDB on VAST.
-   - Everything we have runs on laptops, on internet video.
-   - **Top priority:** get into the VAST lab, then deploy a small agent at `/app` that queries our team's VSS index and reasons on W&B.
+1. **CAMP is mandatory. The agent code exists, but nothing is confirmed running on VAST yet.** The project has to sit on VAST's stack: Cursor, then an agent on VAST's cluster, then Cosmos/YOLO/W&B on CoreWeave, then VSS/VastDB on VAST.
+   - `services/agent` (PRs #8, #10) is that agent, ready to deploy.
+   - **Top priority:** get into the VAST lab, re-ingest with our prompt, and **deploy `services/agent` at `/app`** (steps in `services/agent/README.md`).
 2. **`apps/stream` works and has grown.** Live / Around me / 3D mirror tabs:
    - real TfL cameras, buses, disruptions and weather;
    - local YOLO counts and tracks;
@@ -24,9 +30,9 @@ The **official VAST guide and skills** are in `vast-builders-challenge/`, a subm
 | Layer | What's required | What we have | Gap |
 |---|---|---|---|
 | **C**: Cursor | Build on the lab VM over Cursor Remote-SSH | Cursor accounts and credits | Each person: sign in to the lab portal, add an SSH key, connect |
-| **A**: VAST agent runtime | Agent and app deployed on the team's Kubernetes namespace at `/app` | Nothing | **Build a small Python agent (`tools/<app>/main.py`) that calls the VSS `/api/v1/tools/*` as its tools**, plus a dashboard. Deploy it with `/deploy-app-no-registry` |
-| **M**: NVIDIA + CoreWeave | Cosmos3-Reason, Embed1 and YOLO11 via VSS. W&B inference + Weave for our reasoning | Local YOLO on TfL (`services/yolo`). W&B and Cosmos clients (`services/vision`, not wired into any app) | Agent reasoning on W&B with Weave traces. Our Cosmos prompt through re-ingest. Optional: Canary ASR on the stream's audio to catch the streamer saying where they are |
-| **P**: VAST platform | Query our team's VSS index. Re-ingest the pre-loaded footage with our prompt | Nothing | Pick the packs (F indoor crowds, E SF streets, B Toronto forward-facing drive), write the re-ingest prompt, re-ingest a few clips. **Store the agent's verdicts in our own VastDB table** (`vastdb-write`) |
+| **A**: VAST agent runtime | Agent and app deployed on the team's Kubernetes namespace at `/app` | **`services/agent/app.py`** (stdlib HTTP + `openai` + `weave`): dashboard `/app/`, `/app/health`, `POST /app/assess` | **Deploy it** with `/deploy-app-no-registry`, using **our Secret key names** (`USERNAME`, `PASSWORD`, `INGRESS_URL`, `WANDB_*`), not the template's `VSS_*`; see `services/agent/README.md`. Then point the front ends at it |
+| **M**: NVIDIA + CoreWeave | Cosmos3-Reason, Embed1 and YOLO11 via VSS. W&B inference + Weave for our reasoning | The agent calls W&B (`Qwen/Qwen3.8-27B` by default) inside a `weave.op`. Predict uses W&B + Weave too. Local YOLO on TfL (`services/yolo`) | Our Cosmos prompt through re-ingest. Optional: Canary ASR on the stream's audio to catch the streamer saying where they are |
+| **P**: VAST platform | Query our team's VSS index. Re-ingest the pre-loaded footage with our prompt | The agent queries VSS `agent/search-and-answer` + `search`; its evidence carries the Cosmos text and YOLO counts (PR #10) | Pick the packs (F indoor crowds, E SF streets, B Toronto forward-facing drive), write the re-ingest prompt, re-ingest a few clips. Optional: **store the agent's verdicts in our own VastDB table** (`vastdb-write`) |
 
 ## `apps/stream` (streaming platform): works locally
 
@@ -46,6 +52,10 @@ The **official VAST guide and skills** are in `vast-builders-challenge/`, a subm
     - a **first-person streamer view**;
     - **live weather and sun** from Open-Meteo;
     - a **dev panel** to override weather, time and crowd for demos.
+  - Later PRs added:
+    - **PR #9:** people and traffic calibrated to the live cameras, time and weather;
+    - **PR #12:** a 1:1 CCTV compare with calibrated camera poses (`services/vision/calibrate.py`);
+    - **Arvin's `9c355e7`:** a road network with pavements, traffic and pedestrians, 3D buildings, landmarks, boats and GPU water.
   - **It follows only `stream.location` on the bus** (`twin/live/store.ts:128`). `reality:fork` and `streamer:location_leaked` do nothing yet, so there's **no "what if" crowd simulation**.
 - **Demo settings** (`src/platform/demo.ts`): live by default. Weather, time and crowd multiplier can be overridden; they sync across tabs.
 - **Run:** `npm run dev:stream` → http://localhost:3047.
@@ -61,6 +71,14 @@ The **official VAST guide and skills** are in `vast-builders-challenge/`, a subm
   - a London live-camera catalogue that resolves YouTube streams with yt-dlp.
   - No app uses it yet. YouTube footage must never go into VAST.
 - **YOLO variables:** our local server is `JAMCAM_YOLO_URL` (renamed in PR #7). `YOLO_URL` on the VM is the shared YOLO11 GPU endpoint.
+- **`services/agent/`: the CAMP agent** (PRs #8, #10).
+  - Flow: VSS login (JWT cached) → `agent/search-and-answer` with a streamer-safety query, topped up by `search` → one W&B chat call in a `weave.op` → validated JSON `{level, advice, reasons, evidence[], vss_answer, trace}`.
+  - On an upstream failure it returns 502 naming the dependency. CORS is open for `localhost:3047`.
+  - It isn't called by `apps/stream` yet, and it doesn't use `tools/*` or VastDB writes yet.
+- **`services/predict/`** (PR #11): a MiroFish-style 30-minute forecast of Tower Hill.
+  - Seeded from the twin's live field (`/api/twin/field`), with 30–80 persona groups, simulated on the real street graph, plus a report and `/score` against later camera readings.
+  - It runs on W&B + Weave, or in rules mode without a key. Port 8048.
+  - **This is our "what if" engine.** It could answer `reality:fork`.
 
 ## `apps/web` (imported 3D city + console): blocked
 
@@ -77,7 +95,8 @@ The **official VAST guide and skills** are in `vast-builders-challenge/`, a subm
 
 - **Stream and its twin share an origin:** the Mirror button now opens `/twin` inside `apps/stream`. Its `classroom-47` BroadcastChannel events (`docs/ARCHITECTURE.md`) reach the twin without a bridge. Today the twin uses only `stream.location`.
 - **`apps/web` is still separate:** different port, and the `rivet-city` channel. Linking it means serving both from one origin, or a websocket.
-- **The CAMP agent at `/app` will be a third piece:** front ends would poll it over HTTP, if it's reachable from laptops. Check that after the first deploy.
+- **The CAMP agent at `/app`** (`services/agent`) is a third piece: the front ends `POST /app/assess` over HTTP, and CORS is already open. Check after the first deploy that the team host is reachable from laptops.
+- **Predict** (`services/predict`, :8048) reads the twin's routes. Nothing in `apps/stream` calls it or the agent yet.
 
 ## Decisions to make now
 
@@ -103,12 +122,12 @@ The **official VAST guide and skills** are in `vast-builders-challenge/`, a subm
    6. Search again.
 
    Save the exact prompt text in the repo, because VSS doesn't store it anywhere you can read back.
-3. **Agent on the cluster:** a Python service in `tools/<app>/main.py`.
-   - It uses the VSS tools (`tools/search`, `tools/detections`, `agent/search-and-answer`), reasons on W&B with Weave tracing, and returns `calm | busy | danger` plus advice.
-   - It writes each verdict to our VastDB table.
-   - Deploy it with `/deploy-app-no-registry`, then open it from the portal's App button.
-4. **Connect the front ends:** the stream page and twin show the agent's verdict (`surroundings.update`) alongside live London data.
-5. **The "what if" in the twin:** on `reality:fork` / `streamer:location_leaked`, spawn the crowd converging on the streamer and show the danger, then the safer spot.
+3. **Deploy `services/agent` on the cluster:**
+   - Follow `services/agent/README.md`: `/deploy-app-no-registry`, Secret with our key names, check `/app/health` returns `vss: true, wandb: true`.
+   - Open it from the portal's App button and check one `POST /app/assess`.
+   - Optional upgrades: use the VSS `tools/*` (for example `tools/detections`), and write each verdict to our own VastDB table.
+4. **Connect the front ends:** the stream page and twin call `POST /app/assess` and show the verdict as `surroundings.update`, next to live London data.
+5. **The "what if" in the twin:** on `reality:fork` / `streamer:location_leaked`, call **Predict** (`services/predict`) with a "streamer reveals location" intervention. Show the crowd converging and the danger, then the safer spot.
 6. **Judging needs** (`AGENTS.md`, "Judging criteria"):
    - **README:** add the inputs, outputs and evaluation section.
    - **A small evaluation run:** 5–10 test queries with expected clips, hit@k before and after our re-ingest prompt, logged in Weave (method in the `vast-camp` skill).
@@ -120,9 +139,9 @@ The **official VAST guide and skills** are in `vast-builders-challenge/`, a subm
 - **Sonion (+ Claude):** `apps/stream`.
 - **Chris:** data, meaning live London sources and `services/`.
 - **Arvin:** the 3D city and sim.
-- **The CAMP agent (step 3) has no owner yet.** Assign it now.
+- **The CAMP agent** (`services/agent`) and **Predict** were authored in PRs #8, #10 and #11 (Anson). **Who deploys the agent on the VM (step 3)? Assign it now.**
 
 ## Housekeeping
 
-- **Root `package.json`:** `dev:stream` and `yolo` work. `dev`, `build` and `lint` call a missing `api` workspace, and about 19 scripts point at a `scripts/` folder that doesn't exist.
-- **Branch flow:** feature branch → PR → `main` (PRs #1–#5). Pull before you push.
+- **Root `package.json`:** `dev:stream`, `yolo` and `vast:guide` work. `dev`, `build` and `lint` call a missing `api` workspace, and about 19 scripts point at a `scripts/` folder that doesn't exist.
+- **Branch flow:** feature branch → PR → `main` (PRs #1–#12). Pull before you push.

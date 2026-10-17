@@ -253,6 +253,7 @@ Open it from https://workshop.thecosmoslabs.com → **App**. Don't use `$INGRESS
 - **After a code change:** recreate the ConfigMap, then `kubectl -n $NS rollout restart deploy/<app>`. A running pod doesn't pick up ConfigMap changes.
 - **Image:** `node:22-slim` is allowed if Python is wrong, but there's still no build or push, and the ConfigMap stays under 1 MiB.
 - **Never:** a second hostname, path `/`, or "run it locally" as the deliverable.
+- **Our agent's Secret keys differ from the official template.** The template injects `VSS_URL`, `VSS_USERNAME` and `VSS_PASSWORD`. `services/agent` reads `USERNAME`, `PASSWORD`, `INGRESS_URL`, `WANDB_API_KEY`, `WANDB_TEAM` and `WANDB_PROJECT`. Create the Secret with those names (`envFrom: secretRef`), following `services/agent/README.md`.
 
 What this means for us:
 - Keep the deployed part **small**: a Python agent API plus a light dashboard.
@@ -266,7 +267,8 @@ What this means for us:
 | `services/yolo/server.py`: local YOLO on TfL JamCams (`npm run yolo`, port 8047) | M (extra) | **No.** It's local, on internet video. Treat it as a live-London bonus, not the VAST path |
 | `services/vision/`: Cosmos/W&B clients, London live-cam catalogue (YouTube via yt-dlp) | M | W&B client, yes. Cosmos via build.nvidia.com is outside the VAST env; prefer the VM's `COSMOS3_REASON_URL`. YouTube footage must **never** go into VAST |
 | `apps/web`: 3D city | front end | Runs locally. See `HANDOFF.md` for the build blocker |
-| Agent and app on the cluster at `/app` | A + P + M | **Missing. Build this first** |
+| `services/agent/app.py`: **the CAMP agent** (PRs #8, #10). Stdlib HTTP plus `openai` and `weave` | A + P + M | **Code done; deploy it.** It runs VSS `agent/search-and-answer` + `search` (Cosmos text and YOLO counts as evidence), then one W&B call traced in Weave, and returns `calm/busy/danger` + advice. Routes `/app/`, `/app/health`, `POST /app/assess` (works with or without the `/app` rewrite). How to deploy: `services/agent/README.md`. It doesn't yet write to VastDB or use `tools/*` |
+| `services/predict/`: a MiroFish-style 30-minute forecast seeded from the live twin (PR #11), port 8048 | M (W&B + Weave) | Runs locally. It reads the twin's routes, so on the cluster it would need the VSS detections instead |
 | `vast-builders-challenge/` (submodule) | C (reference) | The official guide and skills, read-only. Never edit it |
 
 ## Gotchas
