@@ -8,7 +8,8 @@ import { join } from "node:path";
  * while one background refresh runs; a loader failure keeps the stale value.
  */
 
-const DIR = join(process.cwd(), ".cache");
+// Vercel functions can only write to /tmp; locally keep the cache next to the app.
+const DIR = process.env.VERCEL ? join("/tmp", "emfol-cache") : join(process.cwd(), ".cache");
 const HOUR = 3_600_000;
 export const TTL = { minute: 60_000, hour: HOUR, day: 24 * HOUR, week: 7 * 24 * HOUR } as const;
 
