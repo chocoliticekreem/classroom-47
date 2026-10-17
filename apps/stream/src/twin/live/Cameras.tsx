@@ -124,7 +124,7 @@ function Camera({ cam }: { cam: AroundCam }) {
   }, [clip]);
 
   return (
-    <group>
+    <group visible={!comparing}>
       <mesh geometry={cone} position={[0, 0.08, 0]} renderOrder={1}>
         <meshBasicMaterial
           color="#ff4d2e"
