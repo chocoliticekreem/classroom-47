@@ -6,6 +6,11 @@ import { PRESETS, useCameraStore } from "../scene/cameraStore";
 import { useCompare } from "./store";
 import { calibrationFor, camHeadingDeg } from "../live/project";
 
+const CSS = `
+.twin-chip { padding: 6px 14px; }
+@media (max-width: 640px) { .twin-chip { padding: 6px 10px; } }
+`;
+
 const pill: CSSProperties = {
   display: "flex",
   gap: 4,
@@ -22,9 +27,9 @@ function Chip({ active, onClick, children }: { active?: boolean; onClick: () => 
     <button
       type="button"
       onClick={onClick}
+      className="twin-chip"
       style={{
         borderRadius: 999,
-        padding: "6px 14px",
         fontSize: 12,
         fontWeight: 500,
         letterSpacing: "0.02em",
@@ -41,10 +46,11 @@ function Chip({ active, onClick, children }: { active?: boolean; onClick: () => 
   );
 }
 
-/** Sits to the right of the Aerial / Street / Skyline bar: streamer view, GPS, and the CCTV picker. */
+/** Sits in the bottom row after the Aerial / Street / Skyline bar: streamer view, GPS, and the CCTV picker. */
 export function ViewBar() {
   const preset = useCameraStore((s) => s.preset);
   const cctv = useCameraStore((s) => s.cctv);
+  const cinematic = useCameraStore((s) => s.cinematic);
   const fly = useCameraStore((s) => s.fly);
   const gps = useLive((s) => s.gps);
   const cams = useLive((s) => s.cams);
@@ -57,18 +63,17 @@ export function ViewBar() {
   return (
     <div
       style={{
-        position: "absolute",
-        bottom: 64,
-        left: 252,
         display: "flex",
+        flexWrap: "wrap",
         gap: 8,
         alignItems: "flex-end",
         color: "var(--text)",
         fontFamily: "var(--font-figtree), system-ui, sans-serif",
       }}
     >
+      <style>{CSS}</style>
       <div style={pill}>
-        <Chip active={!cctv && preset === "streamer"} onClick={() => fly("streamer")}>
+        <Chip active={!cctv && !cinematic && preset === "streamer"} onClick={() => fly("streamer")}>
           {PRESETS.streamer.label}
         </Chip>
         <Chip active={gps === "on"} onClick={toggleGps}>
@@ -87,7 +92,9 @@ export function ViewBar() {
               position: "absolute",
               bottom: "calc(100% + 8px)",
               left: 0,
+              zIndex: 40,
               minWidth: 260,
+              maxWidth: "calc(100vw - 24px)",
               padding: 6,
               borderRadius: 14,
               border: "1px solid var(--border)",
