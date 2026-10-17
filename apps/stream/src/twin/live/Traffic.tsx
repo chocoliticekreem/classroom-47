@@ -13,7 +13,7 @@ import { getLastField, useCoveredFrames, useFieldStore } from "../sim/useField";
 import { syncClock } from "../compare/store";
 import { useScenario } from "./scenario";
 import { useTwinCounts } from "./sim/counts";
-import { coveredBy, snapToField } from "./sim/field";
+import { coveredBy, inAnyCameraReach, snapToField } from "./sim/field";
 import { writeYawMatrix } from "./sim/matrix";
 import { beam, cabBody, carBody, lampMaterial, lamps, paintMaterial, vanBody } from "./models/vehicles";
 import { ROLE_AMBULANCE, ROLE_NONE, ROLE_POLICE, ROLE_QUARRY, TrafficSim } from "./sim/traffic";
@@ -124,13 +124,15 @@ function step(
   }
   // The compare view shows only the vehicles its camera saw; ambient estimates would drive through them.
   const hideAmbient = respondersOnly || syncClock.camId !== null;
+  // Same inside any camera's view: there the real tracked vehicles are the traffic, not an estimate on top.
+  const covered = useCoveredFrames.getState().frames;
   const poolArr = meshes.pool.instanceMatrix.array;
   const vs = sim.vehicles;
   const strobe = Math.floor(performance.now() / 120) % 2 === 0;
   for (let i = 0; i < vs.length; i++) {
     const v = vs[i];
     // Every car keeps driving; only those in (or just outside) the view are drawn.
-    const sc = v.parked || !v.seen || (hideAmbient && v.role === ROLE_NONE) ? 0 : 1;
+    const sc = v.parked || !v.seen || (v.role === ROLE_NONE && (hideAmbient || inAnyCameraReach(covered, v.x, v.z))) ? 0 : 1;
     writeYawMatrix(meshes.bodies[v.kind].instanceMatrix.array, v.slot * 16, v.x, GROUND_Y, v.z, v.yaw, sc, sc);
     writeYawMatrix(poolArr, i * 16, v.x, GROUND_Y + 0.04, v.z, v.yaw, sc, sc);
     if (v.role === ROLE_POLICE || v.role === ROLE_AMBULANCE) {

@@ -8,13 +8,14 @@ import { ATMOS } from "../scene/palette";
 import { BUS_L, getBusKit } from "./bus/busKit";
 import { personBody, personHead, personMaterial, SKIN } from "./models/people";
 import { bikeBody, CAR_LENGTH, carBody, lampMaterial, lamps, paintMaterial, VAN_LENGTH, vanBody } from "./models/vehicles";
-import { camFrame, currentPose, projectInto, sampleInto, setPoseOverride, usePoseVersion, type CamFrame } from "./project";
+import { camFrame, currentPose, inCameraReach, projectInto, sampleInto, setPoseOverride, usePoseVersion, type CamFrame } from "./project";
 import { fitPose, useAutofit } from "../compare/autofit";
 import { syncClock, useCompare } from "../compare/store";
 import { buildingIndexOf, inBuilding, type BuildingIndex } from "../network/buildings";
 import { PAVEMENT_Y, ROAD_Y } from "../network/layout";
 import { useCameraStore } from "../scene/cameraStore";
 import { useGeometryLoader } from "../scene/useGeometry";
+import { useCoveredFrames } from "../sim/useField";
 import { asphaltMargin, SNAP_STATS, useSnapIndex, type SnapIndex } from "../network/snap";
 import { DIMS, MODEL_OF, MotionSim, State, type Entity, type Model } from "./motion";
 import { beginFrame, endFrame, recordPose } from "./motionStats";
@@ -104,6 +105,18 @@ interface AuditPose {
 }
 const audit: VehicleAudit = { frames: 0, vehicleFrames: 0, offAsphalt: 0, minBumperGap: Infinity, minClearance: Infinity, overlaps: 0, vanished: 0, vanishedInView: 0, retired: 0, offKeys: [] };
 const auditPoses = new Map<string, AuditPose>();
+let compareCache: { camId: string; frame: CamFrame | null; v: number } | null = null;
+
+/** The compared camera's frame, recomputed only when the camera or its pose changes. */
+function comparedFrame(camId: string): CamFrame | null {
+  const v = usePoseVersion.getState().v;
+  if (compareCache?.camId !== camId || compareCache.v !== v) {
+    const cam = useLive.getState().cams.find((c) => c.id === camId);
+    compareCache = { camId, frame: cam ? camFrame(cam) : null, v };
+  }
+  return compareCache.frame;
+}
+
 let auditSyncT = -1;
 let auditSyncCam: string | null = null;
 if (SNAP_STATS) (window as unknown as { __vehicleAudit: VehicleAudit }).__vehicleAudit = audit;
@@ -271,11 +284,23 @@ function trailSegment(scene: Scene, isPerson: boolean, x0: number, z0: number, x
   scene.seg++;
 }
 
+/**
+ * Whether a camera other than the entity's own covers (x, z). Inside a camera's view only what that camera
+ * tracked is drawn: a car dead-reckoned from a neighbouring camera, or (while comparing) any other
+ * camera's entity, would be a vehicle the real footage doesn't show.
+ */
+function coveredByOther(covered: CamFrame[], own: CamFrame, x: number, z: number) {
+  for (const f of covered) if ((f.x !== own.x || f.z !== own.z) && inCameraReach(f, x, z)) return true;
+  return false;
+}
+
 /** Live entities: played once, dead-reckoned, never looped. The compared camera's entities are drawn by `drawSynced`. */
-function drawEntities(scene: Scene, ents: Entity[], now: number, skipCam: string | null) {
+function drawEntities(scene: Scene, ents: Entity[], now: number, skipCam: string | null, covered: CamFrame[], compared: CamFrame | null) {
   for (let i = 0; i < ents.length; i++) {
     const e = ents[i];
     if (e.camId === skipCam || e.fade <= 0) continue;
+    if (compared && inCameraReach(compared, e.x, e.z)) continue;
+    if (e.state !== State.Tracked && coveredByOther(covered, e.frame, e.x, e.z)) continue;
     const isPerson = e.kind === "person";
     const placed = isPerson
       ? placePerson(scene, e.x, e.z, e.yaw, e.fade, e.speed, e.seed, now, e.color, e.skin)
@@ -578,7 +603,8 @@ export function Agents() {
     _pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     _frustum.setFromProjectionMatrix(_pv);
     sim.step(performance.now() / 1000, Math.min(dt, 0.1), snap, (e) => inView(e.x, e.z, e.length, e.frame.x, e.frame.z));
-    drawEntities(sc, sim.ents, performance.now() / 1000, syncClock.camId);
+    const compared = syncClock.camId ? comparedFrame(syncClock.camId) : null;
+    drawEntities(sc, sim.ents, performance.now() / 1000, syncClock.camId, useCoveredFrames.getState().frames, compared);
     if (syncT >= 0) drawSynced(sc, synced, syncT, clock.elapsedTime, replay, blds);
     if (SNAP_STATS && snap) auditVehicles(snap, sim.retired, syncT);
     endFrame();

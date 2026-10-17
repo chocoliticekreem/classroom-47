@@ -77,6 +77,12 @@ function blockerRects(): Rect[] {
   return rects;
 }
 
+/** False when the object or any ancestor is hidden (a hidden bus takes its "due" label with it). */
+function shown(o: THREE.Object3D | null) {
+  for (; o; o = o.parent) if (!o.visible) return false;
+  return true;
+}
+
 /** Mount once inside the Canvas. */
 export function LabelLayer() {
   const { camera, size } = useThree();
@@ -87,7 +93,7 @@ export function LabelLayer() {
       const el = elements.get(id);
       if (!el) continue;
       entry.anchor.getWorldPosition(_v).project(camera);
-      if (_v.z > 1 || !entry.anchor.visible) {
+      if (_v.z > 1 || !shown(entry.anchor)) {
         el.style.display = "none";
         continue;
       }

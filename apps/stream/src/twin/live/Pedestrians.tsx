@@ -9,7 +9,7 @@ import { useNetwork } from "../network/useNetwork";
 import { ATMOS } from "../scene/palette";
 import { getLastField, useCoveredFrames, useFieldStore } from "../sim/useField";
 import { useTwinCounts } from "./sim/counts";
-import { coveredBy, snapToField } from "./sim/field";
+import { coveredBy, inAnyCameraReach, snapToField } from "./sim/field";
 import { writeYawMatrix } from "./sim/matrix";
 import { CLOTHES, personBody, personHead, personMaterial, SKIN } from "./models/people";
 import { PedSim } from "./sim/pedestrians";
@@ -18,13 +18,19 @@ const CAPACITY = 1400;
 const SEED = 9151;
 const GLOW = { value: 0.4 };
 
-function step(sim: PedSim, body: THREE.InstancedMesh, head: THREE.InstancedMesh, cam: THREE.Vector3, dt: number, frame: number) {
+function step(sim: PedSim, body: THREE.InstancedMesh, head: THREE.InstancedMesh, cam: THREE.Vector3, dt: number, frame: number, hidden: Uint8Array) {
   sim.update(dt, cam.x, cam.z, frame);
   const arr = body.instanceMatrix.array;
   const peds = sim.peds;
+  // Inside a camera's view the people it tracked are the crowd; the estimate steps aside there.
+  const covered = useCoveredFrames.getState().frames;
   for (let i = 0; i < sim.active; i++) {
     const p = peds[i];
-    if (p.dirty) writeYawMatrix(arr, i * 16, p.x, p.bob, p.z, p.yaw, p.scale, p.scale);
+    const inside = inAnyCameraReach(covered, p.x, p.z) ? 1 : 0;
+    if (!p.dirty && inside === hidden[i]) continue;
+    hidden[i] = inside;
+    const sc = inside ? 0 : p.scale;
+    writeYawMatrix(arr, i * 16, p.x, p.bob, p.z, p.yaw, sc, sc);
   }
   body.count = head.count = sim.active;
   body.instanceMatrix.needsUpdate = true;
@@ -35,6 +41,7 @@ function step(sim: PedSim, body: THREE.InstancedMesh, head: THREE.InstancedMesh,
 export function Pedestrians() {
   const net = useNetwork();
   const sim = useMemo(() => new PedSim(net, CAPACITY, SEED), [net]);
+  const hidden = useMemo(() => new Uint8Array(sim.peds.length), [sim]);
   const frame = useRef(0);
 
   const fieldAt = useFieldStore((s) => s?.at ?? 0);
@@ -94,7 +101,7 @@ export function Pedestrians() {
   );
 
   useFrame(({ camera }, dt) => {
-    step(sim, meshes.body, meshes.head, camera.position, dt, frame.current++);
+    step(sim, meshes.body, meshes.head, camera.position, dt, frame.current++, hidden);
   });
 
   // An estimate of the crowd, not people the camera saw: the compare view leaves it out.

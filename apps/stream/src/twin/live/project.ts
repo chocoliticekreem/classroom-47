@@ -115,6 +115,26 @@ export function inViewCone(frame: CamFrame, x: number, z: number) {
   return Math.abs(diff) <= Math.atan(frame.tanH);
 }
 
+/** Margins for hiding estimated traffic: a body's length past the frame's sides, and out to the horizon. */
+export const HIDE_PAD_M = 12;
+export const HIDE_FAR_M = 250;
+
+/**
+ * inViewCone with leeway, for keeping estimates out of a camera's shot: HIDE_PAD_M wider on each side,
+ * out to HIDE_FAR_M (the real frame sees far past CONE_M) and right up to the pole.
+ */
+export function inCameraReach(frame: CamFrame, x: number, z: number) {
+  const dx = x - frame.x;
+  const dz = z - frame.z;
+  const d = Math.hypot(dx, dz);
+  if (d > HIDE_FAR_M) return false;
+  if (d <= HIDE_PAD_M) return true;
+  let diff = Math.atan2(dx, -dz) - frame.headingRad;
+  while (diff > Math.PI) diff -= 2 * Math.PI;
+  while (diff < -Math.PI) diff += 2 * Math.PI;
+  return Math.abs(diff) <= Math.atan(frame.tanH) + Math.asin(HIDE_PAD_M / d);
+}
+
 /** Unit-free forward direction of the camera as [x, y, z]. */
 export function forwardOf(frame: CamFrame): [number, number, number] {
   const sh = Math.sin(frame.headingRad);

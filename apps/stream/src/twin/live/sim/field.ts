@@ -1,5 +1,5 @@
 import type { FieldResponse } from "../../field/types";
-import { inViewCone, type CamFrame } from "../project";
+import { inCameraReach, inViewCone, type CamFrame } from "../project";
 
 const SNAP_M = 15;
 const CELL_M = 40;
@@ -65,5 +65,11 @@ export function snapToField(points: ArrayLike<number>, field: FieldResponse): In
 
 export function coveredBy(frames: CamFrame[], x: number, z: number): boolean {
   for (const f of frames) if (inViewCone(f, x, z)) return true;
+  return false;
+}
+
+/** True when an estimate at (x, z) could show in any camera's shot (inCameraReach): it is not drawn there. */
+export function inAnyCameraReach(frames: CamFrame[], x: number, z: number): boolean {
+  for (const f of frames) if (inCameraReach(f, x, z)) return true;
   return false;
 }

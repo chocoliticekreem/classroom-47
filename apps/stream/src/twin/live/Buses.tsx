@@ -12,6 +12,8 @@ import { toLocal } from "../config";
 import { ROAD_Y } from "../network/layout";
 import { pathAt, SNAP_ENABLED, snapVehicle, useSnapIndex, walkPath, type Path, type SnapIndex, type VehicleSnap } from "../network/snap";
 import type { XZ } from "../network/types";
+import { useCoveredFrames } from "../sim/useField";
+import { inAnyCameraReach } from "./sim/field";
 import { useLive, useNow } from "./store";
 
 const APPROACH_S = 90;
@@ -140,7 +142,8 @@ function Bus({ place, arrival, ahead }: { place: StopPlace; arrival: BusArrival;
       g.rotation.y = straightYaw;
       g.position.set(place.x - place.dirX * dist, ROAD_Y, place.z - place.dirZ * dist);
     }
-    g.visible = inFrame;
+    // Inside a camera's view the real bus (if any) is on its tracks; an estimated one would be a second bus.
+    g.visible = inFrame && !inAnyCameraReach(useCoveredFrames.getState().frames, g.position.x, g.position.z);
     const b = body.current;
     if (b) {
       // Speed is proportional to k (the approach is eased as k^2), so every motion fades out as the bus stops.
