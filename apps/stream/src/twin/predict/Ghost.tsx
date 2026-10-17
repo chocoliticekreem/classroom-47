@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { FieldSegment } from "@/twin/field/types";
 import { getLastField, useFieldStore } from "../sim/useField";
+import { useCameraStore } from "../scene/cameraStore";
+import { DWELL_S, MIN_PER_S, shotFor, stopReplay, useReplay } from "./replay";
 import { placeIntervention, setMinute, shownRun, usePredict } from "./store";
 import type { InterventionKind, TimelineStep } from "./types";
 
@@ -137,8 +139,16 @@ function Ghosts({ step, byId, on }: { step: TimelineStep | null; byId: Map<numbe
 function Marker({ x, z, kind }: { x: number; z: number; kind: InterventionKind }) {
   const color = KIND_COLOR[kind];
   const radius = kind === "closure" ? 45 : kind === "incident" ? 70 : kind === "event" ? 60 : 120;
+  const pulse = useRef<THREE.Group>(null);
+  useFrame(({ clock }) => {
+    const g = pulse.current;
+    if (!g) return;
+    // Why: during a replay the intervention is the story; a breathing ring makes it readable from the air.
+    const k = useReplay.getState().active ? 1 + 0.25 * (0.5 + 0.5 * Math.sin(clock.elapsedTime * 5)) : 1;
+    g.scale.set(k, 1, k);
+  });
   return (
-    <group position={[x, 0, z]}>
+    <group position={[x, 0, z]} ref={pulse}>
       <mesh position={[0, 14, 0]}>
         <cylinderGeometry args={[0.8, 0.8, 28, 8]} />
         <meshStandardMaterial color={color} emissive={color} emissiveIntensity={2} toneMapped={false} />
@@ -189,6 +199,60 @@ function Player() {
   return null;
 }
 
+function ReplayDriver() {
+  const st = useRef({ minute: 0, dwellLeft: 0, flown: -1, dwelt: [] as boolean[], endHold: 0, acc: 0 });
+  const active = useReplay((s) => s.active);
+  useEffect(() => {
+    st.current = { minute: usePredict.getState().minute, dwellLeft: 0, flown: -1, dwelt: [], endHold: 0, acc: 0 };
+  }, [active]);
+  useFrame((_, delta) => {
+    const r = useReplay.getState();
+    if (!r.active || r.paused) return;
+    const dt = Math.min(delta, 0.1) * r.speed;
+    const s = st.current;
+    if (s.dwellLeft > 0) {
+      s.dwellLeft -= dt;
+      if (s.dwellLeft <= 0) useReplay.setState({ dwellIndex: -1 });
+      return;
+    }
+    // Why: skip jumps the store minute; pick it up before advancing.
+    const stored = usePredict.getState().minute;
+    if (Math.abs(stored - s.minute) > 1) s.minute = stored;
+    s.minute = Math.min(30, s.minute + MIN_PER_S * dt);
+    let fly = -1;
+    for (let i = 0; i < r.hotspots.length; i++) {
+      if (r.hotspots[i].flyAt <= s.minute && i > s.flown) fly = i;
+    }
+    if (fly >= 0) {
+      s.flown = fly;
+      useCameraStore.getState().setCinematic(shotFor(r.hotspots[fly], fly));
+    }
+    let flush = false;
+    for (let i = 0; i < r.hotspots.length; i++) {
+      const h = r.hotspots[i];
+      if (s.dwelt[i] || s.minute < h.item.atMin) continue;
+      s.dwelt[i] = true;
+      if (s.minute - h.item.atMin > 2) continue;
+      s.minute = h.item.atMin;
+      s.dwellLeft = DWELL_S;
+      flush = true;
+      useReplay.setState({ dwellIndex: i });
+      break;
+    }
+    if (s.minute >= 30 && s.dwellLeft <= 0) {
+      s.endHold += dt;
+      flush = true;
+      if (s.endHold > 1.5) stopReplay();
+    }
+    s.acc += delta;
+    // Why: the HUD and scrubber only need ~12 updates/s; a store write per frame re-renders them for nothing.
+    if (!flush && s.acc < 0.08) return;
+    s.acc = 0;
+    usePredict.setState({ minute: s.minute });
+  });
+  return null;
+}
+
 /** Future ghost layer: predicted per-segment load as heat ribbons, ghost walkers, intervention markers. */
 export function PredictLayers() {
   const run = usePredict(shownRun);
@@ -206,6 +270,7 @@ export function PredictLayers() {
   return (
     <group>
       <Player />
+      <ReplayDriver />
       <PickPlane />
       {run && minute > 0 && <Ribbons step={step} byId={byId} />}
       {run && <Ghosts step={step} byId={byId} on={ghosts && minute > 0} />}

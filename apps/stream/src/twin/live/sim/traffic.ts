@@ -6,21 +6,46 @@ export const KIND_CAR = 0;
 export const KIND_VAN = 1;
 export const KIND_CAB = 2;
 const KIND_LENGTH = [4.3, 5.3, 4.6];
+const KIND_HALF_WIDTH = [0.9, 1.0, 0.9];
+/** Per-kind odds that a vehicle stops mid-street (delivery, breakdown, pick-up) on entering a lane. */
+const HOLD_CHANCE = [0.002, 0.015, 0.006];
 
+const IDM_ACCEL = 2.6;
+const IDM_COMFORT = 2.6;
+const IDM_HEADWAY_S = 1.1;
+const IDM_MIN_GAP = 2;
+const MAX_DECEL = 9;
 const BRAKE = 2.8;
-const HARD_BRAKE = 7;
-const ACCEL = 2.2;
-const REACTION_S = 0.9;
-const MIN_GAP = 1.6;
-const BLEND_M = 7;
+const HARD_GAP_M = 0.3;
+/** The move guard shrinks footprints by this; the audit shrinks more, so a guarded move never shows up as an overlap. */
+const MOVE_SHRINK_M = 0.05;
+const BORN_CAP = 64;
+/** Samples along a junction movement used for swept-footprint tests, and the clearance added around each body. */
+const PATH_SAMPLES = 8;
+const SWEPT_MARGIN_M = 0.35;
+const ARC_M = 7;
+const ARC_MIN_TURN = 0.17;
 const LOOKAHEAD_M = 45;
 const MIN_SPAWN_LANE_M = 12;
-const SPAWN_CLEARANCE_M = 10;
-const JUNCTION_SPEED = 6.5;
-const STOP_CHANCE = 0.12;
-const STOP_LINE_M = 1.6;
-const MAJOR_SPEED = 10.5;
-const MINOR_SPEED = 7;
+const SPAWN_CLEARANCE_M = 12;
+const JUNCTION_SPEED = 8.5;
+const STOP_LINE_M = 4.5;
+const APPROACH_M = 40;
+const CLAIM_M = 10;
+/** Reserve the box this many seconds of travel before the stop line, so two cars can't both be committed to it. */
+const CLAIM_LEAD_S = 2;
+const FIFO_M = 20;
+const BOX_TIMEOUT_S = 20;
+const RELAX_CONFLICT_S = 12;
+const RELAX_ROOM_S = 45;
+const RECYCLE_WAIT_S = 30;
+const STUCK_S = 45;
+const STUCK_FORCE_S = 120;
+const NODE_CAP = 12;
+/** Junction nodes joined by an edge this short share one junction box (split carriageways, offset crossings). */
+const CLUSTER_EDGE_M = 18;
+const MAJOR_SPEED = 12;
+const MINOR_SPEED = 8.9;
 const YAW_RATE = 9;
 const LANE_KEY = 1e5;
 const PARKED_KEY = -1e12;
@@ -32,10 +57,17 @@ const RECYCLE_FOCUS_M = 380;
 const RECYCLE_CAMERA_M = 150;
 const SPAWN_CAMERA_M = 60;
 const RECYCLE_CHANCE = 0.35;
-const SIREN_RANGE_M = 40;
-const SIREN_MIN_SPEED = 5;
-const PULL_OVER_SPEED = 2.5;
-const PULL_OVER_M = 1.1;
+const SIREN_RANGE_M = 60;
+const SIREN_MIN_SPEED = 3;
+const SIREN_CORRIDOR_M = 9;
+const YIELD_HOLD_S = 1.5;
+const YIELD_DECEL = 2.5;
+const NO_STOP_NEAR_END_M = 14;
+const OVERTAKE_RATE = 0.6;
+const OVERTAKE_START_GAP_M = 22;
+const MAX_SIRENS = 40;
+const HASH_SIZE = 4096;
+const HASH_CELL_M = 20;
 
 export const ROLE_NONE = 0;
 export const ROLE_QUARRY = 1;
@@ -43,18 +75,38 @@ export const ROLE_POLICE = 2;
 export const ROLE_AMBULANCE = 3;
 
 export class Vehicle {
+  idx = 0;
   slot = 0;
   len: number;
+  hw: number;
   pace: number;
   lane = 0;
   s = 0;
   v = 0;
   next = -1;
+  next2 = -1;
+  /** Lane just left (-1 when freshly placed), so the turn arc through the junction can be drawn from both sides. */
+  prev = -1;
   turnIn = 0;
   turnOut = 0;
-  stopAtEnd = false;
-  wait = 0;
+  /** Junction node this vehicle has claimed (-1 = none), with the lanes it will use through it. */
+  box = -1;
+  boxIn = -1;
+  boxOut = -1;
+  boxAt = 0;
+  /** Sim time it came within FIFO range of its junction (0 = not yet). */
+  arrive = 0;
+  gridWait = 0;
+  stuck = 0;
+  /** Mid-lane stop: distance along the lane to stop at, and seconds left standing there. */
+  holdAt = 0;
+  hold = 0;
+  /** 0 = in lane, 1 = fully in the oncoming lane; `passing` is the vehicle being overtaken. */
+  ovt = 0;
+  passing = -1;
+  yieldT = 0;
   pull = 0;
+  braking = false;
   x = 0;
   z = 0;
   yaw = 0;
@@ -68,15 +120,43 @@ export class Vehicle {
     pace: number,
   ) {
     this.len = KIND_LENGTH[kind];
+    this.hw = KIND_HALF_WIDTH[kind];
     this.pace = pace;
   }
+}
+
+/** Separating-axis test on two oriented rectangles (yaw measured from +z toward +x; `h` half width, `l` half length). */
+function rectsOverlap(
+  ax: number, az: number, ayaw: number, ah: number, al: number,
+  bx: number, bz: number, byaw: number, bh: number, bl: number,
+): boolean {
+  const asn = Math.sin(ayaw);
+  const acs = Math.cos(ayaw);
+  const bsn = Math.sin(byaw);
+  const bcs = Math.cos(byaw);
+  const dx = bx - ax;
+  const dz = bz - az;
+  for (let t = 0; t < 4; t++) {
+    const ux = t === 0 ? asn : t === 1 ? acs : t === 2 ? bsn : bcs;
+    const uz = t === 0 ? acs : t === 1 ? -asn : t === 2 ? bcs : -bsn;
+    const ra = al * Math.abs(asn * ux + acs * uz) + ah * Math.abs(acs * ux - asn * uz);
+    const rb = bl * Math.abs(bsn * ux + bcs * uz) + bh * Math.abs(bcs * ux - bsn * uz);
+    if (Math.abs(dx * ux + dz * uz) > ra + rb) return false;
+  }
+  return true;
+}
+
+function hashCell(cx: number, cz: number): number {
+  return (Math.imul(cx, 73856093) ^ Math.imul(cz, 19349663)) & (HASH_SIZE - 1);
 }
 
 /**
  * Ambient traffic that lives on the road graph. A lane is one direction of one edge (`edge * 2` is
  * from→to, `edge * 2 + 1` is to→from); each vehicle holds (lane, s) where s is metres travelled along
- * the lane. Vehicles follow the car ahead in their lane (or the next lane), slow for turns and
- * junctions, and occasionally stop at a stop line.
+ * the lane. Vehicles follow leaders with the Intelligent Driver Model (same lane, the next two lanes
+ * on their route, and any body ahead found through a spatial hash), give way at junctions (priority
+ * to major roads, first come first served, left-hand turns), only enter a junction when the exit
+ * has room, overtake stopped vehicles when the oncoming lane is clear, and pull over for sirens.
  */
 export class TrafficSim {
   readonly vehicles: Vehicle[] = [];
@@ -85,16 +165,35 @@ export class TrafficSim {
   private readonly edgeId: Int32Array;
   private readonly laneLen: Float32Array;
   private readonly laneLat: Float32Array;
+  private readonly lanePull: Float32Array;
   private readonly laneFree: Float32Array;
   private readonly laneYawStart: Float32Array;
   private readonly laneYawEnd: Float32Array;
-  private readonly laneJunction: Uint8Array;
+  private readonly laneNode: Int32Array;
+  private readonly laneDep: Int32Array;
+  /** 1 when the lane ends at a real junction (3+ edges), where vehicles give way. */
+  private readonly laneGive: Uint8Array;
+  /** Junction box id per node: nodes linked by short edges map to one representative. */
+  private readonly nodeGroup: Int32Array;
+  private readonly laneMajor: Uint8Array;
+  private readonly laneTwoWay: Uint8Array;
   private readonly laneHead: Int32Array;
   private readonly laneExits: Int32Array[];
   private readonly laneExitCum: Float64Array[];
   private readonly laneExitBase: Float64Array[];
   private readonly laneBase: Float32Array;
   private readonly spawnable: Uint8Array;
+  private readonly nodeStamp: Int32Array;
+  private readonly nodeOccN: Uint8Array;
+  private readonly nodeOcc: Int16Array;
+  private readonly nodeApprN: Uint8Array;
+  private readonly nodeAppr: Int16Array;
+  private readonly hashStart = new Int32Array(HASH_SIZE + 1);
+  private readonly hashCursor = new Int32Array(HASH_SIZE);
+  private readonly sirenX = new Float64Array(MAX_SIRENS);
+  private readonly sirenZ = new Float64Array(MAX_SIRENS);
+  private readonly sirenH = new Float64Array(MAX_SIRENS);
+  private readonly sirenV = new Float64Array(MAX_SIRENS);
   /** Edge midpoints as x, z pairs (local metres), for snapping onto the field and spawn-distance checks. */
   readonly edgeMid: Float32Array;
   private edgeWeight: Float32Array;
@@ -104,11 +203,28 @@ export class TrafficSim {
   private spawnCum: Float64Array = new Float64Array(0);
   private order: Int32Array;
   private key: Float64Array;
+  private vcell: Int32Array;
+  private hashItems: Int32Array;
   private readonly enableOrder: Int32Array;
   /** Vehicles currently on the road. */
   active = 0;
   private target = 0;
   private countAcc = 0;
+  private clock = 0;
+  private tick = 0;
+  private v0cur = 1;
+  private inter = 0;
+  private hardGap = 0;
+  /** Counters for the headless check and `?stats=1`: stuck vehicles recycled, overtakes begun, siren yields begun. */
+  deadlocks = 0;
+  overtakes = 0;
+  yields = 0;
+  /** Moves refused by the overlap guard (the car held instead). */
+  holds = 0;
+  private readonly paths = new Map<number, Float32Array>();
+  private readonly crossCache = new Map<number, boolean>();
+  private readonly born = new Int16Array(BORN_CAP);
+  private bornN = 0;
 
   constructor(
     private readonly net: RoadNetwork,
@@ -123,10 +239,16 @@ export class TrafficSim {
     this.edgeId = new Int32Array(lanes);
     this.laneLen = new Float32Array(lanes);
     this.laneLat = new Float32Array(lanes);
+    this.lanePull = new Float32Array(lanes);
     this.laneFree = new Float32Array(lanes);
     this.laneYawStart = new Float32Array(lanes);
     this.laneYawEnd = new Float32Array(lanes);
-    this.laneJunction = new Uint8Array(lanes);
+    this.laneNode = new Int32Array(lanes);
+    this.laneDep = new Int32Array(lanes);
+    this.laneGive = new Uint8Array(lanes);
+    this.nodeGroup = new Int32Array(net.nodes.length).map((_, i) => i);
+    this.laneMajor = new Uint8Array(lanes);
+    this.laneTwoWay = new Uint8Array(lanes);
     this.laneHead = new Int32Array(lanes).fill(-1);
     this.laneExits = new Array<Int32Array>(lanes);
     this.laneExitCum = new Array<Float64Array>(lanes);
@@ -136,10 +258,14 @@ export class TrafficSim {
     this.edgeMid = new Float32Array(edges.length * 2);
     this.edgeWeight = new Float32Array(edges.length).fill(1);
     this.edgeSpeed = new Float32Array(edges.length).fill(1);
+    this.nodeStamp = new Int32Array(net.nodes.length);
+    this.nodeOccN = new Uint8Array(net.nodes.length);
+    this.nodeOcc = new Int16Array(net.nodes.length * NODE_CAP);
+    this.nodeApprN = new Uint8Array(net.nodes.length);
+    this.nodeAppr = new Int16Array(net.nodes.length * NODE_CAP);
     const valid = new Uint8Array(lanes);
     const nodeById = new Map(net.nodes.map((n, i) => [n.id, i] as const));
     const departing = new Map<number, number[]>();
-    const arrival = new Int32Array(lanes);
     const out = this.out;
 
     for (let i = 0; i < edges.length; i++) {
@@ -150,7 +276,9 @@ export class TrafficSim {
       this.laneLen[fwd] = this.laneLen[rev] = e.length;
       this.laneLat[fwd] = Math.min(2, Math.max(1.1, e.width * 0.25));
       this.laneLat[rev] = -this.laneLat[fwd];
+      this.lanePull[fwd] = this.lanePull[rev] = Math.max(0.2, Math.min(1.4, e.width / 2 - this.laneLat[fwd] - 1));
       this.laneFree[fwd] = this.laneFree[rev] = e.kind === "major" ? MAJOR_SPEED : MINOR_SPEED;
+      this.laneMajor[fwd] = this.laneMajor[rev] = e.kind === "major" ? 1 : 0;
       this.laneBase[fwd] = this.laneBase[rev] = this.laneFree[fwd];
       net.sample(e.id, e.length * 0.5, 0, out);
       this.edgeMid[i * 2] = out[0];
@@ -167,12 +295,20 @@ export class TrafficSim {
       if (from === undefined || to === undefined || e.length < 1) continue;
       valid[fwd] = 1;
       valid[rev] = e.oneway ? 0 : 1;
-      arrival[fwd] = to;
-      arrival[rev] = from;
-      const toNode = net.nodes[to];
-      const fromNode = net.nodes[from];
-      this.laneJunction[fwd] = toNode.junction || toNode.edges.length < 2 ? 1 : 0;
-      this.laneJunction[rev] = fromNode.junction || fromNode.edges.length < 2 ? 1 : 0;
+      this.laneNode[fwd] = to;
+      this.laneNode[rev] = from;
+      this.laneDep[fwd] = from;
+      this.laneDep[rev] = to;
+      this.laneGive[fwd] = net.nodes[to].junction ? 1 : 0;
+      this.laneGive[rev] = net.nodes[from].junction ? 1 : 0;
+      if ((net.nodes[from].junction || net.nodes[to].junction) && e.length < CLUSTER_EDGE_M) {
+        const g = this.nodeGroup;
+        const a = g[from] < g[to] ? g[from] : g[to];
+        const b = g[from] < g[to] ? g[to] : g[from];
+        g[from] = a;
+        g[to] = a;
+        for (let k = 0; k < g.length; k++) if (g[k] === b) g[k] = a;
+      }
       for (const [lane, node] of [
         [fwd, from],
         [rev, to],
@@ -183,6 +319,17 @@ export class TrafficSim {
         else departing.set(node, [lane]);
       }
     }
+    for (let L = 0; L < lanes; L++) this.laneTwoWay[L] = valid[L] && valid[L ^ 1] ? 1 : 0;
+    // A lane gives way when its end node is a junction, or sits in a box with one (a short stub in front of a junction).
+    const boxHasJunction = new Uint8Array(net.nodes.length);
+    for (let i = 0; i < net.nodes.length; i++) if (net.nodes[i].junction) boxHasJunction[this.nodeGroup[i]] = 1;
+    for (let L = 0; L < lanes; L++) if (valid[L] && boxHasJunction[this.nodeGroup[this.laneNode[L]]]) this.laneGive[L] = 1;
+    // A plain bend where more lanes arrive than leave (a one-way spur merging into a street) is a merge, so it gives way like a junction.
+    const arrivals = new Uint8Array(net.nodes.length);
+    for (let L = 0; L < lanes; L++) if (valid[L]) arrivals[this.laneNode[L]]++;
+    for (let L = 0; L < lanes; L++) {
+      if (valid[L] && arrivals[this.laneNode[L]] > (departing.get(this.laneNode[L])?.length ?? 0)) this.laneGive[L] = 1;
+    }
 
     const empty = new Int32Array(0);
     for (let L = 0; L < lanes; L++) {
@@ -190,7 +337,7 @@ export class TrafficSim {
       this.laneExitCum[L] = new Float64Array(0);
       this.laneExitBase[L] = new Float64Array(0);
       if (!valid[L]) continue;
-      const cands = (departing.get(arrival[L]) ?? []).filter((c) => c !== (L ^ 1));
+      const cands = (departing.get(this.laneNode[L]) ?? []).filter((c) => c !== (L ^ 1));
       if (!cands.length && valid[L ^ 1]) cands.push(L ^ 1);
       const base = new Float64Array(cands.length);
       for (let k = 0; k < cands.length; k++) {
@@ -211,6 +358,7 @@ export class TrafficSim {
       for (let kind = 0; kind < counts.length; kind++) {
         for (let i = 0; i < counts[kind]; i++) {
           const v = new Vehicle(kind, 0.82 + this.rng() * 0.33);
+          v.idx = this.vehicles.length;
           v.slot = i;
           v.lane = -1;
           this.vehicles.push(v);
@@ -221,6 +369,8 @@ export class TrafficSim {
     this.order = new Int32Array(n);
     for (let i = 0; i < n; i++) this.order[i] = i;
     this.key = new Float64Array(n);
+    this.vcell = new Int32Array(n);
+    this.hashItems = new Int32Array(n);
     this.enableOrder = Int32Array.from(
       this.vehicles.map((v, i) => i).sort((a, b) => {
         const va = this.vehicles[a];
@@ -295,8 +445,8 @@ export class TrafficSim {
       if (v.kind !== needKind) continue;
       v.role = want[k++];
       v.pace = RESPONDER_PACE;
-      v.stopAtEnd = false;
-      v.wait = 0;
+      v.holdAt = 0;
+      v.hold = 0;
     }
   }
 
@@ -328,6 +478,7 @@ export class TrafficSim {
         const v = this.vehicles[this.enableOrder[this.active - k]];
         v.parked = true;
         v.lane = -1;
+        v.box = -1;
         v.role = ROLE_NONE;
       }
       this.active -= n;
@@ -370,16 +521,25 @@ export class TrafficSim {
     return exits[pickCumulative(this.laneExitCum[lane], this.rng())];
   }
 
-  private enter(v: Vehicle, lane: number, s: number) {
+  /** Moves a vehicle onto `lane` at `s`; `keepRoute` continues along the route it already planned. */
+  private enter(v: Vehicle, lane: number, s: number, keepRoute: boolean) {
     v.turnIn = v.turnOut;
+    v.prev = keepRoute ? v.lane : -1;
     v.lane = lane;
     v.s = s;
-    v.next = this.pickNext(lane);
+    v.next = keepRoute ? v.next2 : this.pickNext(lane);
+    v.next2 = v.next >= 0 ? this.pickNext(v.next) : -1;
     v.turnOut =
       v.next < 0
         ? 0
         : Math.min(1, Math.abs(wrapAngle(this.laneYawStart[v.next] - this.laneYawEnd[lane])) / 0.7);
-    v.stopAtEnd = v.role === ROLE_NONE && v.next >= 0 && this.laneJunction[lane] === 1 && this.rng() < STOP_CHANCE;
+    v.arrive = 0;
+    v.gridWait = 0;
+    v.passing = -1;
+    const len = this.laneLen[lane];
+    const stops = v.role === ROLE_NONE && this.laneTwoWay[lane] === 1 && len > 45 && this.rng() < HOLD_CHANCE[v.kind];
+    v.holdAt = stops ? len * (0.35 + 0.3 * this.rng()) : 0;
+    v.hold = 0;
   }
 
   private place(v: Vehicle, camX = NaN, camZ = NaN) {
@@ -400,24 +560,244 @@ export class TrafficSim {
       if (clear) break;
     }
     v.turnOut = 0;
-    this.enter(v, lane, s);
+    this.enter(v, lane, s, false);
+    if (v.holdAt - v.s < 15) v.holdAt = 0;
     v.turnIn = 0;
     v.v = 0;
-    v.wait = 0;
+    v.box = -1;
+    v.ovt = 0;
+    v.yieldT = 0;
+    v.pull = 0;
+    v.stuck = 0;
     v.fresh = true;
   }
 
-  /** True when a moving siren vehicle is within range and behind this vehicle's direction of travel. */
-  private sirenBehind(v: Vehicle): boolean {
-    const fx = Math.sin(v.yaw);
-    const fz = Math.cos(v.yaw);
-    for (const e of emergency.vehicles) {
-      if (e.speed < SIREN_MIN_SPEED) continue;
-      const dx = e.x - v.x;
-      const dz = e.z - v.z;
-      if (dx * dx + dz * dz < SIREN_RANGE_M * SIREN_RANGE_M && dx * fx + dz * fz < 0) return true;
+  /** Footprints of the movement `inLane` → `outLane` through its junction: PATH_SAMPLES (x, z, yaw) triples along the turn arc, cached. */
+  private path(inLane: number, outLane: number): Float32Array {
+    const key = inLane * this.laneLen.length + outLane;
+    let p = this.paths.get(key);
+    if (!p) {
+      p = new Float32Array(PATH_SAMPLES * 3);
+      for (let k = 0; k < PATH_SAMPLES; k++) {
+        p[k * 3 + 2] = this.arcPose(inLane, outLane, k / (PATH_SAMPLES - 1), this.out);
+        p[k * 3] = this.out[0];
+        p[k * 3 + 1] = this.out[1];
+      }
+      this.paths.set(key, p);
+    }
+    return p;
+  }
+
+  /** How far `w` has got along its claimed movement, 0 (before the arc) to 1 (clear of it). */
+  private progress(w: Vehicle): number {
+    const a = w.boxIn;
+    if (w.lane === a) return Math.max(0, 0.5 * (1 - (this.laneLen[a] - w.s) / Math.min(ARC_M, this.laneLen[a] * 0.45)));
+    if (w.lane === w.boxOut) return Math.min(1, 0.5 + (0.5 * w.s) / Math.min(ARC_M, this.laneLen[w.lane] * 0.45));
+    return 0;
+  }
+
+  /**
+   * True when `v`'s route through its junction box and `w`'s (inB → outB, then outB2 if that lane is still
+   * inside the box; from sample `from` on) sweep overlapping footprints or merge into one lane. Routes are
+   * followed through short internal lanes, so a box is reserved for the whole way across.
+   */
+  private crosses(v: Vehicle, w: Vehicle, inB: number, outB: number, outB2: number, from: number): boolean {
+    if (v.lane === inB || inB < 0 || outB < 0) return false;
+    const box = this.nodeGroup[this.laneNode[v.lane]];
+    const va2 = v.next2 >= 0 && this.nodeGroup[this.laneNode[v.next]] === box ? v.next2 : -1;
+    const wb2 = outB2 >= 0 && this.nodeGroup[this.laneNode[outB]] === box ? outB2 : -1;
+    if (this.hopsCross(v, v.lane, v.next, w, inB, outB, from)) return true;
+    if (wb2 >= 0 && this.hopsCross(v, v.lane, v.next, w, outB, wb2, 0)) return true;
+    if (va2 < 0) return false;
+    return this.hopsCross(v, v.next, va2, w, inB, outB, from) || (wb2 >= 0 && this.hopsCross(v, v.next, va2, w, outB, wb2, 0));
+  }
+
+  private hopsCross(v: Vehicle, a: number, b: number, w: Vehicle, c: number, d: number, from: number): boolean {
+    if (a === c) return false;
+    if (b === d) return true;
+    const key = (((a * this.laneLen.length + b) * this.laneLen.length + c) * this.laneLen.length + d) * 72 + from * 9 + v.kind * 3 + w.kind;
+    const cached = this.crossCache.get(key);
+    if (cached !== undefined) return cached;
+    const pa = this.path(a, b);
+    const pb = this.path(c, d);
+    const ah = v.hw + SWEPT_MARGIN_M;
+    const al = v.len * 0.5 + SWEPT_MARGIN_M;
+    const bh = w.hw + SWEPT_MARGIN_M;
+    const bl = w.len * 0.5 + SWEPT_MARGIN_M;
+    let hit = false;
+    for (let i = 0; i < PATH_SAMPLES && !hit; i++) {
+      for (let j = from; j < PATH_SAMPLES; j++) {
+        if (rectsOverlap(pa[i * 3], pa[i * 3 + 1], pa[i * 3 + 2], ah, al, pb[j * 3], pb[j * 3 + 1], pb[j * 3 + 2], bh, bl)) {
+          hit = true;
+          break;
+        }
+      }
+    }
+    this.crossCache.set(key, hit);
+    return hit;
+  }
+
+  /** Is any other body (parked at a stop line, queued in the exit, mid-junction) standing on `v`'s whole swept arc? */
+  private arcBlocked(v: Vehicle): boolean {
+    const vs = this.vehicles;
+    const pa = this.path(v.lane, v.next);
+    const ah = v.hw + SWEPT_MARGIN_M;
+    const al = v.len * 0.5 + SWEPT_MARGIN_M;
+    const cx = Math.floor(v.x / HASH_CELL_M);
+    const cz = Math.floor(v.z / HASH_CELL_M);
+    for (let ox = -1; ox <= 1; ox++) {
+      for (let oz = -1; oz <= 1; oz++) {
+        const b = hashCell(cx + ox, cz + oz);
+        for (let p = this.hashStart[b]; p < this.hashStart[b + 1]; p++) {
+          const o = vs[this.hashItems[p]];
+          if (o === v || o.lane === v.lane || o.fresh) continue;
+          const bh = o.hw - MOVE_SHRINK_M;
+          const bl = o.len * 0.5 - MOVE_SHRINK_M;
+          for (let i = 0; i < PATH_SAMPLES; i++) {
+            if (rectsOverlap(pa[i * 3], pa[i * 3 + 1], pa[i * 3 + 2], ah, al, o.x, o.z, o.yaw, bh, bl)) return true;
+          }
+        }
+      }
     }
     return false;
+  }
+
+  /** Right of way: sirens, then the major road, with straight and left movements ahead of right turns. */
+  private priority(inLane: number, outLane: number, role: number): number {
+    const base = role !== ROLE_NONE ? 3 : this.laneMajor[inLane] ? 2 : 1;
+    return base + (wrapAngle(this.laneYawStart[outLane] - this.laneYawEnd[inLane]) > -0.5 ? 0.5 : 0);
+  }
+
+  /** May this head-of-queue vehicle enter its junction now? Needs room in the exit and no conflicting movement with the right of way. */
+  private canGo(v: Vehicle): boolean {
+    const vs = this.vehicles;
+    const L = v.lane;
+    const node = this.nodeGroup[this.laneNode[L]];
+    const out = v.next;
+    if (v.gridWait < RELAX_ROOM_S) {
+      // Room to clear the box: free road along the route, through a short exit lane into the one after it.
+      let room = Infinity;
+      let free = 0;
+      let lane = out;
+      for (let hop = 0; hop < 2 && lane >= 0; hop++) {
+        const h = this.laneHead[lane];
+        const o = h >= 0 ? vs[this.order[h]] : null;
+        if (o && o.lane === lane) {
+          room = free + o.s - o.len * 0.5;
+          break;
+        }
+        free += this.laneLen[lane];
+        lane = hop === 0 ? v.next2 : -1;
+      }
+      if (room < v.len + 3) return false;
+    }
+    const base = node * NODE_CAP;
+    for (let j = 0; j < this.nodeOccN[node]; j++) {
+      const w = vs[this.nodeOcc[base + j]];
+      // Cars in the box that are queued behind us (on our lane or feeding it) can't be waited for.
+      if (w === v || w.lane === L || w.next === L || w.boxOut === L) continue;
+      if (this.crosses(v, w, w.boxIn, w.boxOut, w.lane === w.boxIn ? w.next2 : -1, Math.max(0, Math.floor(this.progress(w) * (PATH_SAMPLES - 1)) - 1))) return false;
+    }
+    if (this.arcBlocked(v)) return false;
+    if (v.gridWait >= RELAX_CONFLICT_S) return true;
+    const mine = this.priority(L, out, v.role);
+    for (let j = 0; j < this.nodeApprN[node]; j++) {
+      const w = vs[this.nodeAppr[base + j]];
+      if (w === v || w.box >= 0 || w.lane === L || !this.crosses(v, w, w.lane, w.next, w.next2, 0)) continue;
+      const theirs = this.priority(w.lane, w.next, w.role);
+      const wr = this.laneLen[w.lane] - w.s;
+      if (theirs > mine) {
+        if (wr / Math.max(w.v, 1.5) < 4) return false;
+      } else if (theirs === mine && w.arrive > 0 && wr < FIFO_M) {
+        if (v.arrive === 0 || w.arrive < v.arrive || (w.arrive === v.arrive && w.idx < v.idx)) return false;
+      }
+    }
+    return true;
+  }
+
+  private claim(v: Vehicle) {
+    const node = this.nodeGroup[this.laneNode[v.lane]];
+    v.box = node;
+    v.boxIn = v.lane;
+    v.boxOut = v.next;
+    v.boxAt = this.clock;
+    v.gridWait = 0;
+    const n = this.nodeOccN[node];
+    if (n < NODE_CAP) {
+      this.nodeOcc[node * NODE_CAP + n] = v.idx;
+      this.nodeOccN[node] = n + 1;
+    }
+  }
+
+  /** IDM interaction with one obstacle `gap` metres ahead (bumper to bumper) moving at `lv` along our heading. */
+  private follow(v: Vehicle, gap: number, lv: number, body: boolean) {
+    const dv = v.v - lv;
+    const sStar = IDM_MIN_GAP + Math.max(0, v.v * IDM_HEADWAY_S + (v.v * dv) / (2 * Math.sqrt(IDM_ACCEL * IDM_COMFORT)));
+    const r = sStar / Math.max(gap, 0.05);
+    const inter = IDM_ACCEL * r * r;
+    if (inter > this.inter) this.inter = inter;
+    if (body && gap < this.hardGap) this.hardGap = gap;
+  }
+
+  /** Can `v` pull out around the stopped `o` ahead? Needs a clear oncoming lane for the whole pass and room to return. */
+  private overtakeOk(v: Vehicle, o: Vehicle, o2: Vehicle | null): boolean {
+    const L = v.lane;
+    const len = this.laneLen[L];
+    if (emergency.active || !this.laneTwoWay[L] || v.s < 5) return false;
+    if (o.hold <= 0 && !(v.role !== ROLE_NONE && o.v < 0.6 * this.laneFree[L])) return false;
+    const gap = o.s - v.s - (o.len + v.len) * 0.5;
+    if (gap > OVERTAKE_START_GAP_M) return false;
+    const span = o.s - v.s + o.len + v.len + 8;
+    if (len - v.s < span + 40) return false;
+    if (o2 && o2.s - v.s < span + 12) return false;
+    const vs = this.vehicles;
+    const opp = L ^ 1;
+    for (let h = this.laneHead[opp]; h >= 0 && h < vs.length; h++) {
+      const w = vs[this.order[h]];
+      if (w.parked || w.lane !== opp) break;
+      const sMe = len - w.s;
+      if (sMe < v.s - 10) break;
+      if (sMe < v.s + span + w.v * 4 + 10) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Point on the turn from lane `a` into lane `b` at parameter u (0 = ARC_M before the node on `a`, 1 = ARC_M
+   * after it on `b`): a quadratic Bézier between the two lane positions whose control point is where the
+   * lane offsets cross, so left turns hug the kerb and right turns swing across. Writes [x, z], returns yaw.
+   */
+  private arcPose(a: number, b: number, u: number, out: XZ): number {
+    const lenA = this.laneLen[a];
+    const lenB = this.laneLen[b];
+    const ra = Math.min(ARC_M, lenA * 0.45);
+    const rb = Math.min(ARC_M, lenB * 0.45);
+    const fa = (a & 1) === 0;
+    const fb = (b & 1) === 0;
+    this.net.sample(this.edgeId[a], fa ? lenA - ra : ra, this.laneLat[a], out);
+    const p0x = out[0];
+    const p0z = out[1];
+    this.net.sample(this.edgeId[b], fb ? rb : lenB - rb, this.laneLat[b], out);
+    const p1x = out[0];
+    const p1z = out[1];
+    const node = this.net.nodes[this.laneNode[a]];
+    const ya = this.laneYawEnd[a];
+    const yb = this.laneYawStart[b];
+    const la = Math.abs(this.laneLat[a]);
+    const lb = Math.abs(this.laneLat[b]);
+    const nax = Math.cos(ya);
+    const naz = -Math.sin(ya);
+    const nbx = Math.cos(yb);
+    const nbz = -Math.sin(yb);
+    const k = 1 / Math.max(0.35, 1 + nax * nbx + naz * nbz);
+    const cx = node.x + (la * nax + lb * nbx) * k;
+    const cz = node.z + (la * naz + lb * nbz) * k;
+    const w0 = (1 - u) * (1 - u);
+    const w1 = 2 * u * (1 - u);
+    const w2 = u * u;
+    out[0] = w0 * p0x + w1 * cx + w2 * p1x;
+    out[1] = w0 * p0z + w1 * cz + w2 * p1z;
+    return Math.atan2((1 - u) * (cx - p0x) + u * (p1x - cx), (1 - u) * (cz - p0z) + u * (p1z - cz));
   }
 
   update(dtRaw: number, camX: number, camZ: number) {
@@ -425,8 +805,11 @@ export class TrafficSim {
     const n = vs.length;
     if (!n) return;
     const dt = Math.min(dtRaw, 0.05);
+    this.clock += dt;
+    this.tick++;
     this.easeCount(dt);
-    const { order, key, laneHead, laneLen, laneFree } = this;
+    const { order, key, laneHead, laneLen, laneFree, laneNode, laneGive, nodeStamp } = this;
+    const tick = this.tick;
     for (let i = 0; i < n; i++) {
       const v = vs[i];
       if (v.parked) {
@@ -451,80 +834,287 @@ export class TrafficSim {
       if (!v.parked) laneHead[v.lane] = k;
     }
 
+    // Per-frame indexes: spatial hash of bodies, junction occupancy/approach lists and siren sources.
+    const hashStart = this.hashStart;
+    const hashCursor = this.hashCursor;
+    hashStart.fill(0);
+    let ns = 0;
+    if (emergency.active) {
+      for (const e of emergency.vehicles) {
+        if (ns >= MAX_SIRENS) break;
+        this.sirenX[ns] = e.x;
+        this.sirenZ[ns] = e.z;
+        this.sirenH[ns] = e.heading;
+        this.sirenV[ns++] = e.speed;
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      const v = vs[i];
+      if (v.parked) continue;
+      const L = v.lane;
+      if (!v.fresh) {
+        const h = hashCell(Math.floor(v.x / HASH_CELL_M), Math.floor(v.z / HASH_CELL_M));
+        this.vcell[i] = h;
+        hashStart[h + 1]++;
+        if ((v.role === ROLE_POLICE || v.role === ROLE_AMBULANCE) && v.v > SIREN_MIN_SPEED && ns < MAX_SIRENS) {
+          this.sirenX[ns] = v.x;
+          this.sirenZ[ns] = v.z;
+          this.sirenH[ns] = v.yaw;
+          this.sirenV[ns++] = v.v;
+        }
+      } else this.vcell[i] = -1;
+      const registerBox = v.box >= 0 ? v.box : -1;
+      const approaching = laneGive[L] === 1 && v.next >= 0 && v.box < 0 && laneLen[L] - v.s < APPROACH_M;
+      const node = registerBox >= 0 ? registerBox : approaching ? this.nodeGroup[laneNode[L]] : -1;
+      if (node < 0) continue;
+      if (nodeStamp[node] !== tick) {
+        nodeStamp[node] = tick;
+        this.nodeOccN[node] = 0;
+        this.nodeApprN[node] = 0;
+      }
+      if (registerBox >= 0) {
+        const c = this.nodeOccN[node];
+        if (c < NODE_CAP) {
+          this.nodeOcc[node * NODE_CAP + c] = i;
+          this.nodeOccN[node] = c + 1;
+        }
+      } else {
+        const c = this.nodeApprN[node];
+        if (c < NODE_CAP) {
+          this.nodeAppr[node * NODE_CAP + c] = i;
+          this.nodeApprN[node] = c + 1;
+        }
+      }
+    }
+    for (let h = 0; h < HASH_SIZE; h++) {
+      hashStart[h + 1] += hashStart[h];
+      hashCursor[h] = hashStart[h];
+    }
+    for (let i = 0; i < n; i++) if (!vs[i].parked && this.vcell[i] >= 0) this.hashItems[hashCursor[this.vcell[i]]++] = i;
+    this.bornN = 0;
     const yawBlend = 1 - Math.exp(-YAW_RATE * dt);
     const out = this.out;
+
     for (let k = 0; k < n; k++) {
       const v = vs[order[k]];
       if (v.parked) continue;
       const L = v.lane;
       const len = laneLen[L];
       const remaining = len - v.s;
-      const free = laneFree[L] * v.pace;
-      let target = free;
-      let siren = 0;
+      const half = v.len * 0.5;
+      const fresh = v.fresh;
+      // Where the car stands now, so a move the overlap guard refuses can be undone.
+      const lane0 = L;
+      const s0 = v.s;
+      const next0 = v.next;
+      const next20 = v.next2;
+      const prev0 = v.prev;
+      const turnIn0 = v.turnIn;
+      const turnOut0 = v.turnOut;
+      const arrive0 = v.arrive;
+      const gridWait0 = v.gridWait;
+      const passing0 = v.passing;
+      const holdAt0 = v.holdAt;
+      const hold0 = v.hold;
+      const ovt0 = v.ovt;
+      const pull0 = v.pull;
+      if (v.box >= 0) {
+        const stillThere =
+          this.nodeGroup[laneNode[L]] === v.box || (this.nodeGroup[this.laneDep[L]] === v.box && v.s < v.len + 2);
+        if (!stillThere || this.clock - v.boxAt > BOX_TIMEOUT_S) v.box = -1;
+      }
+      if (v.arrive === 0 && laneGive[L] === 1 && remaining < FIFO_M) v.arrive = this.clock;
 
-      if (v.wait > 0) {
-        v.wait -= dt;
-        target = 0;
-      } else {
-        let vEnd = free;
-        let stopLine = 0;
-        if (v.next >= 0) {
-          if (this.laneJunction[L]) vEnd = Math.min(vEnd, JUNCTION_SPEED);
-          vEnd = Math.min(vEnd, Math.max(2.2, free * (1 - 0.75 * v.turnOut)));
-          if (v.stopAtEnd) {
-            vEnd = 0;
-            stopLine = STOP_LINE_M;
-          }
-        }
-        target = Math.min(free, Math.sqrt(vEnd * vEnd + 2 * BRAKE * Math.max(0, remaining - stopLine)));
+      let v0 = laneFree[L] * v.pace;
+      if (v.ovt > 0.3) v0 *= 1.15;
+      if (v.next >= 0) {
+        let vEnd = Math.max(2.2, v0 * (1 - 0.55 * v.turnOut));
+        if (laneGive[L]) vEnd = Math.min(vEnd, JUNCTION_SPEED);
+        v0 = Math.min(v0, Math.sqrt(vEnd * vEnd + 2 * BRAKE * Math.max(0, remaining - half)));
+      }
+      v0 = Math.max(v0, 0.5);
+      this.v0cur = v0;
+      this.inter = 0;
+      this.hardGap = 1e9;
 
-        let lead: Vehicle | null = null;
-        let gap = 0;
-        if (k + 1 < n) {
-          const o = vs[order[k + 1]];
-          if (!o.parked && o.lane === L) {
-            lead = o;
-            gap = o.s - v.s;
+      // Leaders in this lane (nearest two, skipping a vehicle we are already alongside) and along the route.
+      let lead1: Vehicle | null = null;
+      let lead2: Vehicle | null = null;
+      let found = 0;
+      for (let kk = k + 1; kk < n && found < 2; kk++) {
+        const o = vs[order[kk]];
+        if (o.parked || o.lane !== L) break;
+        if (o.idx === v.passing && v.ovt > 0.8) continue;
+        this.follow(v, o.s - v.s - (v.len + o.len) * 0.5, o.v, true);
+        if (found === 0) lead1 = o;
+        else lead2 = o;
+        found++;
+      }
+      if (found < 2 && v.next >= 0 && remaining < LOOKAHEAD_M) {
+        const h = laneHead[v.next];
+        const o = h >= 0 ? vs[order[h]] : null;
+        if (o && o !== v && o.lane === v.next) {
+          this.follow(v, remaining + o.s - (v.len + o.len) * 0.5, o.v, true);
+        } else if (v.next2 >= 0 && remaining + laneLen[v.next] < LOOKAHEAD_M) {
+          const h2 = laneHead[v.next2];
+          const o2 = h2 >= 0 ? vs[order[h2]] : null;
+          if (o2 && o2 !== v && o2.lane === v.next2) {
+            this.follow(v, remaining + laneLen[v.next] + o2.s - (v.len + o2.len) * 0.5, o2.v, true);
           }
-        }
-        if (!lead && v.next >= 0 && remaining < LOOKAHEAD_M) {
-          const h = laneHead[v.next];
-          if (h >= 0) {
-            const o = vs[order[h]];
-            if (o !== v && o.lane === v.next) {
-              lead = o;
-              gap = remaining + o.s;
-            }
-          }
-        }
-        if (lead) {
-          gap -= 0.5 * (v.len + lead.len);
-          const bt = BRAKE * REACTION_S;
-          const safe = -bt + Math.sqrt(bt * bt + lead.v * lead.v + 2 * BRAKE * Math.max(0, gap - MIN_GAP));
-          if (safe < target) target = safe;
-        }
-        if (emergency.active && this.sirenBehind(v)) {
-          siren = 1;
-          target = Math.min(target, PULL_OVER_SPEED);
-        }
-        if (v.stopAtEnd && remaining < STOP_LINE_M + 0.8 && v.v < 0.25) {
-          v.wait = 2 + this.rng() * 5;
-          v.stopAtEnd = false;
         }
       }
 
-      v.pull += (siren - v.pull) * Math.min(1, 2 * dt);
-      const dv = target - v.v;
-      v.v = Math.max(0, dv > 0 ? v.v + Math.min(dv, ACCEL * dt) : v.v + Math.max(dv, -HARD_BRAKE * dt));
-      v.s += v.v * dt;
+      // Overtaking a stopped vehicle through the oncoming lane.
+      if (v.passing >= 0) {
+        const p = vs[v.passing];
+        if (p.parked || p.lane !== L || v.s - half > p.s + p.len * 0.5 + 3) v.passing = -1;
+      } else if (lead1 && !fresh && v.ovt < 0.05 && this.overtakeOk(v, lead1, lead2)) {
+        v.passing = lead1.idx;
+        this.overtakes++;
+      }
+      const want = v.passing >= 0 ? 1 : 0;
+      v.ovt += Math.max(-OVERTAKE_RATE * dt, Math.min(OVERTAKE_RATE * dt, want - v.ovt));
+
+      // Mid-street stops (deliveries, breakdowns, pick-ups).
+      let frozen = false;
+      if (v.hold > 0) {
+        v.hold -= dt;
+        if (v.hold <= 0) {
+          v.hold = 0;
+          v.holdAt = 0;
+        } else frozen = true;
+      } else if (v.holdAt > 0) {
+        const g = v.holdAt - v.s;
+        this.follow(v, g, 0, false);
+        if (g < 4 && v.v < 0.3) v.hold = 10 + this.rng() * 18;
+      }
+
+      // Junction: the head of a queue decides; followers only respect the stop line while the box is closed to them.
+      let waiting = false;
+      if (!fresh && v.next >= 0 && laneGive[L] === 1 && v.box < 0 && remaining < APPROACH_M) {
+        const g = remaining - half - STOP_LINE_M;
+        if (lead1) {
+          if (remaining < CLAIM_M && lead1.box >= 0) this.claim(v); // Platoon: ride the leader's grant, but still show up in the box.
+          else if (!this.canGo(v)) this.follow(v, g, 0, false);
+        } else if (this.canGo(v)) {
+          if (remaining < CLAIM_M + v.v * CLAIM_LEAD_S) this.claim(v);
+        } else if (g > (v.v * v.v) / (2 * MAX_DECEL * 0.7) || v.v < 1.5) {
+          waiting = true;
+          this.follow(v, g, 0, false);
+        } else this.claim(v);
+      }
+      if (waiting && v.v < 0.3) {
+        v.gridWait += dt;
+        if (v.gridWait > RECYCLE_WAIT_S && v.role === ROLE_NONE) {
+          const cx = this.edgeMid[(L >> 1) * 2] - camX;
+          const cz = this.edgeMid[(L >> 1) * 2 + 1] - camZ;
+          if (cx * cx + cz * cz > RECYCLE_CAMERA_M * RECYCLE_CAMERA_M) {
+            this.deadlocks++;
+            this.place(v, camX, camZ);
+            continue;
+          }
+        }
+      } else if (!waiting) v.gridWait = 0;
+
+      // Sirens approaching from behind: pull to the kerb and stop unless that would block a junction.
+      let sirenNear = false;
+      const fx = Math.sin(v.yaw);
+      const fz = Math.cos(v.yaw);
+      if (ns > 0 && v.role === ROLE_NONE && !fresh) {
+        for (let j = 0; j < ns; j++) {
+          if (this.sirenV[j] < SIREN_MIN_SPEED) continue;
+          const dx = this.sirenX[j] - v.x;
+          const dz = this.sirenZ[j] - v.z;
+          const along = dx * fx + dz * fz;
+          if (along > 3 || along < -SIREN_RANGE_M || Math.abs(dx * fz - dz * fx) > SIREN_CORRIDOR_M) continue;
+          if (Math.abs(wrapAngle(this.sirenH[j] - v.yaw)) > 1.1) continue;
+          sirenNear = true;
+          break;
+        }
+      }
+      if (sirenNear) {
+        if (v.yieldT === 0) this.yields++;
+        v.yieldT = YIELD_HOLD_S;
+      } else v.yieldT = Math.max(0, v.yieldT - dt);
+      let yielding = false;
+      if (v.yieldT > 0 && remaining > NO_STOP_NEAR_END_M && v.box < 0 && !frozen) yielding = true;
+      v.pull += ((v.yieldT > 0 || v.hold > 0 ? 1 : 0) - v.pull) * Math.min(1, 2.5 * dt);
+
+      // Any body ahead in our path that the lane lists don't know about (oncoming overtakers, crossing cars).
+      if (!fresh) {
+        const reach = Math.min(22, half + 3 + v.v * 1.6);
+        const cx = Math.floor(v.x / HASH_CELL_M);
+        const cz = Math.floor(v.z / HASH_CELL_M);
+        for (let ox = -1; ox <= 1; ox++) {
+          for (let oz = -1; oz <= 1; oz++) {
+            const b = hashCell(cx + ox, cz + oz);
+            for (let p = hashStart[b]; p < hashStart[b + 1]; p++) {
+              const o = vs[this.hashItems[p]];
+              if (o === v || o.lane === L || o.fresh) continue;
+              const dx = o.x - v.x;
+              const dz = o.z - v.z;
+              const ahead = dx * fx + dz * fz;
+              if (ahead <= 0 || ahead > reach + o.len) continue;
+              const dyaw = o.yaw - v.yaw;
+              const co = Math.cos(dyaw);
+              const si = Math.abs(Math.sin(dyaw));
+              const side = Math.abs(dx * fz - dz * fx);
+              if (side > v.hw + o.hw * Math.abs(co) + o.len * 0.5 * si + 0.3) continue;
+              const gap = ahead - half - (o.len * 0.5 * Math.abs(co) + o.hw * si);
+              if (v.ovt > 0.6 && co < -0.7 && gap > 1) continue;
+              // Two bodies that each see the other ahead (diverging lanes at a node): the lower id goes first.
+              if (v.idx < o.idx && (o.v > 0.5 || gap > 2.5 || (v.stuck > 4 && gap > 1)) && -(dx * Math.sin(o.yaw) + dz * Math.cos(o.yaw)) > 0) continue;
+              // A car already in the box has the right of way over one waiting at its stop line for it.
+              if (v.box >= 0 && o.box < 0 && o.gridWait > 0 && co < 0.7) continue;
+              this.follow(v, gap, o.v * co, true);
+            }
+          }
+        }
+      }
+
+      let acc: number;
+      if (frozen) {
+        v.v = 0;
+        acc = 0;
+      } else {
+        const r = v.v / this.v0cur;
+        acc = IDM_ACCEL * (1 - r * r * r * r) - this.inter;
+        if (yielding) acc = Math.min(acc, v.v > 0.2 ? -YIELD_DECEL : 0);
+        acc = Math.max(-MAX_DECEL, Math.min(IDM_ACCEL, acc));
+        v.v = Math.max(0, v.v + acc * dt);
+        if (yielding && v.v < 0.2) v.v = 0;
+        let ds = v.v * dt;
+        if (this.hardGap - ds < HARD_GAP_M) {
+          ds = Math.max(0, this.hardGap - HARD_GAP_M);
+          v.v = Math.min(v.v, ds / dt);
+        }
+        v.s += ds;
+      }
+      v.braking = acc < -0.8 || frozen;
+
+      v.stuck = v.v < 0.2 && !frozen && v.yieldT === 0 ? v.stuck + dt : 0;
+      if (v.stuck > STUCK_S && v.role === ROLE_NONE) {
+        const cx = this.edgeMid[(L >> 1) * 2] - camX;
+        const cz = this.edgeMid[(L >> 1) * 2 + 1] - camZ;
+        if (v.stuck > STUCK_FORCE_S || cx * cx + cz * cz > RECYCLE_CAMERA_M * RECYCLE_CAMERA_M) {
+          this.deadlocks++;
+          this.place(v, camX, camZ);
+          continue;
+        }
+      }
+
       for (let guard = 0; guard < 3 && v.s >= laneLen[v.lane]; guard++) {
         const carry = v.s - laneLen[v.lane];
         if (v.next < 0) {
           this.place(v, camX, camZ);
           break;
         }
-        this.enter(v, v.next, carry);
+        this.enter(v, v.next, carry, true);
+        // Still inside a clustered junction: the movement to reserve is now this lane's onward turn.
+        if (v.box >= 0 && this.nodeGroup[laneNode[v.lane]] === v.box) {
+          v.boxIn = v.lane;
+          v.boxOut = v.next;
+        }
         const f = this.focus;
         if (
           f &&
@@ -540,22 +1130,133 @@ export class TrafficSim {
 
       const lane = v.lane;
       const laneLength = laneLen[lane];
-      let lateral = this.laneLat[lane];
       const toEnd = laneLength - v.s;
-      if (toEnd < BLEND_M && v.turnOut > 0) lateral *= 1 - (1 - toEnd / BLEND_M) * v.turnOut;
-      if (v.s < BLEND_M && v.turnIn > 0) lateral *= 1 - (1 - v.s / BLEND_M) * v.turnIn;
-      lateral += Math.sign(lateral) * v.pull * PULL_OVER_M;
-      const forward = (lane & 1) === 0;
-      const h = this.net.sample(this.edgeId[lane], forward ? v.s : laneLength - v.s, lateral, out);
-      const yaw = forward ? h : h + Math.PI;
+      let yaw: number;
+      if (v.next >= 0 && v.turnOut > ARC_MIN_TURN && toEnd < Math.min(ARC_M, laneLength * 0.45)) {
+        yaw = this.arcPose(lane, v.next, 0.5 * (1 - toEnd / Math.min(ARC_M, laneLength * 0.45)), out);
+      } else if (v.prev >= 0 && v.turnIn > ARC_MIN_TURN && v.s < Math.min(ARC_M, laneLength * 0.45)) {
+        yaw = this.arcPose(v.prev, lane, 0.5 + 0.5 * (v.s / Math.min(ARC_M, laneLength * 0.45)), out);
+      } else {
+        let lateral = this.laneLat[lane] * (1 - 2 * v.ovt);
+        lateral += Math.sign(this.laneLat[lane]) * v.pull * this.lanePull[lane];
+        const forward = (lane & 1) === 0;
+        const h = this.net.sample(this.edgeId[lane], forward ? v.s : laneLength - v.s, lateral, out);
+        yaw = forward ? h : h + Math.PI;
+      }
+      const nyaw = v.fresh ? yaw : v.yaw + wrapAngle(yaw - v.yaw) * yawBlend;
+      if (this.blocked(v, out[0], out[1], nyaw)) {
+        if (v.fresh) {
+          this.place(v, camX, camZ);
+          continue;
+        }
+        v.lane = lane0;
+        v.s = s0;
+        v.next = next0;
+        v.next2 = next20;
+        v.prev = prev0;
+        v.turnIn = turnIn0;
+        v.turnOut = turnOut0;
+        v.arrive = arrive0;
+        v.gridWait = gridWait0;
+        v.passing = passing0;
+        v.holdAt = holdAt0;
+        v.hold = hold0;
+        v.ovt = ovt0;
+        v.pull = pull0;
+        v.v = 0;
+        v.braking = true;
+        if (v.stuck === 0) v.stuck = dt;
+        this.holds++;
+        continue;
+      }
       v.x = out[0];
       v.z = out[1];
+      v.yaw = nyaw;
       if (v.fresh) {
-        v.yaw = yaw;
         v.fresh = false;
-      } else {
-        v.yaw += wrapAngle(yaw - v.yaw) * yawBlend;
+        if (this.bornN < BORN_CAP) this.born[this.bornN++] = v.idx;
       }
     }
+  }
+
+  /** Overlap and gap statistics for the headless check. Pass a Set to accumulate distinct overlapping pairs across calls. */
+  audit(seen?: Set<number>) {
+    const vs = this.vehicles;
+    let overlaps = 0;
+    let newOverlaps = 0;
+    let minGap = Infinity;
+    let speed = 0;
+    let moving = 0;
+    let active = 0;
+    for (let i = 0; i < vs.length; i++) {
+      const a = vs[i];
+      if (a.parked || a.fresh) continue;
+      active++;
+      speed += a.v;
+      if (a.v > 0.5) moving++;
+      for (let j = i + 1; j < vs.length; j++) {
+        const b = vs[j];
+        if (b.parked || b.fresh) continue;
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        if (dx * dx + dz * dz > 36) continue;
+        if (this.bodiesOverlap(a, b)) {
+          overlaps++;
+          const id = i * 65536 + j;
+          if (seen && !seen.has(id)) {
+            seen.add(id);
+            newOverlaps++;
+          }
+        }
+      }
+    }
+    const live = vs.filter((v) => !v.parked && !v.fresh && v.ovt < 0.3).sort((p, q) => p.lane - q.lane || p.s - q.s);
+    for (let k = 0; k + 1 < live.length; k++) {
+      if (live[k].lane !== live[k + 1].lane) continue;
+      minGap = Math.min(minGap, live[k + 1].s - live[k].s - (live[k].len + live[k + 1].len) * 0.5);
+    }
+    return { active, overlaps, newOverlaps, minGap, meanSpeed: active ? speed / active : 0, moving };
+  }
+
+  /** Overlap test for the audit and the move guard: footprints shrunk a little so touching bumpers don't count. */
+  bodiesOverlap(a: Vehicle, b: Vehicle, shrink = 0.15): boolean {
+    return rectsOverlap(
+      a.x, a.z, a.yaw, a.hw - shrink, a.len * 0.5 - shrink,
+      b.x, b.z, b.yaw, b.hw - shrink, b.len * 0.5 - shrink,
+    );
+  }
+
+  /**
+   * Would `v` standing at (nx, nz) facing `nyaw` overlap another body? Bodies that already overlap `v` may
+   * only move apart, so nothing is ever pushed deeper. A car that can't move holds instead of crashing.
+   */
+  private blocked(v: Vehicle, nx: number, nz: number, nyaw: number): boolean {
+    const vs = this.vehicles;
+    const cx = Math.floor(nx / HASH_CELL_M);
+    const cz = Math.floor(nz / HASH_CELL_M);
+    const hashStart = this.hashStart;
+    const n = this.bornN;
+    for (let ox = -1; ox <= 1; ox++) {
+      for (let oz = -1; oz <= 1; oz++) {
+        const b = hashCell(cx + ox, cz + oz);
+        for (let p = hashStart[b]; p < hashStart[b + 1]; p++) if (this.hits(v, vs[this.hashItems[p]], nx, nz, nyaw)) return true;
+      }
+    }
+    for (let p = 0; p < n; p++) if (this.hits(v, vs[this.born[p]], nx, nz, nyaw)) return true;
+    return false;
+  }
+
+  private hits(v: Vehicle, o: Vehicle, nx: number, nz: number, nyaw: number): boolean {
+    if (o === v) return false;
+    const dx = o.x - nx;
+    const dz = o.z - nz;
+    const reach = (v.len + o.len) * 0.5 + 0.6;
+    if (dx * dx + dz * dz > reach * reach) return false;
+    if (!rectsOverlap(nx, nz, nyaw, v.hw - MOVE_SHRINK_M, v.len * 0.5 - MOVE_SHRINK_M, o.x, o.z, o.yaw, o.hw - MOVE_SHRINK_M, o.len * 0.5 - MOVE_SHRINK_M)) return false;
+    if (v.fresh) return true;
+    const px = o.x - v.x;
+    const pz = o.z - v.z;
+    if (!rectsOverlap(v.x, v.z, v.yaw, v.hw - MOVE_SHRINK_M, v.len * 0.5 - MOVE_SHRINK_M, o.x, o.z, o.yaw, o.hw - MOVE_SHRINK_M, o.len * 0.5 - MOVE_SHRINK_M)) return true;
+    return dx * dx + dz * dz < px * px + pz * pz - 1e-4;
   }
 }

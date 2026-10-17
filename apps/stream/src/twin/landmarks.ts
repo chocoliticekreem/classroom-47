@@ -2,7 +2,8 @@
  * Real London landmarks as pure data. Positions are lat/lon (use toLocal for metres); headings are
  * compass bearings of the long axis (0 = north, clockwise). Heights are metres.
  */
-import { toLocal, type Ring } from "./config";
+import { currentOrigin, insideGeometryBounds, toLocal, TOWER_HILL, type Ring } from "./config";
+import { distanceM } from "@/platform/around/geo";
 
 export type LandmarkKind =
   | "suspension-bridge"
@@ -32,9 +33,9 @@ export const LANDMARKS = {
   towerOfLondon: { id: "tower-of-london", name: "Tower of London", lat: 51.5081, lon: -0.0759, kind: "castle", headingDeg: 0, length: 220, width: 190, height: 27 },
   shard: { id: "shard", name: "The Shard", lat: 51.5045, lon: -0.0865, kind: "tower", headingDeg: 0, length: 55, width: 55, height: 310 },
   gherkin: { id: "gherkin", name: "30 St Mary Axe", lat: 51.5145, lon: -0.0803, kind: "tower", headingDeg: 0, length: 56, width: 56, height: 180 },
-  walkieTalkie: { id: "walkie-talkie", name: "20 Fenchurch Street", lat: 51.5112, lon: -0.0835, kind: "tower", headingDeg: 18, length: 52, width: 38, height: 160 },
-  cheesegrater: { id: "cheesegrater", name: "122 Leadenhall Street", lat: 51.5148, lon: -0.0805, kind: "tower", headingDeg: 28, length: 45, width: 42, height: 225 },
-  tower42: { id: "tower-42", name: "Tower 42", lat: 51.5155, lon: -0.0841, kind: "tower", headingDeg: 0, length: 40, width: 40, height: 183 },
+  walkieTalkie: { id: "walkie-talkie", name: "20 Fenchurch Street", lat: 51.51129, lon: -0.08354, kind: "tower", headingDeg: 0, length: 64, width: 56, height: 160 },
+  cheesegrater: { id: "cheesegrater", name: "122 Leadenhall Street", lat: 51.513, lon: -0.07996, kind: "tower", headingDeg: 0, length: 68, width: 52, height: 225 },
+  tower42: { id: "tower-42", name: "Tower 42", lat: 51.5152, lon: -0.08392, kind: "tower", headingDeg: 0, length: 56, width: 60, height: 183 },
   stPauls: { id: "st-pauls", name: "St Paul's Cathedral", lat: 51.5138, lon: -0.0984, kind: "dome", headingDeg: 90, length: 158, width: 75, height: 111 },
   hmsBelfast: { id: "hms-belfast", name: "HMS Belfast", lat: 51.5066, lon: -0.0813, kind: "ship", headingDeg: 107, length: 187, width: 20, height: 36 },
   cityHall: { id: "city-hall", name: "City Hall", lat: 51.5048, lon: -0.0786, kind: "tower", headingDeg: 0, length: 52, width: 56, height: 45 },
@@ -44,6 +45,28 @@ export const LANDMARKS = {
 
 export function landmarkPos(l: Landmark): [number, number] {
   return toLocal(l.lat, l.lon);
+}
+
+/** Beyond this the fog has swallowed even the towers, so the meshes are not built. */
+export const LANDMARK_RANGE_M = 3000;
+
+export function landmarkInRange(l: { lat: number; lon: number }, range = LANDMARK_RANGE_M): boolean {
+  const o = currentOrigin();
+  return distanceM(o.lat, o.lon, l.lat, l.lon) <= range;
+}
+
+/**
+ * Where Tower Hill sits in the current frame: hand-placed Tower Hill-local metres (Tower of London
+ * walls, viaducts, Bankside plots) are rendered under a group at this offset. [0, 0] at Tower Hill.
+ */
+export function towerHillOffset(): [number, number] {
+  return toLocal(TOWER_HILL.lat, TOWER_HILL.lon);
+}
+
+/** True when the Tower Hill-local hand-placed models are within the loaded area. */
+export function towerHillInRange(): boolean {
+  const [x, z] = towerHillOffset();
+  return insideGeometryBounds(x, z);
 }
 
 /** Compass bearing of a long axis → Three.js yaw for geometry whose long axis is local z. */
@@ -118,8 +141,11 @@ function smooth(edge: number, v: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** Height of the viaduct deck above ground at (x, z); 0 where rail runs at ground level. */
+/** Height of the viaduct deck above ground at (x, z) in the current frame; 0 where rail runs at ground level. */
 export function railHeight(x: number, z: number): number {
+  const [ox, oz] = towerHillOffset();
+  x -= ox;
+  z -= oz;
   let best = 0;
   for (const zone of ELEVATED_RAIL) {
     const dx = Math.min(x - zone.x0, zone.x1 - x);

@@ -21,7 +21,6 @@ const goalPos = new THREE.Vector3();
 const goalTarget = new THREE.Vector3();
 const streamerGoal = new THREE.Vector3();
 const _look = new THREE.Vector3();
-const toLocalBridge = toLocal(TOWER_BRIDGE.lat, TOWER_BRIDGE.lon);
 
 /**
  * Vertical FOV for the compare half so the real frame's field of view fits it the way the <video>
@@ -51,8 +50,9 @@ export function CameraRig() {
   const preset = useCameraStore((s) => s.preset);
   const cctv = useCameraStore((s) => s.cctv);
   const snap = useCameraStore((s) => s.snap);
+  const cinematic = useCameraStore((s) => s.cinematic);
   const { gl, size, camera: sceneCamera } = useThree();
-  const firstPerson = !cctv && preset === "streamer";
+  const firstPerson = !cctv && !cinematic && preset === "streamer";
 
   const fp = useRef({ yaw: 0, travelYaw: 0, hasTravel: false, dragYaw: 0, dragPitch: 0, dragging: false, lastX: 0, lastY: 0 });
 
@@ -73,6 +73,12 @@ export function CameraRig() {
       flying.current = true;
       return;
     }
+    if (cinematic) {
+      goalPos.set(...cinematic.pos);
+      goalTarget.set(...cinematic.target);
+      flying.current = true;
+      return;
+    }
     if (preset === "streamer") {
       flying.current = false;
       fp.current.dragYaw = 0;
@@ -82,7 +88,7 @@ export function CameraRig() {
     goalPos.set(...PRESETS[preset].pos);
     goalTarget.set(...PRESETS[preset].target);
     flying.current = true;
-  }, [flight, preset, cctv, snap, sceneCamera, size.width, size.height]);
+  }, [flight, preset, cctv, snap, cinematic, sceneCamera, size.width, size.height]);
 
   const projectionDirty = useRef(true);
   useEffect(() => {
@@ -146,6 +152,7 @@ export function CameraRig() {
         cam.setViewOffset(size.width / 2, size.height, -size.width / 2, 0, size.width, size.height);
       } else {
         cam.fov = firstPerson ? STREAMER_FOV : DEFAULT_FOV;
+        cam.aspect = size.width / size.height;
         cam.clearViewOffset();
       }
       cam.updateProjectionMatrix();
@@ -161,7 +168,7 @@ export function CameraRig() {
       const f = fp.current;
       const k = 1 - Math.exp(-3 * step);
       camera.position.lerp(streamerGoal, k);
-      const [bx, bz] = toLocalBridge;
+      const [bx, bz] = toLocal(TOWER_BRIDGE.lat, TOWER_BRIDGE.lon);
       const baseYaw = f.hasTravel ? f.travelYaw : bearingRad(camera.position.x, camera.position.z, bx, bz);
       f.yaw = lerpAngle(f.yaw, baseYaw, 1 - Math.exp(-2 * step));
       const yaw = f.yaw + f.dragYaw;

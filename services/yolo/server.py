@@ -439,6 +439,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, jpg, "image/jpeg")
             else:
                 self._send(404, b'{"error":"no frame yet"}', "application/json")
+        elif url.path == "/follow/state":
+            s = get_session(q.get("session", [""])[0], create=False)
+            body = s.state() if s else {"people": [], "followers": 0}
+            self._send(200, json.dumps(body).encode(), "application/json")
         elif url.path == "/clip":
             with state_lock:
                 mp4 = clip_bytes.get(q.get("id", [""])[0])
@@ -446,10 +450,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, mp4, "video/mp4")
             else:
                 self._send(404, b'{"error":"no clip yet"}', "application/json")
-        elif url.path == "/follow/state":
-            s = get_session(q.get("session", [""])[0], create=False)
-            body = s.state() if s else {"people": [], "followers": 0}
-            self._send(200, json.dumps(body).encode(), "application/json")
         elif url.path == "/health":
             self._send(200, b'{"ok":true}', "application/json")
         else:

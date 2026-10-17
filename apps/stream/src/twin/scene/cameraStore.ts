@@ -25,15 +25,20 @@ interface CameraState {
   cctv: CctvPose | null;
   /** Jump straight to the CCTV pose instead of flying (used while aligning a pose by hand). */
   snap: boolean;
+  /** A scripted shot (Predict replay): the rig flies here and ignores the preset until cleared. */
+  cinematic: { pos: [number, number, number]; target: [number, number, number] } | null;
   fly: (preset: CameraPreset) => void;
   setCctv: (pose: CctvPose | null, snap?: boolean) => void;
+  setCinematic: (shot: CameraState["cinematic"]) => void;
 }
 
 export const useCameraStore = create<CameraState>((set) => ({
-  preset: "aerial",
+  preset: "streamer",
   flight: 0,
   cctv: null,
   snap: false,
-  fly: (preset) => set((s) => ({ preset, flight: s.flight + 1, cctv: null, snap: false })),
-  setCctv: (cctv, snap = false) => set((s) => ({ cctv, snap, flight: s.flight + 1 })),
+  cinematic: null,
+  fly: (preset) => set((s) => ({ preset, flight: s.flight + 1, cctv: null, snap: false, cinematic: null })),
+  setCctv: (cctv, snap = false) => set((s) => ({ cctv, snap, flight: s.flight + 1, cinematic: null })),
+  setCinematic: (cinematic) => set((s) => ({ cinematic, flight: s.flight + 1 })),
 }));

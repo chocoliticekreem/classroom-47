@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { AroundCam, TrackedObject } from "@/platform/around/types";
 import { bearingDeg } from "@/platform/around/flows";
-import { ORIGIN, toLocal } from "../config";
+import { currentOrigin, toLocal } from "../config";
 import CALIBRATION from "./calibration.json";
 
 /**
@@ -54,7 +54,7 @@ export function currentPose(cam: AroundCam): CamCalibration {
 }
 
 export function camHeadingDeg(cam: AroundCam) {
-  return calibrationFor(cam.id)?.headingDeg ?? cam.heading ?? bearingDeg(cam.lat, cam.lon, ORIGIN.lat, ORIGIN.lon);
+  return calibrationFor(cam.id)?.headingDeg ?? cam.heading ?? bearingDeg(cam.lat, cam.lon, currentOrigin().lat, currentOrigin().lon);
 }
 
 export interface CamFrame {

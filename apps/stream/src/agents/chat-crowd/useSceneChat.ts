@@ -1,25 +1,24 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { ChatMessage, Persona, StreamContext, StreamSource } from "@/lib/types";
-import { PERSONAS } from "./personas";
-import type { SceneRequest, SceneResponse } from "./scene";
+import type { ChatMessage, StreamContext, StreamSource } from "@/lib/types";
+import { crowdAvailable, requestCrowd, useChatBackend, useSurroundingsRef, type ChatBackend } from "@/platform/chat/crowd";
+import { linesFromResponse, pickCast, plannedMessage, surgeIntensity } from "./engine";
+import type { SceneRequest } from "./scene";
 
 const INTERVAL_MS = 12_000;
-const MAX_BACKOFF_MS = 120_000;
+const FIRST_TICK_MS = 3_000;
 const FRAME_WIDTH = 640;
 const FRAME_QUALITY = 0.7;
-const PERSONAS_PER_CALL = 10;
-const TOPIC_COUNT = 8;
-
-function pickPersonas(count: number): Persona[] {
-  const pool = [...PERSONAS];
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
-  }
-  return pool.slice(0, count);
-}
+const RECENT_LINES = 12;
+const MIN_LINES = 6;
+const MAX_LINES = 8;
+/** Server work is a text call (8 s), plus a vision call (8 s) and, for a remote clip, an ffmpeg grab (8 s). */
+const TEXT_ONLY_TIMEOUT_MS = 11_000;
+const FRAME_TIMEOUT_MS = 20_000;
+const CLIP_TIMEOUT_MS = 28_000;
+/** Grabbing a frame from a remote clip costs an ffmpeg run, so only every few ticks. */
+const CLIP_FRAME_EVERY = 3;
 
 /** JPEG data URI from the live <video>, or null when there is no decodable frame or the canvas is tainted. */
 function captureFrame(): string | null {
@@ -40,19 +39,21 @@ function captureFrame(): string | null {
 }
 
 /**
- * Every 12 s while live and visible: look at the stream, ask /api/chat/scene what viewers would
- * say about it, and drip those lines into chat on top of the template crowd. Backs off on
- * errors and goes quiet for good when the server has no W&B key.
+ * Every ~12 s while live and visible, ask /api/chat/scene what the persona crowd would say right now:
+ * from the video frame when one can be read, from the chat and the place alone otherwise. The lines
+ * drip into chat on top of the local crowd. Goes quiet while the server has no W&B key or a call failed.
+ * Returns which backend is writing chat, for the UI badge.
  */
 export function useSceneChat(
   ctx: StreamContext,
   source: StreamSource,
   messages: ChatMessage[],
   inject: (batch: ChatMessage[]) => void,
-): void {
+): ChatBackend {
+  const backend = useChatBackend();
+  const surroundings = useSurroundingsRef();
   const ctxRef = useRef(ctx);
   const messagesRef = useRef(messages);
-  const disabledRef = useRef(false);
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
 
   useEffect(() => {
@@ -63,90 +64,65 @@ export function useSceneChat(
   const sourceUrl = source.kind === "url" ? source.url : null;
 
   useEffect(() => {
-    if (!ctx.live || disabledRef.current) return;
+    if (!ctx.live) return;
     let cancelled = false;
-    let delay = INTERVAL_MS;
+    let ticks = 0;
     let next: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
     const pending = timers.current;
 
-    const schedule = () => {
-      if (!cancelled) next = setTimeout(tick, delay);
-    };
-
-    const drip = (res: SceneResponse, personas: Persona[]) => {
-      const byName = new Map(personas.map((p) => [p.username, p]));
-      let offset = 400;
-      res.lines.forEach((line, i) => {
-        const persona = byName.get(line.username);
-        if (!persona) return;
-        offset += i === 0 ? 0 : 600 + Math.random() * 700;
-        const at = Date.now() + offset;
-        const t = setTimeout(() => {
-          pending.delete(t);
-          if (!ctxRef.current.live) return;
-          inject([
-            {
-              id: `sc-${at}-${i}`,
-              personaId: persona.id,
-              username: persona.username,
-              color: persona.color,
-              badges: persona.badges,
-              text: line.text,
-              timestamp: Date.now(),
-              locationSignal: line.locationSignal || undefined,
-              scene: res.scene,
-            },
-          ]);
-        }, offset);
-        pending.add(t);
-      });
+    const schedule = (delay: number) => {
+      if (!cancelled) next = setTimeout(tick, delay * (0.8 + Math.random() * 0.4));
     };
 
     const tick = async () => {
       if (cancelled) return;
-      if (document.hidden) return schedule();
-      const frame = captureFrame();
-      if (!frame && !sourceUrl) return schedule();
+      if (document.hidden || !crowdAvailable()) return schedule(INTERVAL_MS);
 
-      const personas = pickPersonas(PERSONAS_PER_CALL);
       const current = ctxRef.current;
+      const recent = messagesRef.current.slice(-RECENT_LINES);
+      const now = Date.now();
+      const count = Math.min(MAX_LINES, MIN_LINES + Math.floor(current.viewers / 2000));
+      const cast = pickCast(
+        "ambient",
+        count,
+        new Set(recent.map((m) => m.username)),
+        Math.random,
+        surgeIntensity(current, now) > 0,
+      );
+
+      const frame = captureFrame();
+      const useClip = !frame && sourceUrl !== null && ticks % CLIP_FRAME_EVERY === 0;
+      ticks += 1;
       const body: SceneRequest = {
         frame: frame ?? undefined,
-        videoUrl: frame ? undefined : (sourceUrl ?? undefined),
+        videoUrl: useClip ? (sourceUrl ?? undefined) : undefined,
         location: { name: current.location.name, area: current.location.area },
         viewers: current.viewers,
-        topics: messagesRef.current
-          .filter((m) => !m.scene && !m.fromStreamer)
-          .slice(-TOPIC_COUNT)
-          .map((m) => m.text),
-        personas: personas.map((p) => ({ username: p.username, archetype: p.archetype })),
+        event: "ambient",
+        leaked: current.locationRevealedAt != null,
+        surroundings: surroundings.current,
+        recent: recent.map((m) => ({ username: m.username, text: m.text })),
+        personas: cast.map((p) => ({ username: p.username, archetype: p.archetype })),
+        count,
       };
+      const timeoutMs = frame ? FRAME_TIMEOUT_MS : useClip ? CLIP_TIMEOUT_MS : TEXT_ONLY_TIMEOUT_MS;
 
-      try {
-        const res = await fetch("/api/chat/scene", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: controller.signal,
+      const res = await requestCrowd(body, timeoutMs, controller.signal);
+      if (cancelled) return;
+      if (res) {
+        linesFromResponse(res, cast, 400).forEach((line) => {
+          const t = setTimeout(() => {
+            pending.delete(t);
+            if (ctxRef.current.live) inject([plannedMessage(line, Date.now())]);
+          }, line.delayMs);
+          pending.add(t);
         });
-        if (res.status === 501) {
-          disabledRef.current = true;
-          return;
-        }
-        if (!res.ok) throw new Error(`scene route ${res.status}`);
-        const data = (await res.json()) as SceneResponse;
-        if (!cancelled) drip(data, personas);
-        delay = INTERVAL_MS;
-      } catch (err) {
-        if (cancelled) return;
-        delay = Math.min(MAX_BACKOFF_MS, delay * 2);
-        if (process.env.NODE_ENV === "development") console.warn("[scene-chat]", err, `retry in ${delay / 1000}s`);
       }
-      schedule();
+      schedule(INTERVAL_MS);
     };
 
-    next = setTimeout(tick, 2_000);
+    next = setTimeout(tick, FIRST_TICK_MS);
     return () => {
       cancelled = true;
       controller.abort();
@@ -154,5 +130,7 @@ export function useSceneChat(
       pending.forEach(clearTimeout);
       pending.clear();
     };
-  }, [ctx.live, sourceUrl, inject]);
+  }, [ctx.live, sourceUrl, inject, surroundings]);
+
+  return backend;
 }

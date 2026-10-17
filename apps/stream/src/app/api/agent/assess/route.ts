@@ -1,9 +1,9 @@
 import type { NextRequest } from "next/server";
-import type { AroundCam, AroundDisruption, CamReading } from "@/platform/around/types";
+import type { AroundAir, AroundCam, AroundCrime, AroundDisruption, AroundStation, CamReading } from "@/platform/around/types";
 import type { AdviceLevel, AssessRequest, Assessment } from "@/platform/agent/types";
 import type { FieldResponse } from "@/twin/field/types";
+import { AGENT_URL } from "@/platform/agent/agentUrl";
 
-const AGENT_URL = process.env.AGENT_URL ?? "http://video-lab-team-47.cosmos.vastdata.com/app";
 const WANDB_BASE_URL = process.env.WANDB_BASE_URL ?? "https://api.inference.wandb.ai/v1";
 const WANDB_MODEL = process.env.WANDB_MODEL ?? "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B";
 const HOT_PEDS = 6;
@@ -41,14 +41,31 @@ interface LocalSignals {
   cams: { name: string; people: number; vehicles: number; distanceM: number }[];
   closures: string[];
   hotspots: string[];
+  /** TfL live station crowding as a share of a normal day, plus any line not on Good Service. */
+  stations: { name: string; distanceM: number; crowdingShareOfNormal: number | null; lineProblems: string[] }[];
+  /** police.uk street-level crime for the latest published month within 600 m. */
+  crimeLastMonth: { month: string; total: number; topCategories: string[]; topStreets: string[] } | null;
+  airQuality: { europeanAqi: number; band: string } | null;
 }
+
+const NO_SIGNALS: LocalSignals = {
+  cams: [],
+  closures: [],
+  hotspots: [],
+  stations: [],
+  crimeLastMonth: null,
+  airQuality: null,
+};
 
 async function localSignals(origin: string, loc: { lat: number; lon: number }): Promise<LocalSignals> {
   const q = `lat=${loc.lat}&lon=${loc.lon}`;
-  const [{ cams }, disruptions, field] = await Promise.all([
+  const [{ cams }, disruptions, field, { stations }, crime, air] = await Promise.all([
     getJson<{ cams: AroundCam[] }>(`${origin}/api/around/cams?${q}&radius=500`, { cams: [] }),
     getJson<{ items: AroundDisruption[] }>(`${origin}/api/around/disruptions?${q}&radius=400`, { items: [] }),
     getJson<FieldResponse | null>(`${origin}/api/twin/field`, null),
+    getJson<{ stations: AroundStation[] }>(`${origin}/api/around/stations?${q}&radius=600`, { stations: [] }),
+    getJson<AroundCrime | null>(`${origin}/api/around/crime?${q}&radius=600`, null),
+    getJson<AroundAir | null>(`${origin}/api/around/air?${q}`, null),
   ]);
   const near = cams.slice(0, 4);
   const { readings } = near.length
@@ -74,6 +91,22 @@ async function localSignals(origin: string, loc: { lat: number; lon: number }): 
       .map((c) => ({ name: c.name, people: byId.get(c.id)!.people, vehicles: byId.get(c.id)!.vehicles, distanceM: c.distanceM })),
     closures: (disruptions.items ?? []).filter((d) => /closed/i.test(d.closure)).map((d) => d.street),
     hotspots: [...hotspots],
+    stations: (stations ?? []).slice(0, 3).map((s) => ({
+      name: s.name,
+      distanceM: s.distanceM,
+      crowdingShareOfNormal: s.crowding,
+      lineProblems: s.lines.filter((l) => l.status !== "Good Service").map((l) => `${l.name}: ${l.status}`),
+    })),
+    crimeLastMonth:
+      crime && crime.month
+        ? {
+            month: crime.month,
+            total: crime.total,
+            topCategories: crime.byCategory.slice(0, 3).map((c) => `${c.category} ${c.count}`),
+            topStreets: crime.streets.slice(0, 3).map((s) => `${s.name} ${s.count}`),
+          }
+        : null,
+    airQuality: air ? { europeanAqi: air.eaqi, band: air.band } : null,
   };
 }
 
@@ -87,7 +120,8 @@ async function askLocalLlm(body: AssessRequest, signals: LocalSignals): Promise<
   const system =
     "You advise an IRL livestreamer walking through London. Answer ONLY as JSON: " +
     '{"level":"calm"|"busy"|"danger","advice":string (1-2 sentences, second person, concrete),"reasons":string[] (max 3, each cites a number from the signals)}. ' +
-    "Levels: calm = under 8 people on the nearest camera and no closures; busy = 8-19 people or a closure nearby; danger = 20+ people, a crowd forming, or a serious incident. Never invent signals.";
+    "Levels: calm = under 8 people on the nearest camera and no closures; busy = 8-19 people or a closure nearby; danger = 20+ people, a crowd forming, or a serious incident. " +
+    "Station crowding over 1.2 means a busier-than-normal station. Crime figures are last month's, context not a live threat. Never invent signals.";
   const user = JSON.stringify({
     question: body.question,
     location: body.location,
@@ -95,6 +129,9 @@ async function askLocalLlm(body: AssessRequest, signals: LocalSignals): Promise<
     liveCameras: signals.cams,
     roadClosures: signals.closures,
     estimatedCrowdHotspots: signals.hotspots,
+    stations: signals.stations,
+    crimeLastMonth: signals.crimeLastMonth,
+    airQuality: signals.airQuality,
     time: new Date().toLocaleString("en-GB", { timeZone: "Europe/London" }),
   });
   try {
@@ -147,7 +184,7 @@ export async function POST(request: NextRequest) {
   const loc = body.location ?? null;
   const [cluster, signals] = await Promise.all([
     askCluster(body),
-    loc ? localSignals(origin, loc) : Promise.resolve<LocalSignals>({ cams: [], closures: [], hotspots: [] }),
+    loc ? localSignals(origin, loc) : Promise.resolve<LocalSignals>(NO_SIGNALS),
   ]);
   const liveCams = signals.cams.length || (body.yolo ? 1 : 0);
   if (cluster) {

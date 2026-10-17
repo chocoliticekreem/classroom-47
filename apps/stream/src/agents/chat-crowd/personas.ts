@@ -53,7 +53,17 @@ const SEEDS: Record<Archetype, Seed[]> = {
     ["simpforthestream", "#c084fc", ["sub"], 6],
     ["fanclubfran", "#b47cff", ["sub", "verified"], 20],
   ],
-  troll: [
+  opportunist: [
+    ["clout_cadet", "#ffd23d"],
+    ["pullupprince", "#ffb020"],
+    ["giveawaygary", "#ffc23d", ["sub"], 1],
+    ["backgroundbenji", "#ffcc33"],
+    ["tiktokthierry", "#ffa53d"],
+    ["omw_olu", "#ff9933"],
+    ["clipfarmerfinn", "#ffd966"],
+    ["meetupmaz", "#ffb84d"],
+  ],
+  hater: [
     ["ratio_rob", "#ff4d6d"],
     ["mid_stream_mike", "#ff5c7a"],
     ["L_plus_bozo", "#ff3d5c"],
@@ -69,6 +79,17 @@ const SEEDS: Record<Archetype, Seed[]> = {
     ["safetymod_sara", "#a3a9ff", ["mod", "sub"], 15],
     ["c47_mod", "#8a95ff", ["mod"]],
   ],
+};
+
+/** What each archetype sounds like. Sent to the model with every batch and used to pick local lines. */
+export const ARCHETYPE_VOICE: Record<Archetype, string> = {
+  hype: "loud, short, excited about the walk and the place; cheers, never negative",
+  opportunist: "wants to be on camera or get something out of the crowd; pulls up, brings mates, asks for giveaways and meet-ups, hypes anything that draws people",
+  hater: "dry, sarcastic, unimpressed; mocks the idea or says it is a bad plan; never abusive, never about looks or identity",
+  local: "knows London and the area; warns about crowds, narrow pavements, transport, closures; practical and a bit weary",
+  superfan: "adores the streamer; warm, caring, a little worried about their safety",
+  questioner: "curious or confused; asks one short specific question about the place, the plan or what is on screen",
+  mod: "calm and official; reminds chat of the rules and asks people to be safe and not pile on",
 };
 
 export const PERSONAS: Persona[] = (Object.keys(SEEDS) as Archetype[]).flatMap((archetype) =>

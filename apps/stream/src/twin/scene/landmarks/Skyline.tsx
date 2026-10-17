@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import * as THREE from "three";
-import { bearingToYaw, LANDMARKS, landmarkPos, type Landmark } from "../../landmarks";
+import { bearingToYaw, LANDMARKS, landmarkInRange, landmarkPos, type Landmark } from "../../landmarks";
 import { Kit, KitMeshes, scaleUV, winBoxGeometry, winCylinder } from "./kit";
 
 function shard(kit: Kit) {
@@ -43,9 +43,10 @@ function flared(kit: Kit, w: number, h: number, d: number, topW: number, topD: n
 }
 
 function walkieTalkie(kit: Kit) {
-  flared(kit, 34, 160, 34, 54, 40, 0, 0);
-  kit.box("lamp", 54, 1.4, 40, 0, 160, 0);
-  kit.winBox("glass", 40, 10, 30, 0, 160, 0, 0, 3);
+  flared(kit, 40, 160, 48, 58, 62, 0, 0);
+  kit.box("stone", 58.6, 1.4, 62.6, 0, 160, 0);
+  kit.box("lamp", 58.8, 0.3, 62.8, 0, 161.4, 0);
+  kit.winBox("glass", 44, 10, 46, 0, 161.7, 0, 0, 3);
 }
 
 function cheesegrater(kit: Kit) {
@@ -59,14 +60,14 @@ function cheesegrater(kit: Kit) {
   g.translate(-21, 0, -22.5);
   kit.add("glassW", g);
   kit.winBox("glass", 12, 225, 18, -27, 0, 0, 0, 4);
-  kit.box("lamp", 8, 0.8, 45, -17, 225, 0);
+  kit.add("beacon", new THREE.SphereGeometry(1, 8, 6), -18, 227, 0);
 }
 
 function tower42(kit: Kit) {
   const stages: [number, number, number][] = [
-    [20, 0, 100],
-    [16, 100, 52],
-    [11, 152, 32],
+    [25, 0, 100],
+    [20, 100, 52],
+    [13, 152, 32],
   ];
   for (const [r, y, h] of stages) {
     kit.add("glass", winCylinder(r, r, h, 8), 0, y + h / 2, 0, Math.PI / 8);
@@ -163,7 +164,7 @@ function Piece({ landmark, build }: { landmark: Landmark; build: (kit: Kit) => v
 export function Skyline() {
   return (
     <>
-      {PIECES.map((p) => (
+      {PIECES.filter((p) => landmarkInRange(p.landmark)).map((p) => (
         <Piece key={p.landmark.id} {...p} />
       ))}
     </>

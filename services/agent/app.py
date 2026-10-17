@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import base64
+import datetime as dt
 import json
 import os
+import shutil
 import sys
+import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -64,10 +68,22 @@ class Config:
         self.wandb_model = env_str("WANDB_MODEL", "Qwen/Qwen3.8-27B")
         self.top_k = env_int("VSS_TOP_K", 8)
         self.min_similarity = env_float("VSS_MIN_SIMILARITY", 0.3)
+        self.enrich_top = env_int("VSS_ENRICH_TOP", 3)
+        # VastDB data VIP and keys, names as in /config/<team>.config (vast-database skills).
+        self.s3_endpoint = env_str("S3_ENDPOINT").rstrip("/")
+        self.access_key = env_str("ACCESS_KEY")
+        self.secret_key = env_str("SECRET_KEY")
+        self.vastdb_bucket = env_str("VASTDB_BUCKET")
+        self.vdb_schema = env_str("VDB_SCHEMA", "vss-schema")
+        self.verdicts_table = env_str("VERDICTS_TABLE", "classroom47_verdicts")
 
     @property
     def vss_configured(self) -> bool:
         return bool(self.ingress_url and self.username and self.password)
+
+    @property
+    def vastdb_configured(self) -> bool:
+        return bool(self.s3_endpoint and self.access_key and self.secret_key and self.vastdb_bucket)
 
     @property
     def wandb_configured(self) -> bool:
@@ -131,12 +147,36 @@ class VssClient:
         headers = {"Authorization": f"Bearer {self.token()}"}
         return http_json("POST", f"{CFG.ingress_url}{path}", body, headers, "vss")
 
-    def search(self, query: str) -> list[dict]:
+    def get(self, path: str, params: dict[str, str]) -> Any:
+        headers = {"Authorization": f"Bearer {self.token()}"}
+        return http_json("GET", f"{CFG.ingress_url}{path}?{urllib.parse.urlencode(params)}", None, headers, "vss")
+
+    def search(self, query: str, top_k: int | None = None) -> list[dict]:
         data = self.post(
             "/api/v1/search",
-            {"query": query, "top_k": CFG.top_k, "min_similarity": CFG.min_similarity},
+            {"query": query, "top_k": top_k or CFG.top_k, "min_similarity": CFG.min_similarity},
         )
         return [normalize_moment(m) for m in extract_list(data)]
+
+    def detections(self, source: str) -> dict:
+        data = self.get("/api/v1/tools/detections", {"source": source})
+        return data if isinstance(data, dict) else {}
+
+    def segments(self, original_video: str) -> list[dict]:
+        data = self.get("/api/v1/tools/segments", {"original_video": original_video})
+        return extract_list(data)
+
+    def open_stream(self, source: str, range_header: str | None):
+        params = {"source": source, "token": self.token()}
+        req = urllib.request.Request(f"{CFG.ingress_url}/api/v1/videos/stream?{urllib.parse.urlencode(params)}")
+        if range_header:
+            req.add_header("Range", range_header)
+        try:
+            return urllib.request.urlopen(req, timeout=CFG.timeout_s)
+        except urllib.error.HTTPError as exc:
+            raise UpstreamError("vss", f"HTTP {exc.code} from videos/stream") from None
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise UpstreamError("vss", f"{type(exc).__name__} reaching videos/stream") from None
 
     def search_and_answer(self, query: str) -> tuple[str, list[dict]]:
         data = self.post("/api/v1/agent/search-and-answer", {"query": query, "top_k": CFG.top_k})
@@ -202,6 +242,9 @@ def parse_counts(raw: object) -> dict:
 def normalize_moment(m: dict) -> dict:
     return {
         "video": str(first(m, "filename", "original_video", "video", "video_name", "source", "file", default="")),
+        "source": str(first(m, "source", "preview_source", default="")),
+        "original_video": str(first(m, "original_video", default="")),
+        "location": str(first(m, "location", default="")),
         "start_s": to_float(first(m, "segment_start_sec", "start_s", "start", "start_time", "start_sec")),
         "end_s": to_float(first(m, "segment_end_sec", "end_s", "end", "end_time", "end_sec")),
         "description": str(
@@ -223,6 +266,66 @@ def dedupe(moments: list[dict]) -> list[dict]:
         seen.add(key)
         out.append(m)
     return out[: CFG.top_k]
+
+
+def people_timeline(detections: dict) -> list[dict]:
+    # One point per second: how many people YOLO saw in that frame.
+    fps = to_float(detections.get("fps")) or 30.0
+    step = max(1, int(round(fps)))
+    out = []
+    for frame in detections.get("frames") or []:
+        if not isinstance(frame, dict) or int(frame.get("frame_index", 0)) % step:
+            continue
+        dets = frame.get("detections") or []
+        people = sum(1 for d in dets if isinstance(d, dict) and d.get("label") == "person")
+        out.append({"t": to_float(frame.get("time_sec")), "people": people})
+    return out
+
+
+def enrich_moment(m: dict) -> dict:
+    # Official agent tools (retrieval/agent-qa): per-frame YOLO boxes and the parent video's timeline.
+    tools: dict[str, Any] = {}
+    if m["source"]:
+        try:
+            det = VSS.detections(m["source"])
+            timeline = people_timeline(det)
+            tools["people_timeline"] = timeline
+            tools["people_peak"] = max((p["people"] for p in timeline), default=0)
+            tools["detection_count"] = det.get("detection_count")
+            tools["max_detection_conf"] = det.get("max_detection_conf")
+        except UpstreamError as exc:
+            tools["detections_error"] = exc.detail
+    if m["original_video"]:
+        try:
+            segs = VSS.segments(m["original_video"])
+            tools["context"] = [
+                {
+                    "segment": s.get("segment_number"),
+                    "start_s": to_float(s.get("segment_start_sec")),
+                    "people": parse_counts(s.get("object_counts")).get("person", 0),
+                    "current": s.get("source") == m["source"],
+                }
+                for s in sorted(segs, key=lambda s: s.get("segment_number") or 0)
+            ]
+        except UpstreamError as exc:
+            tools["segments_error"] = exc.detail
+    return {**m, "tools": tools}
+
+
+def enrich_top(moments: list[dict], n: int) -> list[dict]:
+    return [enrich_moment(m) if i < n else m for i, m in enumerate(moments)]
+
+
+def clip_url(source: str) -> str:
+    return f"/app/clip?{urllib.parse.urlencode({'source': source})}" if source else ""
+
+
+def search_archive(query: str, top_k: int) -> dict:
+    t0 = time.time()
+    moments = enrich_top(VSS.search(query, top_k), top_k)
+    for m in moments:
+        m["clip_url"] = clip_url(m["source"])
+    return {"query": query, "moments": moments, "latency_ms": int((time.time() - t0) * 1000)}
 
 
 def build_vss_query(question: str, location: dict | None) -> str:
@@ -257,7 +360,9 @@ def build_llm_user_message(question: str, location: dict | None, yolo: dict | No
     for m in evidence:
         span = f"{m['start_s']}-{m['end_s']}s" if m["start_s"] is not None else "?"
         counts = f" yolo={json.dumps(m['counts'])}" if m["counts"] else ""
-        lines.append(f"- [{m['camera'] or m['video']} {span} sim={m['similarity']}{counts}] {m['description']}")
+        tools = m.get("tools") or {}
+        peak = f" peak_people_in_frame={tools['people_peak']}" if "people_peak" in tools else ""
+        lines.append(f"- [{m['camera'] or m['video']} {span} sim={m['similarity']}{counts}{peak}] {m['description']}")
     if not evidence:
         lines.append("- none found")
     return "\n".join(lines)
@@ -291,6 +396,9 @@ class LlmClient:
             self._weave_ready = True
         except Exception as exc:
             print(f"weave.init failed: {type(exc).__name__}", file=sys.stderr)
+
+    def model_in_use(self) -> str:
+        return self._model or CFG.wandb_model
 
     def complete(self, user_message: str) -> str:
         model = self._model or CFG.wandb_model
@@ -355,15 +463,143 @@ def parse_verdict(raw: str) -> dict:
     }
 
 
+VERDICT_COLUMNS = (
+    ("ts", "timestamp[us]"),
+    ("question", "string"),
+    ("location_name", "string"),
+    ("lat", "double"),
+    ("lon", "double"),
+    ("level", "string"),
+    ("advice", "string"),
+    ("reasons_json", "string"),
+    ("evidence_ids", "string"),
+    ("model", "string"),
+    ("weave_project", "string"),
+    ("latency_ms", "int64"),
+)
+
+
+class VerdictStore:
+    """VastDB as the agent's memory: one row per verdict, in the team's bucket (vast-database skills)."""
+
+    def __init__(self) -> None:
+        self._session = None
+        self.last_error = ""
+        self.written = 0
+
+    def _arrow_schema(self):
+        import pyarrow as pa
+
+        return pa.schema([(name, pa.type_for_alias(alias)) for name, alias in VERDICT_COLUMNS])
+
+    def _connect(self):
+        if self._session is None:
+            import vastdb
+
+            self._session = vastdb.connect(
+                endpoint=CFG.s3_endpoint, access=CFG.access_key, secret=CFG.secret_key, ssl_verify=False
+            )
+        return self._session
+
+    def _table(self, tx, create: bool):
+        schema = tx.bucket(CFG.vastdb_bucket).schema(CFG.vdb_schema)
+        table = schema.table(CFG.verdicts_table, fail_if_missing=False)
+        if table is None and create:
+            table = schema.create_table(CFG.verdicts_table, columns=self._arrow_schema(), fail_if_exists=False)
+        return table
+
+    def write(self, row: dict) -> None:
+        if not CFG.vastdb_configured:
+            self.last_error = "S3_ENDPOINT, ACCESS_KEY, SECRET_KEY or VASTDB_BUCKET not set"
+            return
+        try:
+            import pyarrow as pa
+
+            schema = self._arrow_schema()
+            with self._connect().transaction() as tx:
+                self._table(tx, create=True).insert(pa.table({k: [row[k]] for k in schema.names}, schema=schema))
+            self.written += 1
+            self.last_error = ""
+        except Exception as exc:
+            self._session = None
+            self.last_error = f"{type(exc).__name__}: {str(exc)[:200]}"
+            print(f"vastdb write failed: {self.last_error}", file=sys.stderr)
+
+    def write_async(self, row: dict) -> None:
+        threading.Thread(target=self.write, args=(row,), daemon=True).start()
+
+    def read(self, limit: int) -> dict:
+        if not CFG.vastdb_configured:
+            raise UpstreamError("vastdb", "S3_ENDPOINT, ACCESS_KEY, SECRET_KEY or VASTDB_BUCKET not set")
+        names = [name for name, _ in VERDICT_COLUMNS]
+        try:
+            with self._connect().transaction() as tx:
+                table = self._table(tx, create=False)
+                rows = table.select(columns=names).read_all().to_pylist() if table is not None else []
+        except Exception as exc:
+            self._session = None
+            raise UpstreamError("vastdb", f"{type(exc).__name__}: {str(exc)[:200]}") from None
+        rows.sort(key=lambda r: r["ts"] or dt.datetime.min, reverse=True)
+        hour_ago = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)
+        last_hour = {level: 0 for level in LEVELS}
+        for r in rows:
+            ts = r["ts"]
+            if ts is not None and ts.tzinfo is None:
+                ts = ts.replace(tzinfo=dt.timezone.utc)
+            if ts is not None and ts >= hour_ago and r["level"] in last_hour:
+                last_hour[r["level"]] += 1
+        out = []
+        for r in rows[:limit]:
+            item = dict(r)
+            item["ts"] = r["ts"].isoformat() if r["ts"] is not None else None
+            item["reasons"] = json.loads(r["reasons_json"] or "[]")
+            item["evidence_ids"] = json.loads(r["evidence_ids"] or "[]")
+            del item["reasons_json"]
+            out.append(item)
+        return {
+            "table": f"{CFG.vastdb_bucket}/{CFG.vdb_schema}/{CFG.verdicts_table}",
+            "total": len(rows),
+            "last_hour_by_level": last_hour,
+            "verdicts": out,
+        }
+
+
+VERDICTS = VerdictStore()
+
+
+def verdict_row(question: str, location: dict | None, verdict: dict, latency_ms: int) -> dict:
+    loc = location or {}
+    return {
+        "ts": dt.datetime.now(dt.timezone.utc).replace(tzinfo=None),
+        "question": question,
+        "location_name": str(loc.get("name") or ""),
+        "lat": to_float(loc.get("lat")),
+        "lon": to_float(loc.get("lon")),
+        "level": verdict["level"],
+        "advice": verdict["advice"],
+        "reasons_json": json.dumps(verdict["reasons"]),
+        "evidence_ids": json.dumps([m["video"] for m in verdict["evidence"]]),
+        "model": LLM.model_in_use(),
+        "weave_project": CFG.weave_project,
+        "latency_ms": latency_ms,
+    }
+
+
 def assess_core(question: str, location: dict | None, yolo: dict | None) -> dict:
+    t0 = time.time()
     query = build_vss_query(question, location)
     answer, evidence = VSS.search_and_answer(query)
     if len(evidence) < CFG.top_k:
         evidence = dedupe(evidence + VSS.search(query))
+    evidence = enrich_top(evidence, CFG.enrich_top)
+    for m in evidence:
+        m["clip_url"] = clip_url(m["source"])
     verdict = parse_verdict(LLM.complete(build_llm_user_message(question, location, yolo, answer, evidence)))
     verdict["evidence"] = evidence
     verdict["vss_answer"] = answer
     verdict["trace"] = {"weave_project": CFG.weave_project}
+    verdict["latency_ms"] = int((time.time() - t0) * 1000)
+    VERDICTS.write_async(verdict_row(question, location, verdict, verdict["latency_ms"]))
     return verdict
 
 
@@ -452,32 +688,86 @@ class Handler(BaseHTTPRequestHandler):
         self._cors()
         self.end_headers()
 
+    def _query(self) -> dict[str, str]:
+        parts = self.path.split("?", 1)
+        return {k: v[0] for k, v in urllib.parse.parse_qs(parts[1]).items()} if len(parts) == 2 else {}
+
+    def _guarded(self, fn) -> None:
+        try:
+            fn()
+        except UpstreamError as exc:
+            self._json(502, {"error": f"{exc.dependency} unavailable: {exc.detail}", "dependency": exc.dependency})
+        except Exception as exc:
+            self._json(500, {"error": f"internal error: {type(exc).__name__}"})
+
+    def _clip(self) -> None:
+        source = self._query().get("source", "")
+        if not source.startswith("s3://"):
+            self._json(400, {"error": "source must be an s3:// segment URI"})
+            return
+        upstream = VSS.open_stream(source, self.headers.get("Range"))
+        with upstream:
+            self.send_response(upstream.status)
+            self._cors()
+            self.send_header("Content-Type", "video/mp4")
+            for name in ("Content-Length", "Content-Range", "Accept-Ranges"):
+                if upstream.headers.get(name):
+                    self.send_header(name, upstream.headers[name])
+            self.end_headers()
+            shutil.copyfileobj(upstream, self.wfile)
+
     def do_GET(self) -> None:
         route = self._route()
         if route == "/":
             self._send(200, DASHBOARD_HTML.encode(), "text/html; charset=utf-8")
         elif route == "/health":
-            self._json(200, {"ok": True, "vss": VSS.reachable(), "wandb": CFG.wandb_configured})
+            self._json(
+                200,
+                {
+                    "ok": True,
+                    "vss": VSS.reachable(),
+                    "wandb": CFG.wandb_configured,
+                    "vastdb": {
+                        "configured": CFG.vastdb_configured,
+                        "written": VERDICTS.written,
+                        "last_error": VERDICTS.last_error,
+                    },
+                },
+            )
+        elif route == "/verdicts":
+            limit = min(max(int(self._query().get("limit", "50") or 50), 1), 500)
+            self._guarded(lambda: self._json(200, VERDICTS.read(limit)))
+        elif route == "/clip":
+            self._guarded(self._clip)
         else:
             self._json(404, {"error": "not found"})
 
+    def _read_body(self) -> Any:
+        length = int(self.headers.get("Content-Length") or 0)
+        return json.loads(self.rfile.read(length) or b"{}")
+
     def do_POST(self) -> None:
-        if self._route() != "/assess":
+        route = self._route()
+        if route == "/assess":
+            try:
+                question, location, yolo = validate_assess_body(self._read_body())
+            except (ValueError, json.JSONDecodeError) as exc:
+                self._json(400, {"error": f"bad request: {exc}"})
+                return
+            self._guarded(lambda: self._json(200, assess(question, location, yolo)))
+        elif route == "/search":
+            try:
+                body = self._read_body()
+                query = str(body.get("query") or "").strip()[:500] if isinstance(body, dict) else ""
+                top_k = min(max(int(body.get("top_k") or 6), 1), 20) if isinstance(body, dict) else 6
+                if not query:
+                    raise ValueError("query is required")
+            except (ValueError, json.JSONDecodeError, TypeError) as exc:
+                self._json(400, {"error": f"bad request: {exc}"})
+                return
+            self._guarded(lambda: self._json(200, search_archive(query, top_k)))
+        else:
             self._json(404, {"error": "not found"})
-            return
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-            body = json.loads(self.rfile.read(length) or b"{}")
-            question, location, yolo = validate_assess_body(body)
-        except (ValueError, json.JSONDecodeError) as exc:
-            self._json(400, {"error": f"bad request: {exc}"})
-            return
-        try:
-            self._json(200, assess(question, location, yolo))
-        except UpstreamError as exc:
-            self._json(502, {"error": f"{exc.dependency} unavailable: {exc.detail}", "dependency": exc.dependency})
-        except Exception as exc:
-            self._json(500, {"error": f"internal error: {type(exc).__name__}"})
 
 
 def main() -> None:

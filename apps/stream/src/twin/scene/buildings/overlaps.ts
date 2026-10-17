@@ -1,4 +1,6 @@
 import type { TwinGeometry } from "../../config";
+import { bearingToYaw, LANDMARKS, landmarkPos, type Landmark } from "../../landmarks";
+import { clearRoads, type RoadIndex } from "./clearance";
 import { pointInRing, prepareFootprint, type Footprint } from "./footprint";
 
 type Building = TwinGeometry["buildings"][number];
@@ -38,6 +40,42 @@ interface Entry {
 }
 
 const GRID = 60;
+/** The hero skyline models (Gherkin, Walkie-Talkie...) replace OSM buildings taller than this inside their box. */
+const LANDMARK_MARGIN_M = 20;
+const LANDMARK_MIN_HEIGHT_M = 15;
+
+const MODELLED = Object.values(LANDMARKS as Record<string, Landmark>)
+  .filter((l) => l.kind === "tower" || l.kind === "dome")
+  .map((l) => ({ l, pos: landmarkPos(l), yaw: bearingToYaw(l.headingDeg) }));
+
+/** Bankside hero models (scene/Bankside.tsx): plot centre, yaw, and half extents of the model box in its own frame, metres. */
+const HERO_PLOTS = [
+  { at: [-196, 508], yaw: -0.5, cx: 0, cz: 22, hx: 44, hz: 26 },
+  { at: [-240, 543], yaw: -0.8, cx: 0, cz: 0, hx: 26, hz: 15 },
+];
+
+export function onHeroPlot(x: number, z: number): boolean {
+  return HERO_PLOTS.some((p) => {
+    const dx = x - p.at[0];
+    const dz = z - p.at[1];
+    const lx = dx * Math.cos(p.yaw) - dz * Math.sin(p.yaw);
+    const lz = dx * Math.sin(p.yaw) + dz * Math.cos(p.yaw);
+    return Math.abs(lx - p.cx) < p.hx && Math.abs(lz - p.cz) < p.hz;
+  });
+}
+
+/** True when a hand-built model already draws this OSM building, or stands where a hero model does. */
+function replacedByLandmark(fp: Footprint, height: number): boolean {
+  if (fp.pts.some(([x, z]) => onHeroPlot(x, z)) || onHeroPlot(fp.cx, fp.cz)) return true;
+  if (height < LANDMARK_MIN_HEIGHT_M) return false;
+  return MODELLED.some(({ l, pos, yaw }) => {
+    const dx = fp.cx - pos[0];
+    const dz = fp.cz - pos[1];
+    const across = dx * Math.cos(yaw) - dz * Math.sin(yaw);
+    const along = dx * Math.sin(yaw) + dz * Math.cos(yaw);
+    return Math.abs(across) < l.width / 2 + LANDMARK_MARGIN_M && Math.abs(along) < l.length / 2 + LANDMARK_MARGIN_M;
+  });
+}
 const SAMPLES = 9;
 const INSIDE = 0.8;
 
@@ -72,11 +110,13 @@ function find(parent: number[], i: number): number {
  * inside walls. This drops outlines that parts replace, trims what pokes through, and tags the rest so
  * the massing knows which slices are parts and whose roof is hidden.
  */
-export function resolveBuildings(buildings: Building[]): PlacedBuilding[] {
+export function resolveBuildings(input: Building[], roads: RoadIndex | null = null): PlacedBuilding[] {
+  const buildings = roads ? clearRoads(input, roads).buildings : input;
   const entries: Entry[] = [];
   buildings.forEach((data) => {
     const fp = prepareFootprint(data.ring);
     if (!fp) return;
+    if (replacedByLandmark(fp, data.height)) return;
     const minH = Math.max(0, data.minHeight);
     const e: Entry = {
       i: entries.length,
@@ -174,6 +214,19 @@ export function resolveBuildings(buildings: Building[]): PlacedBuilding[] {
         b.clipped = true;
         if (b.height - b.minH < 3) b.dropped = true;
       }
+    }
+  }
+
+  // Partial overlaps at the same roof height would z-fight: drop the smaller if it is mostly covered, else step it down.
+  for (const a of entries) {
+    if (a.dropped) continue;
+    for (const j of near[a.i]) {
+      const b = entries[j];
+      if (b.dropped || a.dropped || !strictlyInside(b, a) || Math.abs(a.height - b.height) > 1 || Math.min(a.height, b.height) - Math.max(a.minH, b.minH) <= 1.5) continue;
+      const f = overlap(b.i, a.i);
+      if (f < 0.2) continue;
+      if (f >= 0.5) b.dropped = true;
+      else if (b.height - b.minH > 4) b.height = a.height - 0.3 - (b.i % 5) * 0.05;
     }
   }
 

@@ -4,9 +4,9 @@ import { Bell, Search } from "lucide-react";
 
 export function TopBar({ live }: { live: boolean }) {
   return (
-    <header className="flex h-13 shrink-0 items-center gap-5 border-b border-line bg-surface px-4 lg:px-5">
+    <header className="flex h-13 shrink-0 items-center gap-5 bg-surface/80 px-4 shadow-[0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-md lg:px-5">
       <div className="flex items-center gap-3">
-        <span className="relative grid size-7 place-items-center rounded-[6px] bg-ember font-mono text-[11px] font-bold leading-none text-bg">
+        <span className="relative grid size-8 place-items-center rounded-full bg-[image:var(--grad-candy)] font-mono text-[12px] font-extrabold leading-none text-white shadow-[inset_0_2px_3px_rgb(255_255_255/0.55),inset_0_-3px_5px_rgb(140_0_70/0.35),0_6px_14px_-4px_rgb(236_17_135/0.6)]">
           47
           <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-text" />
         </span>
@@ -20,7 +20,7 @@ export function TopBar({ live }: { live: boolean }) {
         </span>
       </div>
 
-      <div className="mx-auto hidden w-full max-w-sm items-center gap-2 rounded-md border border-line bg-bg px-2.5 py-1.5 transition-colors focus-within:border-line-strong md:flex">
+      <div className="mx-auto hidden w-full max-w-sm items-center gap-2 rounded-full bg-bg px-3.5 py-2 shadow-[inset_0_2px_4px_rgb(0_0_0/0.5),0_0_0_1px_rgb(255_255_255/0.07)] transition-shadow focus-within:shadow-[inset_0_2px_4px_rgb(0_0_0/0.5),0_0_0_2px_rgb(255_141_16/0.6)] md:flex">
         <Search className="size-3.5 text-dim" aria-hidden />
         <input
           type="search"
@@ -32,11 +32,11 @@ export function TopBar({ live }: { live: boolean }) {
 
       <div className="ml-auto flex items-center gap-2">
         <span
-          className={`flex h-7 items-center gap-2 rounded-md border px-2.5 font-mono text-[10px] tracking-normal ${
-            live ? "border-live/40 bg-live/10 text-live" : "border-line text-muted"
+          className={`flex h-7 items-center gap-2 rounded-full px-3 text-[12px] font-extrabold tracking-normal ${
+            live ? "live-badge !h-7 !text-[12px]" : "bg-white/[0.07] text-muted"
           }`}
         >
-          <span className={`size-1.5 rounded-full ${live ? "animate-live bg-live" : "bg-dim"}`} />
+          <span className={`size-1.5 rounded-full ${live ? "animate-live bg-white" : "bg-dim"}`} />
           {live ? "On air" : "Standby"}
         </span>
         <button
@@ -46,7 +46,7 @@ export function TopBar({ live }: { live: boolean }) {
         >
           <Bell className="size-4" />
         </button>
-        <span className="grid size-8 place-items-center rounded-md bg-surface-2 font-mono text-[11px] font-semibold ring-1 ring-line">
+        <span className="grid size-8 place-items-center rounded-full bg-surface-3 text-[12px] font-extrabold ring-1 ring-white/10">
           SN
         </span>
       </div>

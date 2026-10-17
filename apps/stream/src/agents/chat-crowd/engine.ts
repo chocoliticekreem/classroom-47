@@ -1,50 +1,227 @@
 import type { Archetype, ChatMessage, Persona, StreamContext } from "@/lib/types";
-import {
-  DONATION_LINES,
-  FIRST_MESSAGE_LINES,
-  LINES,
-  LOCATION_SIGNAL_LINES,
-  STREAMER_REPLY_LINES,
-  SURGE_LINES,
-} from "./lines";
+import { DISTANCES, DONATION_LINES, FIRST_MESSAGE_LINES, LEAD_INS, LINES, type LineKind } from "./lines";
 import { PERSONAS, PERSONAS_BY_ARCHETYPE } from "./personas";
+import { normalizePlace, type CrowdEvent, type SceneResponse } from "./scene";
 
 export type Rng = () => number;
 
 export const SURGE_MS = 45_000;
 
-const WEIGHTS: [Archetype, number][] = [
-  ["hype", 30],
-  ["questioner", 15],
-  ["local", 15],
-  ["superfan", 15],
-  ["troll", 10],
+const MEMORY_TEXTS = 60;
+const MEMORY_SPEAKERS = 8;
+const PERSONA_COOLDOWN_MS = 25_000;
+const MAX_MESSAGES_PER_SECOND = 2.5;
+
+const AMBIENT_CAST: [Archetype, number][] = [
+  ["hype", 20],
+  ["local", 18],
+  ["questioner", 16],
+  ["superfan", 14],
+  ["hater", 12],
+  ["opportunist", 8],
   ["mod", 3],
 ];
-const TOTAL_WEIGHT = WEIGHTS.reduce((s, [, w]) => s + w, 0);
 
-let seq = 0;
+const SURGE_CAST: [Archetype, number][] = [
+  ["opportunist", 3],
+  ["local", 3],
+  ["superfan", 1],
+  ["questioner", 1],
+  ["hater", 1],
+  ["hype", 1],
+  ["mod", 0.5],
+];
+
+const CAST: Record<CrowdEvent, [Archetype, number][]> = {
+  ambient: AMBIENT_CAST,
+  location_leaked: [
+    ["opportunist", 3],
+    ["local", 3],
+    ["superfan", 1],
+    ["hater", 1],
+    ["questioner", 1],
+    ["mod", 1],
+    ["hype", 1],
+  ],
+  mirror: [
+    ["questioner", 3],
+    ["hype", 1],
+    ["local", 1],
+    ["hater", 1],
+    ["superfan", 1],
+    ["opportunist", 1],
+    ["mod", 1],
+  ],
+  streamer_message: [
+    ["hype", 2],
+    ["superfan", 2],
+    ["hater", 1],
+    ["questioner", 1],
+    ["local", 1],
+    ["opportunist", 1],
+  ],
+};
+
+export const EVENT_LINES: Record<CrowdEvent, LineKind> = {
+  ambient: "ambient",
+  streamer_message: "streamer",
+  location_leaked: "leaked",
+  mirror: "mirror",
+};
+
+const LEAD_IN_ARCHETYPES: Archetype[] = ["hype", "opportunist", "hater", "local"];
+
+/** What chat said recently, so the local crowd neither repeats a line nor lets one username talk twice in a row. */
+export interface CrowdMemory {
+  texts: string[];
+  speakers: string[];
+  spokeAt: Map<string, number>;
+  uses: Map<string, number>;
+  bursting: boolean;
+  phaseEnd: number;
+  /** Ambient chatter stays low until this time so an event's reactions get the floor. */
+  quietUntil: number;
+}
+
+export function createMemory(): CrowdMemory {
+  return {
+    texts: [],
+    speakers: [],
+    spokeAt: new Map(),
+    uses: new Map(),
+    bursting: false,
+    phaseEnd: 0,
+    quietUntil: 0,
+  };
+}
+
+function normalize(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim() || text;
+}
+
+function overlap(a: string, b: string): number {
+  const wa = new Set(a.split(" "));
+  const wb = new Set(b.split(" "));
+  let shared = 0;
+  wa.forEach((w) => wb.has(w) && shared++);
+  return shared / Math.max(wa.size, wb.size);
+}
+
+export function isFresh(memory: CrowdMemory, text: string): boolean {
+  const key = normalize(text);
+  const words = key.split(" ").length;
+  return !memory.texts.some((seen) => seen === key || (words >= 4 && overlap(seen, key) >= 0.8));
+}
+
+export function remember(memory: CrowdMemory, username: string, text: string, now: number) {
+  memory.texts.push(normalize(text));
+  if (memory.texts.length > MEMORY_TEXTS) memory.texts.shift();
+  memory.speakers.push(username);
+  if (memory.speakers.length > MEMORY_SPEAKERS) memory.speakers.shift();
+  memory.spokeAt.set(username, now);
+}
 
 function pick<T>(items: T[], rng: Rng): T {
   return items[Math.floor(rng() * items.length)];
 }
 
-export function pickPersona(rng: Rng, archetype?: Archetype): Persona {
-  if (archetype) return pick(PERSONAS_BY_ARCHETYPE[archetype], rng);
-  let roll = rng() * TOTAL_WEIGHT;
-  for (const [a, w] of WEIGHTS) {
+function pickWeighted<T>(items: [T, number][], rng: Rng): T {
+  const total = items.reduce((s, [, w]) => s + w, 0);
+  let roll = rng() * total;
+  for (const [item, w] of items) {
     roll -= w;
-    if (roll < 0) return pick(PERSONAS_BY_ARCHETYPE[a], rng);
+    if (roll < 0) return item;
   }
-  return pick(PERSONAS, rng);
+  return items[0][0];
 }
 
-export function renderTemplate(template: string, ctx: StreamContext): string {
-  return template
-    .replaceAll("{loc}", ctx.location.name)
-    .replaceAll("{area}", ctx.location.area)
-    .replaceAll("{streamer}", ctx.streamer);
+function pickPersona(
+  archetype: Archetype | undefined,
+  avoid: ReadonlySet<string>,
+  rng: Rng,
+  spokeAt?: Map<string, number>,
+  now = 0,
+): Persona {
+  const pool = archetype ? PERSONAS_BY_ARCHETYPE[archetype] : PERSONAS;
+  const rested = pool.filter(
+    (p) => !avoid.has(p.username) && now - (spokeAt?.get(p.username) ?? -Infinity) > PERSONA_COOLDOWN_MS,
+  );
+  if (rested.length > 0) return pick(rested, rng);
+  const free = pool.filter((p) => !avoid.has(p.username));
+  return pick(free.length > 0 ? free : pool, rng);
 }
+
+/** Personas for one batch (local reaction or model call): distinct, weighted by event, not heard from lately. */
+export function pickCast(
+  event: CrowdEvent,
+  count: number,
+  avoid: ReadonlySet<string>,
+  rng: Rng = Math.random,
+  surging = false,
+): Persona[] {
+  const weights = event === "ambient" && surging ? SURGE_CAST : CAST[event];
+  const taken = new Set(avoid);
+  const cast: Persona[] = [];
+  for (let i = 0; i < count; i++) {
+    const persona = pickPersona(pickWeighted(weights, rng), taken, rng);
+    if (taken.has(persona.username)) continue;
+    taken.add(persona.username);
+    cast.push(persona);
+  }
+  return cast;
+}
+
+function fill(template: string, values: Record<string, string | undefined>): string | null {
+  let missing = false;
+  const text = template.replace(/\{(\w+)\}/g, (_, key: string) => {
+    const value = values[key];
+    if (value === undefined || value === "") missing = true;
+    return value ?? "";
+  });
+  return missing ? null : text;
+}
+
+/** The part of the stream context a line template reads. */
+export type LineContext = Pick<StreamContext, "streamer" | "locationRevealedAt"> & {
+  location: { name: string; area: string };
+};
+
+function placeholders(ctx: LineContext, rng: Rng): Record<string, string | undefined> {
+  const place = normalizePlace(ctx.location.name, ctx.location.area);
+  const knowsPlace = place.name !== "London";
+  return {
+    loc: place.name,
+    at: place.at,
+    area: place.area,
+    streamer: ctx.streamer,
+    dist: ctx.locationRevealedAt != null && knowsPlace ? pick(DISTANCES, rng) : undefined,
+  };
+}
+
+/** A fresh line for this archetype and moment, preferring templates used least; null when every candidate was said lately. */
+export function compose(
+  memory: CrowdMemory,
+  ctx: LineContext,
+  archetype: Archetype,
+  kind: LineKind,
+  rng: Rng,
+): string | null {
+  const values = placeholders(ctx, rng);
+  const candidates = [...LINES[archetype][kind]]
+    .map((template) => ({ template, order: (memory.uses.get(template) ?? 0) + rng() * 0.9 }))
+    .sort((a, b) => a.order - b.order);
+  for (const { template } of candidates) {
+    let text = fill(template, values);
+    if (!text) continue;
+    if (LEAD_IN_ARCHETYPES.includes(archetype) && /^[a-z]/.test(text) && rng() < 0.2) text = pick(LEAD_INS, rng) + text;
+    if (!isFresh(memory, text)) continue;
+    memory.uses.set(template, (memory.uses.get(template) ?? 0) + 1);
+    return text;
+  }
+  return null;
+}
+
+let seq = 0;
 
 function makeMessage(
   persona: Persona,
@@ -61,6 +238,7 @@ function makeMessage(
     badges: persona.badges,
     text,
     timestamp: now,
+    source: "local",
     ...extra,
   };
 }
@@ -73,57 +251,65 @@ export function surgeIntensity(ctx: StreamContext, now: number): number {
   return 1 - elapsed / SURGE_MS;
 }
 
-export function messagesPerSecond(ctx: StreamContext, now: number): number {
-  const base = Math.min(10, Math.max(1, ctx.viewers / 800));
-  return base * (1 + 1.5 * surgeIntensity(ctx, now));
+/**
+ * Chat arrives in bursts with lulls between them, never above ~2 lines a second.
+ * Busier after the streamer leaks their spot, scaled down when the model is writing most of the lines.
+ */
+export function messagesPerSecond(ctx: StreamContext, now: number, memory: CrowdMemory, scale = 1): number {
+  const base = Math.min(1.4, 0.6 + ctx.viewers / 4000);
+  const phase = memory.bursting ? 1.8 : 0.35;
+  const quiet = now < memory.quietUntil ? 0.3 : 1;
+  return Math.min(MAX_MESSAGES_PER_SECOND, base * phase * quiet * scale * (1 + 0.8 * surgeIntensity(ctx, now)));
 }
 
-function oneMessage(ctx: StreamContext, now: number, rng: Rng): ChatMessage {
+function oneMessage(ctx: StreamContext, now: number, memory: CrowdMemory, rng: Rng): ChatMessage | null {
   const surge = surgeIntensity(ctx, now);
+  const avoid = new Set(memory.speakers);
 
   if (surge > 0 && rng() < 0.2 + 0.5 * surge) {
-    const persona = pickPersona(rng, rng() < 0.6 ? "local" : undefined);
-    return makeMessage(persona, renderTemplate(pick(SURGE_LINES, rng), ctx), now, {
-      locationSignal: true,
-    });
+    const persona = pickPersona(pickWeighted(SURGE_CAST, rng), avoid, rng, memory.spokeAt, now);
+    const text = compose(memory, ctx, persona.archetype, "surge", rng);
+    if (!text) return null;
+    const signal = persona.archetype === "opportunist" || persona.archetype === "local";
+    return makeMessage(persona, text, now, { locationSignal: signal || undefined });
   }
 
   const roll = rng();
   if (roll < 0.004) {
-    const persona = pickPersona(rng, "superfan");
-    const amount = pick([2, 5, 5, 10, 20, 50], rng);
-    return makeMessage(persona, renderTemplate(pick(DONATION_LINES, rng), ctx), now, {
-      highlight: "donation",
-      amount,
-    });
+    const persona = pickPersona("superfan", avoid, rng, memory.spokeAt, now);
+    const text = fill(pick(DONATION_LINES, rng), placeholders(ctx, rng));
+    if (!text || !isFresh(memory, text)) return null;
+    return makeMessage(persona, text, now, { highlight: "donation", amount: pick([2, 5, 5, 10, 20, 50], rng) });
   }
-  if (roll < 0.014) {
-    const persona = pickPersona(rng, "questioner");
-    return makeMessage(persona, renderTemplate(pick(FIRST_MESSAGE_LINES, rng), ctx), now, {
-      highlight: "first",
-    });
+  if (roll < 0.012) {
+    const persona = pickPersona("questioner", avoid, rng, memory.spokeAt, now);
+    const text = fill(pick(FIRST_MESSAGE_LINES, rng), placeholders(ctx, rng));
+    if (!text || !isFresh(memory, text)) return null;
+    return makeMessage(persona, text, now, { highlight: "first" });
   }
 
-  const persona = pickPersona(rng);
-  if (persona.archetype === "local" && rng() < 0.12) {
-    return makeMessage(persona, renderTemplate(pick(LOCATION_SIGNAL_LINES, rng), ctx), now, {
-      locationSignal: true,
-    });
-  }
-  return makeMessage(persona, renderTemplate(pick(LINES[persona.archetype], rng), ctx), now);
+  const persona = pickPersona(pickWeighted(AMBIENT_CAST, rng), avoid, rng, memory.spokeAt, now);
+  const text = compose(memory, ctx, persona.archetype, "ambient", rng);
+  return text ? makeMessage(persona, text, now) : null;
 }
 
-/** Messages to emit for one tick of `dtMs`. Fractional rates carry over probabilistically. */
+/** Messages to emit for one tick of `dtMs`: at most one, so the pace follows messagesPerSecond. */
 export function nextMessages(
   ctx: StreamContext,
   now: number,
+  memory: CrowdMemory,
   rng: Rng = Math.random,
   dtMs = 250,
+  scale = 1,
 ): ChatMessage[] {
   if (!ctx.live) return [];
-  const expected = (messagesPerSecond(ctx, now) * dtMs) / 1000;
-  const count = Math.floor(expected) + (rng() < expected % 1 ? 1 : 0);
-  return Array.from({ length: count }, () => oneMessage(ctx, now, rng));
+  if (now >= memory.phaseEnd) {
+    memory.bursting = !memory.bursting;
+    memory.phaseEnd = now + (memory.bursting ? 2000 + rng() * 2500 : 3500 + rng() * 3500);
+  }
+  if (rng() >= (messagesPerSecond(ctx, now, memory, scale) * dtMs) / 1000) return [];
+  const message = oneMessage(ctx, now, memory, rng);
+  return message ? [message] : [];
 }
 
 export function streamerMessage(text: string, ctx: StreamContext, now: number): ChatMessage {
@@ -140,31 +326,71 @@ export function streamerMessage(text: string, ctx: StreamContext, now: number): 
   };
 }
 
-/** Burst of replies to the streamer's own message, each with a delay in ms from now. */
-export function reactToStreamer(
-  text: string,
-  ctx: StreamContext,
-  rng: Rng = Math.random,
-): { delayMs: number; template: string; archetype?: Archetype }[] {
-  const size = 4 + Math.floor(rng() * Math.min(10, 2 + ctx.viewers / 1500));
-  const mentionsLocation = /pull up|come (through|find)|i'?m at|link up|meet/i.test(text);
-  return Array.from({ length: size }, (_, i) => {
-    const delayMs = 300 + i * (150 + rng() * 350);
-    if (mentionsLocation && rng() < 0.6) {
-      return { delayMs, template: pick(SURGE_LINES, rng), archetype: "local" as const };
-    }
-    return { delayMs, template: pick(STREAMER_REPLY_LINES, rng) };
-  });
+/** A line scheduled `delayMs` from now, from either the local crowd or the model. */
+export interface PlannedLine {
+  persona: Persona;
+  text: string;
+  locationSignal?: boolean;
+  scene?: string;
+  source: "wandb" | "local";
+  delayMs: number;
 }
 
-export function replyMessage(
-  reply: { template: string; archetype?: Archetype },
+/** Local reaction to an event: a short staggered burst in the voices that fit it. Sets memory.quietUntil. */
+export function reactionPlan(
+  event: CrowdEvent,
   ctx: StreamContext,
+  memory: CrowdMemory,
   now: number,
   rng: Rng = Math.random,
-): ChatMessage {
-  const persona = pickPersona(rng, reply.archetype);
-  return makeMessage(persona, renderTemplate(reply.template, ctx), now, {
-    locationSignal: SURGE_LINES.includes(reply.template) || undefined,
+  count = 6,
+): PlannedLine[] {
+  const cast = pickCast(event, count, new Set(memory.speakers), rng);
+  const plan: PlannedLine[] = [];
+  let delayMs = 400 + rng() * 400;
+  for (const persona of cast) {
+    const kind: LineKind =
+      event === "streamer_message" && surgeIntensity(ctx, now) > 0 && rng() < 0.5 ? "surge" : EVENT_LINES[event];
+    const text = compose(memory, ctx, persona.archetype, kind, rng);
+    if (!text) continue;
+    const signal = (kind === "leaked" || kind === "surge") && (persona.archetype === "opportunist" || persona.archetype === "local");
+    plan.push({ persona, text, locationSignal: signal || undefined, source: "local", delayMs });
+    delayMs += 400 + rng() * 600;
+  }
+  memory.quietUntil = Math.max(memory.quietUntil, now + delayMs + 2000);
+  return plan;
+}
+
+/** Model lines mapped to personas, spread from `startMs` with a human-ish gap between them. */
+export function linesFromResponse(
+  res: SceneResponse,
+  personas: Persona[],
+  startMs: number,
+  rng: Rng = Math.random,
+): PlannedLine[] {
+  const byName = new Map(personas.map((p) => [p.username, p]));
+  let delayMs = startMs;
+  const planned: PlannedLine[] = [];
+  for (const line of res.lines) {
+    const persona = byName.get(line.username);
+    if (!persona) continue;
+    planned.push({
+      persona,
+      text: line.text,
+      locationSignal: line.locationSignal,
+      scene: res.scene?.scene,
+      source: "wandb",
+      delayMs,
+    });
+    delayMs += 600 + rng() * 700;
+  }
+  return planned;
+}
+
+export function plannedMessage(line: PlannedLine, now: number): ChatMessage {
+  return makeMessage(line.persona, line.text, now, {
+    locationSignal: line.locationSignal || undefined,
+    scene: line.scene,
+    source: line.source,
   });
 }

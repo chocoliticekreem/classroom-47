@@ -1,6 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import { useCompare } from "../compare/store";
+import { TOWER_HILL } from "../config";
+import { areaName, sameOrigin, useOrigin } from "../origin";
+import { startReplay, useReplay } from "./replay";
 import { ModeChip, Report } from "./Report";
 import { Score } from "./Score";
 import { runForecast, setMinute, shownRun, usePredict } from "./store";
@@ -15,6 +19,11 @@ const CSS = `
 .predict-panel.closed { width: auto; max-height: none; }
 .predict-body { overflow-y: auto; display: grid; gap: 8px; padding: 0 12px 12px; }
 .predict-range { width: 100%; accent-color: var(--ember); margin: 0; }
+.predict-spin { width: 12px; height: 12px; border-radius: 999px; border: 2px solid rgba(255,255,255,0.35); border-top-color: #fff;
+  animation: predict-spin 0.8s linear infinite; display: inline-block; vertical-align: -2px; margin-right: 6px; }
+@keyframes predict-spin { to { transform: rotate(360deg); } }
+.predict-ready { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent); background: color-mix(in srgb, var(--ok) 12%, transparent); }
 @media (max-width: 640px) { .predict-panel { top: auto; bottom: 112px; left: 12px; right: 12px; width: auto; max-height: 48vh; } }
 `;
 
@@ -77,13 +86,37 @@ function Scrubber() {
 
 export function PredictPanel() {
   const comparing = useCompare((s) => s.camId !== null);
+  const replaying = useReplay((s) => s.active);
   const open = usePredict((s) => s.panelOpen);
   const loading = usePredict((s) => s.loading);
   const error = usePredict((s) => s.error);
   const baseline = usePredict((s) => s.baseline);
   const whatIf = usePredict((s) => s.whatIf);
   const run = usePredict(shownRun);
-  if (comparing) return null;
+  const origin = useOrigin((s) => s.origin);
+  const atTowerHill = sameOrigin(origin, TOWER_HILL);
+  useEffect(() => {
+    // Why: the Predict service seeds Tower Hill only; a run's ghosts are meaningless in another frame.
+    if (!atTowerHill) usePredict.setState({ baseline: null, whatIf: null, shown: "baseline", score: null, minute: 0, playing: false });
+  }, [atTowerHill]);
+  if (comparing || replaying) return null;
+
+  if (!atTowerHill) {
+    return (
+      <>
+        <style>{CSS}</style>
+        <div className="predict-panel closed">
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px" }}>
+            <span style={{ width: 9, height: 9, borderRadius: 999, background: "var(--muted)" }} />
+            <span style={{ fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>Predict · Tower Hill only</span>
+          </div>
+          <div style={{ ...label, padding: "0 12px 10px", maxWidth: 300 }}>
+            The 30-minute forecast is seeded for Tower Hill; it is not available for {areaName(origin)} yet.
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -106,12 +139,28 @@ export function PredictPanel() {
           <div className="predict-body">
             <Row>
               <Button primary disabled={loading} onClick={() => void runForecast("baseline")}>
-                {loading ? "Simulating…" : baseline ? "Re-run baseline" : "Predict next 30 min"}
+                {loading ? (
+                  <>
+                    <span className="predict-spin" />
+                    Simulating {baseline ? `${baseline.personas.length} ` : ""}persona groups…
+                  </>
+                ) : baseline ? (
+                  "Re-run baseline"
+                ) : (
+                  "Predict next 30 min"
+                )}
               </Button>
-              {loading && (
-                <span style={label}>
-                  seeding from live cameras, playing {baseline ? `${baseline.personas.length} ` : "a swarm of "}persona groups forward
-                </span>
+              {loading && <span style={label}>seeding from live cameras, ~20 s</span>}
+              {!loading && run && (
+                <>
+                  <span className="predict-ready">● Report ready</span>
+                  <Button small onClick={() => usePredict.setState({ reportOpen: true })}>
+                    Open report
+                  </Button>
+                  <Button small onClick={startReplay}>
+                    ▶ Replay
+                  </Button>
+                </>
               )}
             </Row>
             {error && <div style={{ ...card, color: "var(--live)", fontSize: 12 }}>{error}</div>}
