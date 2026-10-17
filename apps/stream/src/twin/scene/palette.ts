@@ -141,8 +141,8 @@ const TIME_LOOKS: Record<TimeOfDay, TimeLook> = {
     brightness: 0.03,
     saturation: 0.38,
     // Crisp daylight: the city stays sharp to the horizon on a clear day.
-    fogNear: 900,
-    fogFar: 5200,
+    fogNear: 800,
+    fogFar: 4200,
   },
 };
 

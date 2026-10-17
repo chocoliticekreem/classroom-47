@@ -2,11 +2,49 @@
 
 import { useCompare } from "../compare/store";
 import { useFieldStore } from "../sim/useField";
+import { distanceM } from "@/platform/around/geo";
+import { ORIGIN, WORLD_RADIUS_M } from "../config";
 import { useScenario } from "./scenario";
 import { useTwinCounts } from "./sim/counts";
 import { useLive, useLiveFeeds, useNow } from "./store";
 
 const DUE_SOON_S = 300;
+
+function StreamerStatus() {
+  const streamer = useLive((s) => s.streamer);
+  const source = useLive((s) => s.streamerSource);
+  const accuracy = useLive((s) => s.streamerAccuracyM);
+  const ts = useLive((s) => s.streamerTs);
+  const speed = useLive((s) => s.streamerSpeed);
+  const now = useNow();
+  const away = distanceM(ORIGIN.lat, ORIGIN.lon, streamer.lat, streamer.lon);
+  const outside = away > WORLD_RADIUS_M;
+  const age = ts ? `${Math.max(0, Math.round((now - ts) / 1000))} s ago` : "";
+  const label =
+    source === "phone"
+      ? `Phone GPS · ±${accuracy ?? "?"} m · ${age}`
+      : source === "gps"
+        ? `This device GPS · ±${accuracy ?? "?"} m · ${age}`
+        : "Demo position";
+  const pace = speed !== null && speed > 0.3 ? ` · ${(speed * 3.6).toFixed(1)} km/h` : "";
+  return (
+    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border)", fontSize: 11 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <Swatch color="var(--ember)" glow />
+        <span style={{ color: "var(--muted)", flex: 1 }}>Streamer</span>
+        <span style={{ fontWeight: 600 }}>
+          {label}
+          {pace}
+        </span>
+      </div>
+      {outside && (
+        <div style={{ marginTop: 6, color: "var(--warn)", fontWeight: 600 }}>
+          Outside the mirrored area ({(away / 1000).toFixed(1)} km from Tower Hill)
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Swatch({ color, glow }: { color: string; glow?: boolean }) {
   return (
@@ -135,6 +173,7 @@ export function Hud() {
           <div style={{ paddingLeft: 17 }}>{scenario.label}</div>
         </div>
       )}
+      <StreamerStatus />
       <div
         style={{
           marginTop: 10,
@@ -154,6 +193,9 @@ export function Hud() {
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Swatch color="var(--live)" /> Closed road · <Swatch color="var(--warn)" /> works
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Swatch color="#9fd3ff" /> Boats · illustrative river traffic, not live data
         </div>
       </div>
     </div>

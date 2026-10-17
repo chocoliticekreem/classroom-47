@@ -25,7 +25,18 @@ export type BusEvent =
       viewers: number;
     }
   | { type: "surroundings.update"; summary: string; level: "calm" | "busy" | "danger" }
-  | { type: "sim.trigger"; kind: "chase" | "ambulance" | "clear" };
+  | { type: "sim.trigger"; kind: "chase" | "ambulance" | "clear" }
+  | {
+      type: "route.suggested";
+      to: string;
+      /** Calmer route as local twin metres [x, z] and as [lat, lon]. */
+      xz: [number, number][];
+      polyline: [number, number][];
+      lengthM: number;
+      etaMin: number;
+      extraMin: number;
+      lessCrowd: number;
+    };
 
 const CHANNEL = "classroom-47";
 

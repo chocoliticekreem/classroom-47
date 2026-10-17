@@ -155,7 +155,7 @@ vec3 twEmit = vec3(0.0);
     float lamp = isCeil * (1.0 - smoothstep(0.0, 0.35, length(vec2(hit.x / size.x - 0.5, hit.z / depthM - 0.5))));
     float screen = step(0.82, r3) * isBack * step(0.55, bw.y) * step(bw.y, 0.75) * step(0.3, bw.x) * step(bw.x, 0.7);
     vec3 litRoom = (surf * mix(vec3(1.0), lightCol, 0.85) + lamp * lightCol * 0.9) * roomStrength * uTwinGlow + screen * cool * 2.2 * uTwinGlow;
-    vec3 dayRoom = surf * mix(uTwinHorizon, vec3(0.5), 0.5) * 0.45 * (1.0 - uTwinGlow) + surf * vec3(0.012, 0.016, 0.03) * uTwinGlow;
+    vec3 dayRoom = surf * mix(uTwinHorizon, vec3(0.5), 0.5) * 0.45 * (1.0 - uTwinGlow) + surf * vec3(0.03, 0.04, 0.07) * uTwinGlow;
     vec3 room = mix(dayRoom, litRoom, litFlag);
 
     float wy = (f.y - lo.y) / (hi.y - lo.y);

@@ -3,7 +3,7 @@ import type { AroundDisruption } from "@/platform/around/types";
 import { toLocal } from "../../config";
 import type { RoadNetwork, XZ } from "../../network/types";
 import { Chase, Driver, PHASE_HOLD, RoadGraph, type Helicopter } from "./chase";
-import { mulberry32 } from "./rng";
+import { mulberry32, wrapAngle } from "./rng";
 
 export interface EmergencyVehicle {
   x: number;
@@ -122,7 +122,7 @@ export class Actor {
   gg = 0;
   gb = 0;
   siren = false;
-  phase = Math.random();
+  phase = 0;
   speed = 0;
   /** Wing flap amount for birds. */
   flap = 0;
@@ -204,6 +204,8 @@ interface Fleet {
   group: LifeKind;
   rank: number;
   base: number;
+  lat0: number;
+  bike: boolean;
 }
 
 interface FleetSpec {
@@ -326,11 +328,13 @@ export class LondonDirector {
   private sceneActors: Actor[] = [];
   private sceneKey = "";
   private readonly birds: Bird[] = [];
-  private readonly flocks: { x: number; z: number }[] = [];
   private tour: { people: Person[]; routes: number[][]; leg: number; hold: number; moving: boolean } | null = null;
   private performers: Person[] = [];
   private pubGroups: Person[][] = [];
   private lane = { lane: 0, s: 0, dist: 0 };
+  private readonly reserve: number[] = CAP.map(() => 0);
+  private phaseCtr = 0.3;
+  private umbrellaSlots: Actor[] = [];
   private out: XZ = [0, 0];
 
   constructor(
@@ -356,10 +360,11 @@ export class LondonDirector {
 
   private alloc(kind: number): Actor | null {
     const list = this.pool[kind];
-    for (let i = 0; i < list.length; i++) {
+    for (let i = this.reserve[kind]; i < list.length; i++) {
       if (!list[i].live) {
         const a = list[i];
         a.live = true;
+        a.phase = this.nextPhase();
         a.y = 0;
         a.yaw = 0;
         a.scale = 1;
@@ -374,6 +379,18 @@ export class LondonDirector {
       }
     }
     return null;
+  }
+
+  private nextPhase() {
+    this.phaseCtr = (this.phaseCtr + 0.618034) % 1;
+    return this.phaseCtr;
+  }
+
+  /** Permanently reserves the next actor of `kind` for a long-lived sim entity (never handed out by alloc). */
+  private take(kind: number): Actor {
+    const a = this.pool[kind][this.reserve[kind]++];
+    a.phase = this.nextPhase();
+    return a;
   }
 
   private human(hex: number, x: number, z: number, yaw: number): Actor | null {
@@ -417,7 +434,7 @@ export class LondonDirector {
     const g = this.graph;
     for (const spec of FLEET) {
       for (let i = 0; i < spec.n; i++) {
-        const a = this.pool[spec.kind][i];
+        const a = this.take(spec.kind);
         tint(a, this.pick(spec.tints));
         if (spec.glow) glow(a, this.pick(spec.glow));
         if (spec.kind === K.CAB) glow(a, 0xffc233);
@@ -431,29 +448,27 @@ export class LondonDirector {
         d.smooth = 11;
         d.avoidDead = true;
         g.place(d, this.randomLane(), this.rng() * 30, this.rng);
-        this.fleet.push({ d, a, group: spec.group, rank: i, base: spec.n });
+        const bike = spec.group !== "cabs" && spec.group !== "vans" && !(spec.kind === K.MOPED);
+        this.fleet.push({ d, a, group: spec.group, rank: i, base: spec.n, lat0: spec.lat, bike });
       }
     }
   }
 
   private buildBirds() {
-    const g = this.graph;
     const spot: [number, number, number] = [0, 0, 0];
     for (let f = 0; f < 9; f++) {
       if (f < 7 ? !this.spotNear(0, 120, 330, spot) : !this.spotNear(TOWER[0], TOWER[1], 140, spot)) continue;
-      this.flocks.push({ x: spot[0], z: spot[2] === 0 ? spot[1] : spot[1] });
       for (let i = 0; i < 6; i++) this.addBird(spot[0] + (this.rng() - 0.5) * 6, spot[1] + (this.rng() - 0.5) * 6, false, false);
     }
     for (let i = 0; i < 6; i++) {
       const hop = i < 4;
       this.addBird(TOWER[0] + (this.rng() - 0.5) * 24, TOWER[1] + (this.rng() - 0.5) * 24, true, !hop);
     }
-    void g;
   }
 
   private addBird(x: number, z: number, raven: boolean, orbit: boolean) {
-    const a = this.pool[K.BIRD][this.birds.length];
-    if (!a) return;
+    if (this.reserve[K.BIRD] >= CAP[K.BIRD]) return;
+    const a = this.take(K.BIRD);
     if (raven) tint(a, 0x08080b);
     else tint(a, this.pick([0x8c8f99, 0x74777f, 0xa4a6ad, 0x686b74]));
     a.scale = raven ? 1.9 : 1;
@@ -470,15 +485,24 @@ export class LondonDirector {
     const rng = this.rng;
     const spot: [number, number, number] = [0, 0, 0];
 
-    const a = g.nearestNode(TOWER[0], TOWER[1]);
+    const a = g.nearestNode(0, 0);
     const b = g.nearestNode(TOWER_BRIDGE[0], TOWER_BRIDGE[1]);
-    const there = a >= 0 && b >= 0 ? g.path(a, b) : null;
-    const back = a >= 0 && b >= 0 ? g.path(b, a) : null;
-    if (there && back && there.length && back.length) {
+    const full = a >= 0 && b >= 0 ? g.path(a, b) : null;
+    let there: number[] | null = null;
+    let back: number[] | null = null;
+    if (full) {
+      let walked = 0;
+      let k = full.length;
+      while (k > 0 && walked < 300) walked += g.len[full[--k]];
+      there = full.slice(k);
+      back = there.map((l) => l ^ 1).reverse();
+    }
+    if (there && back && there.length > 1) {
       const people: Person[] = [];
       for (let i = 0; i < 12; i++) {
-        const act = this.pool[K.HUMAN][i];
-        const p = new Person(act);
+        const p = new Person(this.take(K.HUMAN));
+        tint(p.a, i === 0 ? 0xc0392b : JACKETS[i % JACKETS.length]);
+        glow(p.a, SKIN[i % SKIN.length]);
         const d = new Driver();
         d.vMax = 1.25 + rng() * 0.25;
         d.accel = 1.2;
@@ -498,7 +522,7 @@ export class LondonDirector {
       const cx = spot[0];
       const cz = spot[1];
       for (let i = 0; i < 15; i++) {
-        const p = new Person(this.pool[K.HUMAN][12 + i]);
+        const p = new Person(this.take(K.HUMAN));
         const ang = (i / 14) * TAU;
         const r = i === 14 ? 0 : 3.1 + rng() * 0.5;
         p.hx = cx + Math.cos(ang) * r;
@@ -513,12 +537,11 @@ export class LondonDirector {
       this.glows.push({ x: cx, y: 2.6, z: cz, size: 9, r: 1, g: 0.6, b: 0.9, kind: "all", on: true });
     }
 
-    let slot = 27;
     for (let grp = 0; grp < 3; grp++) {
       if (!this.spotNear(0, 80, 260, spot)) continue;
       const crowd: Person[] = [];
       for (let i = 0; i < 8; i++) {
-        const p = new Person(this.pool[K.HUMAN][slot++]);
+        const p = new Person(this.take(K.HUMAN));
         const r = 0.8 + rng() * 2.4;
         const ang = rng() * TAU;
         p.hx = spot[0] + Math.cos(ang) * r;
@@ -632,9 +655,9 @@ export class LondonDirector {
       return;
     }
     const chase = this.chase;
-    const wasHold = chase.phase;
+    const prev = chase.phase;
     chase.update(dt);
-    if (wasHold !== chase.phase && chase.phase === PHASE_HOLD) {
+    if (prev !== chase.phase && chase.phase === PHASE_HOLD) {
       useChaseAlert.setState({ alert: { id: this.alertId, title: "SUSPECT DETAINED", detail: "Tower Hill" } });
       this.alertClearAt = this.clock + 9;
     }
@@ -650,9 +673,7 @@ export class LondonDirector {
       qa.scale = fade;
       qa.live = fade > 0.001;
     }
-    if (chase.phase < 3 || fade > 0) {
-      if (q.v > 1 || chase.phase < PHASE_HOLD) this.pushSiren(q.x, q.z, q.yaw, q.v);
-    }
+    if (q.v > 1) this.pushSiren(q.x, q.z, q.yaw, q.v);
     for (let i = 0; i < chase.cops.length; i++) {
       const c = chase.cops[i];
       const a = acts[i + 1];
@@ -668,11 +689,8 @@ export class LondonDirector {
     for (let i = 0; i < chase.officers.length; i++) {
       const o = chase.officers[i];
       if (o.live && !this.chaseOfficers[i]) {
-        const a = this.human(o.suspect ? 0x3a3f4a : POLICE_NAVY, o.x, o.z, o.yaw);
-        if (a) {
-          if (!o.suspect) tint(a, i % 2 ? HIVIS : POLICE_NAVY);
-          this.chaseOfficers[i] = a;
-        }
+        const a = this.human(o.suspect ? 0x3a3f4a : i % 2 ? HIVIS : POLICE_NAVY, o.x, o.z, o.yaw);
+        if (a) this.chaseOfficers[i] = a;
       }
       const a = this.chaseOfficers[i];
       if (!a) continue;
@@ -705,7 +723,7 @@ export class LondonDirector {
     return { d, a: new Actor(), mode: 3, holdLeft: 0, scene: false, px: 0, pz: 0, pyaw: 0, wait: 0, fromNode: -1, toNode: -1 };
   }
 
-  private dispatch(kind: number, fromNode: number, toNode: number, c: Callout, scene: boolean, park?: XZ & { 2?: number }) {
+  private dispatch(kind: number, fromNode: number, toNode: number, c: Callout, scene: boolean, park?: [number, number, number]) {
     const g = this.graph;
     const route = g.path(fromNode, toNode);
     if (!route || route.length < 2) return false;
@@ -726,7 +744,7 @@ export class LondonDirector {
     if (park) {
       c.px = park[0];
       c.pz = park[1];
-      c.pyaw = park[2] ?? 0;
+      c.pyaw = park[2];
     }
     return true;
   }
@@ -738,7 +756,7 @@ export class LondonDirector {
     if (this.nextCalloutIn <= 0) {
       this.nextCalloutIn = 22 + this.rng() * 35;
       const free = this.callouts.find((c) => c.mode === 3);
-      if (free && !this.callouts.every((c) => c.mode === 3 ? false : false)) {
+      if (free) {
         const r = this.rng();
         const kind = r < 0.55 ? K.AMBULANCE : r < 0.8 ? K.POLICE : K.FIRE;
         for (let tries = 0; tries < 6; tries++) {
@@ -750,7 +768,7 @@ export class LondonDirector {
       }
     }
     for (const c of this.callouts) {
-      if (c.mode === 3) continue;
+      if (c.mode === 3 || c.mode === 4) continue;
       const a = c.a;
       const d = c.d;
       if (c.mode === 0) {
@@ -778,7 +796,7 @@ export class LondonDirector {
           a.z += (dz / dist) * step;
         }
         const heading = dist > 2 ? Math.atan2(dx, dz) : c.pyaw;
-        a.yaw += wrapPi(heading - a.yaw) * Math.min(1, dt * 3);
+        a.yaw += wrapAngle(heading - a.yaw) * Math.min(1, dt * 3);
         a.speed = sp;
         this.pushSiren(a.x, a.z, a.yaw, a.speed);
         if (dist < 0.2) {
@@ -806,13 +824,17 @@ export class LondonDirector {
       const f = this.fleet[i];
       const share = this.on.has(f.group) ? (s[f.group as keyof Schedule] as number) : 0;
       const want = f.group === "sweeper" ? (share > 0 ? 1 : 0) : Math.ceil(f.base * Math.min(1, share));
-      const live = f.rank < want;
-      if (!live) {
+      if (f.rank >= want) {
         f.a.live = false;
         continue;
       }
       const d = f.d;
       const a = f.a;
+      if (!a.live) {
+        a.live = true;
+        g.place(d, this.randomLane(), this.rng() * g.len[d.lane], this.rng);
+      }
+      d.latMag = f.bike ? Math.min(f.lat0, g.width[d.lane] / 2 - 0.9) : Math.min(2, Math.max(1.1, g.width[d.lane] * 0.25));
       let target = d.vMax * (g.major[d.lane] ? 1 : 0.72) * slow;
       let gap = 40;
       let lead = 0;
@@ -835,18 +857,11 @@ export class LondonDirector {
           break;
         }
       }
-      if (!a.live) {
-        a.live = true;
-        d.fresh = true;
-      }
       g.step(d, dt, target, this.rng);
       a.x = d.x;
       a.z = d.z;
       a.yaw = d.yaw;
       a.speed = d.v;
-      if (f.group === "cyclists" || f.group === "scooters" || f.group === "couriers" || f.group === "sweeper") {
-        d.latMag = Math.min(d.latMag, g.width[d.lane] / 2 - 0.9);
-      }
     }
   }
 
@@ -856,8 +871,7 @@ export class LondonDirector {
     const clock = this.clock;
     for (const b of this.birds) {
       const a = b.a;
-      const awake = b.raven || s.pigeons || this.on.has("birds") === false;
-      a.live = this.on.has("birds") && (b.raven || awake);
+      a.live = this.on.has("birds") && (b.raven || s.pigeons);
       if (!a.live) continue;
       if (b.state === 0) {
         a.flap = 0;
@@ -874,7 +888,7 @@ export class LondonDirector {
         if (d > 0.1 && b.step > 0) {
           a.x += (dx / d) * b.step * dt;
           a.z += (dz / d) * b.step * dt;
-          a.yaw += wrapPi(Math.atan2(dx, dz) - a.yaw) * Math.min(1, dt * 6);
+          a.yaw += wrapAngle(Math.atan2(dx, dz) - a.yaw) * Math.min(1, dt * 6);
         }
         a.y = 0.1 + (b.raven ? Math.abs(Math.sin(clock * 5 + a.phase * 9)) * 0.08 * (b.step > 0 ? 1 : 0) : 0);
         for (let k = 0; k < evs.length; k++) {
@@ -940,12 +954,11 @@ export class LondonDirector {
     if (tour) {
       const show = this.on.has("tourists") && s.tourists;
       let arrived = true;
-      tour.people.forEach((p, i) => {
+      tour.people.forEach((p) => {
         const a = p.a;
         const d = p.d;
         a.live = show;
         if (!show || !d) return;
-        a.tr = 0;
         d.latMag = g.width[d.lane] / 2 + PAVEMENT_OFF + p.dx * 0.6;
         if (tour.moving) g.step(d, dt, d.vMax, this.rng);
         a.x = d.x;
@@ -953,8 +966,6 @@ export class LondonDirector {
         a.yaw = d.yaw;
         a.walk = d.v > 0.2 ? 1 : 0;
         if (!d.arrived) arrived = false;
-        if (i === 0) tint(a, 0xc0392b);
-        else if (a.tr === 0) tint(a, JACKETS[i % JACKETS.length]);
       });
       if (show && tour.moving && arrived) {
         tour.moving = false;
@@ -993,7 +1004,7 @@ export class LondonDirector {
         a.x = p.hx + p.dx * run;
         a.z = p.hz + p.dz * run;
         a.walk = k > 0.02 ? 1 : 0.25;
-        a.yaw += wrapPi(Math.atan2(p.dx, p.dz) - a.yaw) * (k > 0.02 ? Math.min(1, dt * 4) : 0);
+        a.yaw += wrapAngle(Math.atan2(p.dx, p.dz) - a.yaw) * (k > 0.02 ? Math.min(1, dt * 4) : 0);
       }
     }
     for (const gl of this.glows) {
@@ -1003,8 +1014,6 @@ export class LondonDirector {
           : this.on.has("pubs") && s.pub > 0;
     }
   }
-
-  private umbrellaSlots: Actor[] = [];
 
   private syncUmbrellas(people: Person[], rain: number, show: boolean) {
     for (let i = 0; i < people.length; i++) {
@@ -1150,17 +1159,11 @@ export class LondonDirector {
       if (Math.hypot(g.nodeX(from) - px, g.nodeZ(from) - pz) < 220) continue;
       this.at(px, pz, yaw, fire ? -18 : 7, 2.6, this.out);
       const park: [number, number, number] = [this.out[0], this.out[1], yaw + 0.2];
-      if (this.dispatch(fire ? K.FIRE : K.AMBULANCE, from, target, free, true, park as unknown as XZ & { 2?: number })) {
+      if (this.dispatch(fire ? K.FIRE : K.AMBULANCE, from, target, free, true, park)) {
         free.wait = 4 + this.rng() * 6;
         free.a.live = false;
         return;
       }
     }
   }
-}
-
-function wrapPi(a: number): number {
-  a = (a + Math.PI) % TAU;
-  if (a < 0) a += TAU;
-  return a - Math.PI;
 }

@@ -182,15 +182,28 @@ function paint(sim: TrafficSim, bodies: THREE.InstancedMesh[], lamp: THREE.Insta
   for (const m of [...bodies, ...lamp]) if (m.instanceColor) m.instanceColor.needsUpdate = true;
 }
 
+interface StreamerSeen {
+  lat: number;
+  lon: number;
+}
+
 function step(
   sim: TrafficSim,
   meshes: { bodies: THREE.InstancedMesh[]; lamp: THREE.InstancedMesh[]; pool: THREE.InstancedMesh },
   lights: THREE.MeshBasicMaterial,
   pool: THREE.MeshBasicMaterial,
+  seen: StreamerSeen,
+  cam: THREE.Vector3,
   dt: number,
   frame: number,
 ) {
-  sim.update(dt);
+  const st = useLive.getState().streamer;
+  if (st.lat !== seen.lat || st.lon !== seen.lon) {
+    seen.lat = st.lat;
+    seen.lon = st.lon;
+    sim.setFocus(toLocal(st.lat, st.lon));
+  }
+  sim.update(dt, cam.x, cam.z);
   const poolArr = meshes.pool.instanceMatrix.array;
   const vs = sim.vehicles;
   const strobe = Math.floor(performance.now() / 120) % 2 === 0;
@@ -216,7 +229,11 @@ function step(
 
 export function Traffic() {
   const net = useNetwork();
-  const sim = useMemo(() => new TrafficSim(net, CAPACITY, SEED), [net]);
+  const sim = useMemo(() => {
+    const { lat, lon } = useLive.getState().streamer;
+    return new TrafficSim(net, CAPACITY, SEED, toLocal(lat, lon));
+  }, [net]);
+  const streamerSeen = useRef<StreamerSeen>({ lat: NaN, lon: NaN });
   const frame = useRef(0);
 
   const fieldAt = useFieldStore((s) => s?.at ?? 0);
@@ -324,7 +341,9 @@ export function Traffic() {
     paint(sim, meshes.bodies, meshes.lamp);
   }, [sim, meshes, scenario]);
 
-  useFrame((_, dt) => step(sim, meshes, shared.lights, shared.pool, dt, frame.current++));
+  useFrame(({ camera }, dt) =>
+    step(sim, meshes, shared.lights, shared.pool, streamerSeen.current, camera.position, dt, frame.current++),
+  );
 
   return (
     <group>

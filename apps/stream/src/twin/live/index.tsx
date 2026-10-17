@@ -13,6 +13,7 @@ import { useField } from "../sim/useField";
 import { useScenarioFeeds } from "./scenario";
 import { useLiveFeeds } from "./store";
 import { Streamer } from "./Streamer";
+import { RouteLine } from "../route/RouteLine";
 
 /**
  * Live data layers rendered inside the <Canvas>: real TfL cams, YOLO tracks, buses, disruptions. Also
@@ -30,6 +31,7 @@ export function LiveLayers() {
       <Buses />
       <Disruptions />
       <Streamer />
+      <RouteLine />
       <LabelLayer />
     </group>
   );

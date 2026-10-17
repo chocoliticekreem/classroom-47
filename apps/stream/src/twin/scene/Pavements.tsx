@@ -7,9 +7,9 @@ import type { RoadNetwork, XZ } from "../network/types";
 import { useNetwork } from "../network/useNetwork";
 import { MeshBuilder, makeSurfaceMaterial, useSurfaceUniforms } from "./surfaces";
 
-const SLAB = new THREE.Color("#8d939e");
-const KERB_TOP = new THREE.Color("#5b606b");
-const KERB_FACE = new THREE.Color("#6e737e");
+const SLAB = new THREE.Color("#9a9b9e");
+const KERB_TOP = new THREE.Color("#62646a");
+const KERB_FACE = new THREE.Color("#74767c");
 const SKIRT = new THREE.Color("#3c404a");
 
 function lerpLine(a: XZ[], b: XZ[], t: number): XZ[] {

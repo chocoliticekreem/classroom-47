@@ -8,6 +8,7 @@ import { DevPanel } from "@/components/DevPanel";
 import { useConditions, useDemoSettings, type Conditions } from "@/platform/demo";
 import { ORIGIN } from "./config";
 import { LiveHud, LiveLayers } from "./live";
+import { Boats } from "./live/Boats";
 import { Pedestrians } from "./live/Pedestrians";
 import { Traffic } from "./live/Traffic";
 import { ModuleBoundary } from "./ModuleBoundary";
@@ -16,6 +17,7 @@ import { Buildings } from "./scene/Buildings";
 import { CameraRig } from "./scene/CameraRig";
 import { PRESETS, useCameraStore, type CameraPreset } from "./scene/cameraStore";
 import { Ground } from "./scene/Ground";
+import { Landmarks } from "./scene/Landmarks";
 import { Lights } from "./scene/Lights";
 import { CAMERA_FAR } from "./scene/palette";
 import { Parks } from "./scene/Parks";
@@ -57,7 +59,7 @@ function Module({ name, toggles, children }: { name: string; toggles: Toggles; c
   );
 }
 
-const PRESET_ORDER: CameraPreset[] = ["aerial", "street", "skyline"];
+const PRESET_ORDER: CameraPreset[] = ["aerial", "street", "skyline", "bankside"];
 
 function PresetButtons() {
   const preset = useCameraStore((s) => s.preset);
@@ -181,6 +183,12 @@ export function World() {
             </Module>
             <Module name="Pedestrians" toggles={toggles}>
               <Pedestrians />
+            </Module>
+            <Module name="Boats" toggles={toggles}>
+              <Boats />
+            </Module>
+            <Module name="Landmarks" toggles={toggles}>
+              <Landmarks />
             </Module>
           </GeometryContext.Provider>
         )}

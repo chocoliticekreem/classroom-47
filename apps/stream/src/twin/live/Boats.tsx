@@ -7,7 +7,7 @@ import { ATMOS } from "../scene/palette";
 import { useGeometry } from "../scene/useGeometry";
 import { createFleet, stepFleet, type Fleet } from "./boats/fleet";
 import { buildBoat, type BoatKind } from "./boats/models";
-import { deriveRiver, setRiver } from "./river";
+import { deriveRiver, river, setRiver } from "./river";
 
 interface KindMeshes {
   hull: THREE.InstancedMesh;
@@ -118,8 +118,8 @@ const QUAT = new THREE.Quaternion();
 const EULER = new THREE.Euler();
 const UP = new THREE.Vector3(0, 1, 0);
 
-function stepRig({ fleet, rig }: { fleet: Fleet; rig: Rig }, delta: number) {
-  stepFleet(fleet, Math.min(delta, 0.1));
+/** Writes the sim state into the instance matrices and day/night material colours. */
+function drawFleet(fleet: Fleet, rig: Rig) {
   const glow = ATMOS.windowGlow;
   const m = rig.materials;
   m.glass.color.setRGB(0.05 + glow * 1.85, 0.09 + glow * 1.4, 0.12 + glow * 0.73);
@@ -152,9 +152,9 @@ export function Boats() {
   const { water } = useGeometry();
   const sim = useMemo(() => {
     setRiver(deriveRiver(water));
-    const lift = new URLSearchParams(window.location.search).get("lift") === "1";
-    const fleet = createFleet(lift);
-    return fleet.boats.length ? { fleet, rig: buildRig(fleet) } : null;
+    if (!river.length) return null;
+    const fleet = createFleet(new URLSearchParams(window.location.search).get("lift") === "1");
+    return { fleet, rig: buildRig(fleet) };
   }, [water]);
 
   useEffect(() => {
@@ -172,7 +172,10 @@ export function Boats() {
   }, [sim]);
 
   useFrame((_, delta) => {
-    if (sim) stepRig(sim, delta);
+    if (!sim) return;
+    const { fleet, rig } = sim;
+    stepFleet(fleet, Math.min(delta, 0.1));
+    drawFleet(fleet, rig);
   });
 
   if (!sim) return null;
