@@ -5,6 +5,7 @@ import { isVirtualCam, liveOffsetS } from "@/lib/vcams";
 import type { AroundCam } from "@/platform/around/types";
 import { calibrationFor, camFrame, usePoseVersion } from "../live/project";
 import { AlignBar } from "./AlignBar";
+import { useAutofit } from "./autofit";
 import { useLive } from "../live/store";
 import { syncClock, useCompare } from "./store";
 
@@ -71,6 +72,7 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [overlay, setOverlay] = useState(false);
   const overlayVideo = useRef<HTMLVideoElement>(null);
+  const fit = useAutofit((s) => s.byCam[cam.id]);
   usePoseVersion((s) => s.v); // re-render the caption while a pose is being aligned
   const frame = camFrame(cam);
   const cal = calibrationFor(cam.id);
@@ -194,7 +196,7 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
       </div>
 
       <div style={{ position: "absolute", left: "50%", top: 70, width: "50%", display: "flex", justifyContent: "center", padding: "0 12px", boxSizing: "border-box" }}>
-        <AlignBar cam={cam} overlay={overlay} setOverlay={setOverlay} />
+        <AlignBar key={fit ? "fit" : "model"} cam={cam} overlay={overlay} setOverlay={setOverlay} />
       </div>
 
       <div style={{ ...caption, left: "calc(50% + 20px)" }}>
@@ -204,6 +206,7 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
           · <span style={{ color: "#ffb37a" }}>{people} people</span>, <span style={{ color: "#9fd3ff" }}>{vehicles} vehicles</span>
           {clip ? ` · ${clip.duration.toFixed(1)} s clip` : " · analysing…"}
           {failed ? " · wall clock" : " · synced to the clip"}
+          {fit && fit.afterM < fit.beforeM ? ` · auto-aligned to the roads (${fit.beforeM.toFixed(1)} → ${fit.afterM.toFixed(1)} m)` : ""}
         </span>
       </div>
 
@@ -233,7 +236,7 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
           <span style={{ color: "var(--muted)" }}>
             {" · "}
             {cal
-              ? `pose from ${cal.source?.startsWith("aligned by hand") ? "Nemotron 3.5 Super VL + hand alignment" : "Nemotron 3.5 Super VL"}: facing ${Math.round(cal.headingDeg)}°, tilted ${cal.pitchDeg}°, ${cal.heightM} m up, ${Math.round(cal.hfovDeg)}° lens`
+              ? `pose from ${cal.source?.startsWith("auto-fit") ? "Nemotron 3.5 Super VL, fitted to the real cars' lanes" : cal.source?.startsWith("aligned by hand") ? "Nemotron 3.5 Super VL + hand alignment" : "Nemotron 3.5 Super VL"}: facing ${Math.round(cal.headingDeg)}°, tilted ${cal.pitchDeg.toFixed(1)}°, ${cal.heightM.toFixed(1)} m up, ${Math.round(cal.hfovDeg)}° lens`
               : `uncalibrated: default ${Math.round((Math.atan(frame.tanH) * 360) / Math.PI)}° lens, ${frame.heightM} m up`}
           </span>
         </div>

@@ -22,6 +22,9 @@ export interface CamCalibration {
   confidence?: number;
   reason?: string;
   street?: string;
+  /** Correction to the TfL-published camera position, metres east / south in local space. */
+  dxM?: number;
+  dzM?: number;
 }
 
 const CALIBRATIONS = CALIBRATION as Record<string, CamCalibration>;
@@ -73,21 +76,24 @@ export interface CamFrame {
 }
 
 export function camFrame(cam: AroundCam): CamFrame {
-  const [x, z] = toLocal(cam.lat, cam.lon);
   const cal = calibrationFor(cam.id);
-  const hfov = cal?.hfovDeg ?? DEFAULT_POSE.hfovDeg;
-  const aspect = cal?.aspect ?? DEFAULT_POSE.aspect;
-  const tanH = Math.tan((hfov * Math.PI) / 360);
+  return { ...frameFromPose(cam, { ...DEFAULT_POSE, ...cal, headingDeg: camHeadingDeg(cam) }), calibrated: cal !== null };
+}
+
+/** The frame a camera would have at `pose`, without registering it. */
+export function frameFromPose(cam: AroundCam, pose: CamCalibration): CamFrame {
+  const [x, z] = toLocal(cam.lat, cam.lon);
+  const tanH = Math.tan((pose.hfovDeg * Math.PI) / 360);
   return {
-    x,
-    z,
-    headingRad: (camHeadingDeg(cam) * Math.PI) / 180,
-    pitchRad: ((cal?.pitchDeg ?? DEFAULT_POSE.pitchDeg) * Math.PI) / 180,
-    heightM: cal?.heightM ?? DEFAULT_POSE.heightM,
+    x: x + (pose.dxM ?? 0),
+    z: z + (pose.dzM ?? 0),
+    headingRad: (pose.headingDeg * Math.PI) / 180,
+    pitchRad: (pose.pitchDeg * Math.PI) / 180,
+    heightM: pose.heightM,
     tanH,
-    tanV: tanH / aspect,
-    aspect,
-    calibrated: cal !== null,
+    tanV: tanH / pose.aspect,
+    aspect: pose.aspect,
+    calibrated: true,
   };
 }
 
