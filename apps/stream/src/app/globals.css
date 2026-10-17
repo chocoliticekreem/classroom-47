@@ -32,9 +32,9 @@
   --color-live: var(--live);
   --color-ok: var(--ok);
   --color-warn: var(--warn);
-  --font-sans: var(--font-sans-ui);
-  --font-display: var(--font-display);
-  --font-mono: var(--font-mono-hud);
+  --font-sans: var(--font-figtree);
+  --font-display: var(--font-figtree);
+  --font-mono: var(--font-figtree);
 }
 
 html,
@@ -45,13 +45,11 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font-sans-ui), system-ui, sans-serif;
-  font-feature-settings: "ss01", "cv05";
+  font-family: var(--font-figtree), system-ui, sans-serif;
 }
 
 .font-mono {
-  font-feature-settings: "tnum", "zero";
-  font-variant-numeric: tabular-nums slashed-zero;
+  font-variant-numeric: tabular-nums;
 }
 
 .scrollbar-thin {

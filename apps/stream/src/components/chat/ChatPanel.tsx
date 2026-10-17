@@ -63,7 +63,7 @@ function MessageRow({ m }: { m: ChatMessage }) {
     return (
       <div className="animate-chat-in my-1 overflow-hidden rounded-[6px] border border-ember/40 bg-ember-soft">
         <div className="flex items-center justify-between border-b border-ember/20 px-2.5 py-1">
-          <span className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-ember">
+          <span className="flex items-center gap-1.5 font-mono text-[10px] font-semibold tracking-normal text-ember">
             <Zap className="size-3 fill-current" />
             Tip
           </span>
@@ -92,12 +92,12 @@ function MessageRow({ m }: { m: ChatMessage }) {
   return (
     <div className={`${base} ${tone}`}>
       {m.highlight === "first" && (
-        <div className="mb-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-[#5aa9ff]">
+        <div className="mb-0.5 font-mono text-[9px] font-semibold tracking-normal text-[#5aa9ff]">
           First message
         </div>
       )}
       {m.fromStreamer && (
-        <div className="mb-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-ember">
+        <div className="mb-0.5 font-mono text-[9px] font-semibold tracking-normal text-ember">
           Streamer
         </div>
       )}
@@ -109,7 +109,7 @@ function MessageRow({ m }: { m: ChatMessage }) {
       <span className="text-dim"> </span>
       <span className={m.fromStreamer ? "font-medium text-text" : "text-text/85"}>{m.text}</span>
       {m.locationSignal && (
-        <span className="ml-1.5 inline-flex translate-y-[-1px] items-center gap-0.5 rounded-[3px] border border-warn/20 px-1 py-px align-middle font-mono text-[9px] uppercase tracking-[0.1em] text-warn/80">
+        <span className="ml-1.5 inline-flex translate-y-[-1px] items-center gap-0.5 rounded-[3px] border border-warn/20 px-1 py-px align-middle font-mono text-[9px] tracking-normal text-warn/80">
           <MapPin className="size-2.5" />
           Location
         </span>
@@ -168,11 +168,11 @@ export function ChatPanel({ messages, onSend, viewers, live }: ChatPanelProps) {
   return (
     <section className="flex h-full min-h-0 flex-col bg-surface">
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-line px-3.5">
-        <h2 className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-text">
+        <h2 className="flex items-center gap-2 font-mono text-[10px] tracking-normal text-text">
           <span className={`size-1.5 rounded-full ${live ? "animate-live bg-live" : "bg-dim"}`} />
           Chat
         </h2>
-        <div className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.12em]">
+        <div className="flex items-center gap-3 font-mono text-[10px] tracking-normal">
           {signals > 0 && (
             <span className="flex items-center gap-1 text-warn">
               <MapPin className="size-3" />
@@ -209,7 +209,7 @@ export function ChatPanel({ messages, onSend, viewers, live }: ChatPanelProps) {
           <button
             type="button"
             onClick={resume}
-            className="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-md border border-line-strong bg-surface-2/95 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-text shadow-lg backdrop-blur hover:border-ember/60"
+            className="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-md border border-line-strong bg-surface-2/95 px-3 py-1.5 font-mono text-[10px] tracking-normal text-text shadow-lg backdrop-blur hover:border-ember/60"
           >
             <ArrowDown className="size-3" />
             Paused{unseen > 0 ? ` · ${unseen} new` : ""}
@@ -219,7 +219,7 @@ export function ChatPanel({ messages, onSend, viewers, live }: ChatPanelProps) {
 
       <div className="shrink-0 border-t border-line p-2.5">
         <div className="flex items-center gap-2 rounded-md border border-line bg-bg pl-3 pr-1.5 transition-colors focus-within:border-ember/60">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ember">You</span>
+          <span className="font-mono text-[10px] tracking-normal text-ember">You</span>
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}

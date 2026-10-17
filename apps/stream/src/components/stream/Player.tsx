@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Camera, Film, RotateCcw, Square, Upload } from "lucide-react";
-import { JAMCAMS } from "@/lib/locations";
 import type { StreamContext, StreamSource } from "@/lib/types";
 
 interface PlayerProps {
@@ -117,7 +116,7 @@ export function Player({ source, onSourceChange, ctx }: PlayerProps) {
           <Corners />
 
           <div className="absolute left-4 top-4 flex items-center gap-2 font-mono text-[11px] sm:left-6 sm:top-6">
-            <span className="flex h-6 items-center gap-1.5 rounded-[4px] bg-live px-2 font-semibold uppercase tracking-[0.14em] text-white">
+            <span className="flex h-6 items-center gap-1.5 rounded-[4px] bg-live px-2 font-semibold tracking-normal text-white">
               <span className="animate-live size-1.5 rounded-full bg-white" />
               Live
             </span>
@@ -130,14 +129,11 @@ export function Player({ source, onSourceChange, ctx }: PlayerProps) {
 
           <div className="absolute right-4 top-4 flex flex-col items-end gap-1 font-mono text-[11px] text-white sm:right-6 sm:top-6">
             {now && (
-              <span className="rounded-[4px] border border-white/15 bg-black/50 px-2 py-1 tracking-[0.08em] backdrop-blur-sm">
+              <span className="rounded-[4px] border border-white/15 bg-black/50 px-2 py-1 tracking-normal backdrop-blur-sm">
                 {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                 <span className="ml-1.5 hidden text-white/45 sm:inline">BST</span>
               </span>
             )}
-            <span className="hidden text-[10px] uppercase tracking-[0.18em] text-white/55 sm:block">
-              Cam 01 · 1280×720
-            </span>
           </div>
 
           <div className="absolute inset-x-4 bottom-4 flex items-end justify-between gap-3 sm:inset-x-6 sm:bottom-6">
@@ -145,7 +141,7 @@ export function Player({ source, onSourceChange, ctx }: PlayerProps) {
               <p className="font-display text-[20px] font-semibold leading-none tracking-[-0.02em] text-white sm:text-[24px]">
                 {ctx.location.name}
               </p>
-              <p className="mt-1.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-white/60">
+              <p className="mt-1.5 flex items-center gap-2 font-mono text-[10px] tracking-normal text-white/60">
                 <span className="text-ember">{ctx.location.area}</span>
                 <span className="hidden sm:inline">{coords(ctx.location.lat, ctx.location.lon)}</span>
                 <span className="hidden text-white/40 md:inline">· {sourceLabel}</span>
@@ -154,7 +150,7 @@ export function Player({ source, onSourceChange, ctx }: PlayerProps) {
             <button
               type="button"
               onClick={() => change({ kind: "idle" })}
-              className="flex h-8 shrink-0 items-center gap-1.5 rounded-[4px] border border-white/15 bg-black/50 px-2.5 font-mono text-[11px] uppercase tracking-[0.12em] text-white backdrop-blur-sm transition-colors hover:border-live hover:bg-live"
+              className="flex h-8 shrink-0 items-center gap-1.5 rounded-[4px] border border-white/15 bg-black/50 px-2.5 font-mono text-[11px] tracking-normal text-white backdrop-blur-sm transition-colors hover:border-live hover:bg-live"
             >
               <Square className="size-2.5 fill-current" aria-hidden />
               End
@@ -164,7 +160,7 @@ export function Player({ source, onSourceChange, ctx }: PlayerProps) {
           {error && (
             <div className="absolute inset-0 grid place-items-center bg-black/80 backdrop-blur-sm">
               <div className="flex flex-col items-center gap-3 text-center">
-                <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-live">Signal lost</p>
+                <p className="font-mono text-[11px] tracking-normal text-live">Signal lost</p>
                 <p className="text-sm text-text">{error}</p>
                 <button
                   type="button"
@@ -198,7 +194,6 @@ function IdleCard({
   now: Date | null;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [cam, setCam] = useState(JAMCAMS[0].url);
 
   return (
     <div className="relative size-full bg-surface">
@@ -206,22 +201,22 @@ function IdleCard({
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_80%_at_50%_120%,var(--ember-soft),transparent)]" aria-hidden />
       <Corners className="border-white/25" />
 
-      <div className="absolute left-6 top-6 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+      <div className="absolute left-6 top-6 flex items-center gap-2 font-mono text-[10px] tracking-normal text-muted">
         <span className="size-1.5 rounded-full bg-dim" />
         Standby
       </div>
-      <div className="absolute right-6 top-6 hidden font-mono text-[10px] uppercase tracking-[0.18em] text-muted sm:block">
+      <div className="absolute right-6 top-6 hidden font-mono text-[10px] tracking-normal text-muted sm:block">
         {ctx.location.area} · {coords(ctx.location.lat, ctx.location.lon)}
       </div>
       {now && (
-        <div className="absolute bottom-6 right-6 hidden font-mono text-[10px] tracking-[0.12em] text-dim sm:block">
+        <div className="absolute bottom-6 right-6 hidden font-mono text-[10px] tracking-normal text-dim sm:block">
           {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
         </div>
       )}
 
       <div className="relative grid size-full place-items-center p-6 sm:p-10">
         <div className="w-full max-w-xl">
-          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-ember">No signal</p>
+          <p className="font-mono text-[10px] tracking-normal text-ember">No signal</p>
           <h2 className="mt-2 font-display text-[28px] font-semibold leading-[1.05] tracking-[-0.03em] sm:text-[36px]">
             Go live from {ctx.location.name}.
           </h2>
@@ -241,11 +236,10 @@ function IdleCard({
               index="02"
               icon={<Film className="size-4" />}
               title="TfL JamCam"
-              hint="Live street feed"
+              hint="Nearest street cam"
               accent
               onClick={() => {
-                const picked = JAMCAMS.find((j) => j.url === cam) ?? JAMCAMS[0];
-                onPick({ kind: "url", url: picked.url, label: picked.label });
+                onPick({ kind: "url", url: ctx.location.camera.url, label: ctx.location.camera.label });
               }}
             />
             <SourceButton
@@ -257,20 +251,6 @@ function IdleCard({
             />
           </div>
 
-          <label className="mt-3 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.16em] text-dim">
-            Cam
-            <select
-              value={cam}
-              onChange={(e) => setCam(e.target.value)}
-              className="h-8 flex-1 rounded-[4px] border border-line bg-bg px-2 font-sans text-[12px] normal-case tracking-normal text-text focus:border-ember focus:outline-none"
-            >
-              {JAMCAMS.map((j) => (
-                <option key={j.url} value={j.url}>
-                  {j.label}
-                </option>
-              ))}
-            </select>
-          </label>
 
           <input
             ref={fileRef}
@@ -326,7 +306,7 @@ function SourceButton({
       <span className="min-w-0 flex-1">
         <span className="flex items-center justify-between gap-2">
           <span className="text-[13px] font-semibold">{title}</span>
-          <span className="font-mono text-[9px] tracking-[0.14em] text-dim">{index}</span>
+          <span className="font-mono text-[9px] tracking-normal text-dim">{index}</span>
         </span>
         <span className="block text-[11px] text-muted">{hint}</span>
       </span>

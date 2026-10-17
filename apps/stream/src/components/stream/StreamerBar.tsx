@@ -41,7 +41,7 @@ export function StreamerBar({ ctx, onLocationChange, onReveal, onSimulate }: Str
             className="size-12 rounded-full bg-surface-2 ring-2 ring-bg"
           />
           {ctx.live && (
-            <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-[3px] bg-live px-1 font-mono text-[8px] font-bold uppercase tracking-[0.12em] text-white ring-2 ring-bg">
+            <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-[3px] bg-live px-1 font-mono text-[8px] font-bold tracking-normal text-white ring-2 ring-bg">
               Live
             </span>
           )}
@@ -52,7 +52,7 @@ export function StreamerBar({ ctx, onLocationChange, onReveal, onSimulate }: Str
               {ctx.streamer}
             </h1>
             <BadgeCheck className="size-4 shrink-0 text-ember" aria-label="Verified" />
-            <span className="ml-1 hidden font-mono text-[10px] uppercase tracking-[0.16em] text-dim sm:inline">
+            <span className="ml-1 hidden font-mono text-[10px] tracking-normal text-dim sm:inline">
               {ctx.live ? `${ctx.viewers.toLocaleString("en-GB")} watching` : "Offline"}
             </span>
           </div>
@@ -61,7 +61,7 @@ export function StreamerBar({ ctx, onLocationChange, onReveal, onSimulate }: Str
             {TAGS.map((t) => (
               <span
                 key={t}
-                className="rounded-[4px] border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted"
+                className="rounded-[4px] border border-line px-1.5 py-0.5 font-mono text-[10px] tracking-normal text-muted"
               >
                 {t}
               </span>
@@ -72,7 +72,7 @@ export function StreamerBar({ ctx, onLocationChange, onReveal, onSimulate }: Str
 
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex h-9 items-center gap-2 rounded-md border border-line bg-surface pl-2.5 pr-2.5 transition-colors focus-within:border-line-strong hover:border-line-strong">
-          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-dim">At</span>
+          <span className="font-mono text-[10px] tracking-normal text-dim">At</span>
           <span className="relative">
             <span className="invisible block px-1 text-[13px] font-medium">{ctx.location.name}</span>
             <select

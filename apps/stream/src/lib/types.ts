@@ -38,6 +38,7 @@ export interface StreamLocation {
   area: string;
   lat: number;
   lon: number;
+  camera: { label: string; url: string };
 }
 
 export type StreamSource =
