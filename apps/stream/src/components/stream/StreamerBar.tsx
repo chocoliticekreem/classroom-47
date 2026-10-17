@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BadgeCheck, ChevronDown, Heart, MapPinned, Sparkles, Star } from "lucide-react";
+import { ArrowUpRight, BadgeCheck, ChevronDown, Heart, MapPinned, Sparkles, Star } from "lucide-react";
 import { LOCATIONS } from "@/lib/locations";
 import type { StreamContext, StreamLocation } from "@/lib/types";
 
@@ -100,7 +100,8 @@ export function StreamerBar({ ctx, onLocationChange, onReveal, onSimulate }: Str
           className="flex h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-[13px] font-medium transition-colors hover:border-ember/60 hover:text-text"
         >
           <Sparkles className="size-3.5 text-ember" aria-hidden />
-          Simulate first
+          Mirror
+          <ArrowUpRight className="size-3.5 text-muted" aria-hidden />
         </button>
 
         <button

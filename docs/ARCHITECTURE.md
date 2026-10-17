@@ -21,7 +21,7 @@ Any tab on the **same origin** (e.g. `http://localhost:3000/...`) shares one `Br
 | `stream.viewers` | `viewers: number` | Stream page | City / sim |
 | `chat.message` | `message: ChatMessage` | Chat crowd | Anyone |
 | `streamer:location_leaked` | `location: StreamLocation`, `viewers: number`, `at: number` (ms epoch) | Stream page ("Tell chat my location") | City sim |
-| `reality:fork` | `scenario: WhatIfScenarioId` (e.g. `"leak_location_50"`), `label: string`, `location: StreamLocation`, `viewers: number` | Stream page ("Simulate first") | City sim |
+| `reality:fork` | `scenario: WhatIfScenarioId` (e.g. `"leak_location_50"`), `label: string`, `location: StreamLocation`, `viewers: number` | Stream page ("Mirror") | City sim |
 | `surroundings.update` | `summary: string`, `level: "calm" \| "busy" \| "danger"` | City / awareness data | Stream page (Surroundings card) |
 
 `StreamLocation` = `{ id: string; name: string; area: string; lat: number; lon: number }` (see `apps/stream/src/lib/types.ts`).

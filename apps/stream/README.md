@@ -26,3 +26,5 @@ The code is laid out by CAMP layer (Coding agents, Agent runtimes, Model service
 - **Cursor**: dev environment
 
 Powered by TfL Open Data.
+
+Set `NEXT_PUBLIC_MIRROR_URL` in your local env file in `apps/stream` to change where **Mirror** opens the city (default `http://localhost:3000/city`).

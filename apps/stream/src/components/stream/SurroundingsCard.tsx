@@ -36,7 +36,7 @@ export function SurroundingsCard() {
           setPending(null);
         } else if (e.type === "reality:fork") {
           setFix(e.location);
-          setPending(`Simulation requested for ${e.location.name}`);
+          setPending(`Mirror opened for ${e.location.name}`);
         } else if (e.type === "streamer:location_leaked") {
           setFix(e.location);
           setPending(`Location shared at ${e.location.name} with ${e.viewers.toLocaleString("en-GB")} viewers`);
