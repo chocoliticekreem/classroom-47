@@ -269,7 +269,7 @@ function ViewTabs({ tab, onChange }: { tab: View; onChange: (v: View) => void })
 function TwinView({ src, pip }: { src: string; pip: MediaStream | null }) {
   return (
     <section className="relative min-h-[520px] flex-1 overflow-hidden rounded-xl border border-line bg-black">
-      <iframe src={src} title="3D mirror" className="absolute inset-0 size-full" allow="fullscreen" />
+      <iframe src={src} title="3D mirror" className="absolute inset-0 size-full" allow="fullscreen; geolocation" />
       {pip && (
         <div className="absolute bottom-3 left-3 w-[200px] overflow-hidden rounded-lg border border-line-strong bg-black shadow-[0_12px_40px_rgba(0,0,0,0.55)] sm:w-[260px]">
           <StreamVideo stream={pip} className="aspect-video size-full object-cover" />

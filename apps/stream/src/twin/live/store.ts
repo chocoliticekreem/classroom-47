@@ -222,6 +222,8 @@ function start() {
 /** Starts the polling loops once, shared by every component that mounts it. */
 export function useLiveFeeds() {
   useEffect(() => {
+    // Real GPS by default; demo locations and the phone relay still override when present.
+    if (useLive.getState().gps === "off") toggleGps();
     if (refs++ === 0) stopAll = start();
     return () => {
       if (--refs === 0) {

@@ -32,9 +32,10 @@ export function useLiveLink({ live, viewers, demo }: Args) {
   const remote = useRemoteLive(session);
   const [now, setNow] = useState(() => Date.now());
 
+  // GPS is the default source of truth: start it as soon as the page loads, not only when live.
   useEffect(() => {
-    if (live && gps.status === "off") gps.start();
-  }, [live, gps]);
+    if (gps.status === "off") gps.start();
+  }, [gps]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);

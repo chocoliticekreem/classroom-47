@@ -30,7 +30,7 @@ interface CameraState {
 }
 
 export const useCameraStore = create<CameraState>((set) => ({
-  preset: "aerial",
+  preset: "streamer",
   flight: 0,
   cctv: null,
   snap: false,
