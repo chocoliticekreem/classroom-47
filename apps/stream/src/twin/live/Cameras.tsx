@@ -1,29 +1,35 @@
 "use client";
 
 import { Billboard } from "@react-three/drei";
+import { useFrame } from "@react-three/fiber";
 import { Label } from "./Label";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { AroundCam } from "@/platform/around/types";
 import { camFrame, usePoseVersion, viewConePoints } from "./project";
 import { useCompare } from "../compare/store";
-import { useLive } from "./store";
+import { useLive, useNow } from "./store";
 
 const POLE_H = 7;
 const SCREEN_W = 12;
 const SCREEN_H = 9;
 const FRAME_REFRESH_MS = 15_000;
+const CROSSFADE_S = 1.2;
 
 type ScreenMode = "loading" | "video" | "frame";
 
-/** Live clip as a VideoTexture when TfL's S3 allows CORS; otherwise the same-origin annotated frame. */
-function useScreenTexture(cam: AroundCam) {
+/**
+ * Live clip as a VideoTexture when TfL's S3 allows CORS; otherwise the same-origin annotated frame.
+ * The video reloads when the YOLO reading's `at` changes (TfL published a new clip); the previous
+ * texture is kept so the screen can crossfade instead of hard-cutting.
+ */
+function useScreenTexture(cam: AroundCam, clipAt: number) {
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
+  const [previous, setPrevious] = useState<THREE.Texture | null>(null);
   const [mode, setMode] = useState<ScreenMode>("loading");
 
   useEffect(() => {
     let disposed = false;
-    let current: THREE.Texture | null = null;
     let frameTimer: ReturnType<typeof setInterval> | null = null;
     const loader = new THREE.TextureLoader();
 
@@ -32,10 +38,11 @@ function useScreenTexture(cam: AroundCam) {
         t.dispose();
         return;
       }
-      current?.dispose();
-      current = t;
       t.colorSpace = THREE.SRGBColorSpace;
-      setTexture(t);
+      setTexture((old) => {
+        setPrevious(old);
+        return t;
+      });
     };
 
     const loadFrame = () => {
@@ -67,7 +74,7 @@ function useScreenTexture(cam: AroundCam) {
     };
     video.addEventListener("error", onError);
     video.addEventListener("loadeddata", onReady);
-    video.src = cam.videoUrl;
+    video.src = clipAt ? `${cam.videoUrl}${cam.videoUrl.includes("?") ? "&" : "?"}v=${clipAt}` : cam.videoUrl;
 
     return () => {
       disposed = true;
@@ -77,16 +84,64 @@ function useScreenTexture(cam: AroundCam) {
       video.removeAttribute("src");
       video.load();
       if (frameTimer) clearInterval(frameTimer);
-      current?.dispose();
     };
-  }, [cam.id, cam.videoUrl]);
+  }, [cam.id, cam.videoUrl, clipAt]);
 
-  return { texture, mode };
+  useEffect(() => () => previous?.dispose(), [previous]);
+
+  return { texture, previous, mode, clearPrevious: () => setPrevious(null) };
+}
+
+/** The new clip fades in over the old one; the old texture is released once it is fully covered. */
+function Screen({ texture, previous, clearPrevious, onClick }: { texture: THREE.Texture | null; previous: THREE.Texture | null; clearPrevious: () => void; onClick: (e: { stopPropagation(): void }) => void }) {
+  const front = useRef<THREE.MeshBasicMaterial>(null);
+  const fadeFrom = useRef(-1);
+  useEffect(() => {
+    fadeFrom.current = previous ? performance.now() / 1000 : -1;
+  }, [texture, previous]);
+  useFrame(() => {
+    const m = front.current;
+    if (!m) return;
+    if (fadeFrom.current < 0) {
+      m.opacity = 1;
+      return;
+    }
+    const k = Math.min(1, (performance.now() / 1000 - fadeFrom.current) / CROSSFADE_S);
+    m.opacity = k;
+    if (k >= 1) {
+      fadeFrom.current = -1;
+      clearPrevious();
+    }
+  });
+  return (
+    <>
+      {previous && (
+        <mesh position={[0, 0, -0.02]}>
+          <planeGeometry args={[SCREEN_W, SCREEN_H]} />
+          <meshBasicMaterial map={previous} toneMapped={false} />
+        </mesh>
+      )}
+      <mesh onClick={onClick}>
+        <planeGeometry args={[SCREEN_W, SCREEN_H]} />
+        {texture ? (
+          <meshBasicMaterial key="live" ref={front} map={texture} toneMapped={false} transparent />
+        ) : (
+          <meshBasicMaterial key="blank" color="#131318" />
+        )}
+      </mesh>
+    </>
+  );
+}
+
+function clipAge(now: number, at: number) {
+  const s = Math.max(0, Math.round((now - at) / 1000));
+  return s < 90 ? `${s} s ago` : `${Math.round(s / 60)} min ago`;
 }
 
 function Camera({ cam }: { cam: AroundCam }) {
   const clip = useLive((s) => s.clips[cam.id]);
-  const { texture, mode } = useScreenTexture(cam);
+  const now = useNow();
+  const { texture, previous, mode, clearPrevious } = useScreenTexture(cam, clip?.at ?? 0);
   const poseVersion = usePoseVersion((s) => s.v);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const frame = useMemo(() => camFrame(cam), [cam, poseVersion]);
@@ -151,14 +206,7 @@ function Camera({ cam }: { cam: AroundCam }) {
             <planeGeometry args={[SCREEN_W + 0.6, SCREEN_H + 0.6]} />
             <meshBasicMaterial color="#0c0c10" />
           </mesh>
-          <mesh onClick={(e) => (e.stopPropagation(), open(cam.id))}>
-            <planeGeometry args={[SCREEN_W, SCREEN_H]} />
-            {texture ? (
-              <meshBasicMaterial key="live" map={texture} toneMapped={false} />
-            ) : (
-              <meshBasicMaterial key="blank" color="#131318" />
-            )}
-          </mesh>
+          <Screen texture={texture} previous={previous} clearPrevious={clearPrevious} onClick={(e) => (e.stopPropagation(), open(cam.id))} />
         </Billboard>
         <Label position={[0, POLE_H + SCREEN_H + 3.2, 0]}>
           <div
@@ -203,6 +251,9 @@ function Camera({ cam }: { cam: AroundCam }) {
               )}
               {mode === "frame" ? " · frame" : mode === "video" ? " · video" : ""}
             </div>
+            {clip && now > 0 && (
+              <div style={{ color: "var(--dim)", fontSize: 11 }}>Updated {clipAge(now, clip.at)} · TfL refreshes every few min</div>
+            )}
             <div style={{ color: comparing ? "var(--ember)" : "var(--dim)", fontSize: 11, marginTop: 2 }}>
               {comparing ? "Comparing" : "Click to compare with real CCTV"}
             </div>
