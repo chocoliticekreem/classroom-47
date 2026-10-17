@@ -25,7 +25,7 @@ export type BusEvent =
       viewers: number;
     }
   | { type: "surroundings.update"; summary: string; level: "calm" | "busy" | "danger" }
-  | { type: "follower.alert"; personId: number; visibleS: number; appearances: number; movedM: number };
+  | { type: "follower.alert"; personId: number; visibleS: number; appearances: number; movedM: number }
   | {
       type: "route.suggested";
       to: string;
