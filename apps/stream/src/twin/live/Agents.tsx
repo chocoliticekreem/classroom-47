@@ -10,7 +10,7 @@ import { personBody, personHead, personMaterial, SKIN } from "./models/people";
 import { bikeBody, CAR_LENGTH, carBody, lampMaterial, lamps, paintMaterial, VAN_LENGTH, vanBody } from "./models/vehicles";
 import { camFrame, projectInto, sampleInto, usePoseVersion, type CamFrame } from "./project";
 import { syncClock, useCompare } from "../compare/store";
-import { useSnapIndex } from "../network/snap";
+import { snapVehicle, useSnapIndex, VEHICLE_REACH_M, type SnapIndex, type VehicleSnap } from "../network/snap";
 import { DIMS, MODEL_OF, MotionSim, State, type Entity, type Model } from "./motion";
 import { beginFrame, endFrame, recordPose } from "./motionStats";
 import { useLive } from "./store";
@@ -35,6 +35,10 @@ const FALLBACK_COLOR: Record<TrackedClass, string> = {
   motorcycle: "#3a3a42",
   bicycle: "#3a3a42",
 };
+
+const _railed: VehicleSnap = { x: 0, z: 0, heading: 0, laneId: -1, s: 0, dist: 0 };
+/** The lane each compared vehicle last rode, so it does not flicker between lanes. */
+const railLane = new WeakMap<object, number>();
 
 /** A compared camera's track, drawn 1:1 with the real video's clock (which loops). */
 interface SyncTrack {
@@ -170,7 +174,7 @@ function drawEntities(scene: Scene, ents: Entity[], now: number, skipCam: string
 }
 
 /** The compared camera stays 1:1 with its (looping) video clock, unsnapped, so figures cross when the real ones do. */
-function drawSynced(scene: Scene, tracks: SyncTrack[], syncT: number, now: number) {
+function drawSynced(scene: Scene, tracks: SyncTrack[], syncT: number, now: number, snap: SnapIndex | null) {
   for (let i = 0; i < tracks.length; i++) {
     const tr = tracks[i];
     if (!sampleInto(tr.pts, syncT, _uv)) continue;
@@ -197,15 +201,23 @@ function drawSynced(scene: Scene, tracks: SyncTrack[], syncT: number, now: numbe
     if (isPerson) {
       if (!placePerson(scene, cx, cz, yaw, fade, speed, tr.seed, now, tr.color, tr.skin)) continue;
     } else {
-      const [w, , l] = DIMS[tr.cls as keyof typeof DIMS] ?? DIMS.car;
-      const rx = cx - tr.frame.x;
-      const rz = cz - tr.frame.z;
-      const rl = Math.hypot(rx, rz) || 1;
-      if (!moving) yaw = Math.atan2(rx, rz);
-      const along = Math.abs((rx / rl) * Math.sin(yaw) + (rz / rl) * Math.cos(yaw));
-      const push = 0.5 * (along * l + Math.sqrt(1 - Math.min(1, along * along)) * w);
-      cx += (rx / rl) * push;
-      cz += (rz / rl) * push;
+      if (snap && snapVehicle(snap, cx, cz, moving ? yaw : NaN, _railed, VEHICLE_REACH_M, railLane.get(tr) ?? -1, tr.cls === "bus")) {
+        // On rails: the pose is the lane's, the track only says which lane and which way.
+        railLane.set(tr, _railed.laneId);
+        cx = _railed.x;
+        cz = _railed.z;
+        yaw = _railed.heading;
+      } else {
+        const [w, , l] = DIMS[tr.cls as keyof typeof DIMS] ?? DIMS.car;
+        const rx = cx - tr.frame.x;
+        const rz = cz - tr.frame.z;
+        const rl = Math.hypot(rx, rz) || 1;
+        if (!moving) yaw = Math.atan2(rx, rz);
+        const along = Math.abs((rx / rl) * Math.sin(yaw) + (rz / rl) * Math.cos(yaw));
+        const push = 0.5 * (along * l + Math.sqrt(1 - Math.min(1, along * along)) * w);
+        cx += (rx / rl) * push;
+        cz += (rz / rl) * push;
+      }
       if (!placeVehicle(scene, tr.model, tr.cls, cx, cz, yaw, fade, tr.color)) continue;
     }
     let px = cx;
@@ -388,7 +400,7 @@ export function Agents() {
     beginFrame();
     sim.step(performance.now() / 1000, Math.min(dt, 0.1), snap);
     drawEntities(sc, sim.ents, performance.now() / 1000, syncClock.camId);
-    if (syncT >= 0) drawSynced(sc, synced, syncT, clock.elapsedTime);
+    if (syncT >= 0) drawSynced(sc, synced, syncT, clock.elapsedTime, snap);
     endFrame();
     flush(sc);
   });
