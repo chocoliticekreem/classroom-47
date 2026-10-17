@@ -2,10 +2,40 @@
 
 > *Know what's around you. Rehearse the future before you cause it.*
 
+**[Live demo → emfol.vercel.app](https://emfol.vercel.app/)** · [3D twin → emfol.vercel.app/twin](https://emfol.vercel.app/twin)
+
+![The 3D twin of London: Tower Bridge, the Tower of London, the City skyline, live buses, CCTV and the Thames](docs/screenshots/twin-aerial.jpg)
+
 An IRL streamer broadcasts their location live to thousands of people. One message to chat can summon a
 crowd (Union Square 2023: 3,000–5,000 people, 65+ arrests; Oxford Street 2023: 34 dispersal orders).
 Mirrorverse watches the footage around the streamer, asks the video what is happening, and tells them
 `calm | busy | danger`, with the clips that prove it and a safer spot to move to.
+
+## See it
+
+| | |
+|---|---|
+| ![Go live from Tower Hill: the stream page, Copilot and advisor](docs/screenshots/stream-home.jpg) | ![Around me: live TfL JamCams, YOLO counts, buses and crowd heat on the map](docs/screenshots/around-me.jpg) |
+| **Stream.** Go live from a phone or webcam. The Copilot and the VAST advisor agent read the street around you, and you can ask the archive. | **Around me.** Every JamCam near you with local YOLO people and vehicle counts, live buses, and crowd heat. |
+| ![The City skyline of the twin: Gherkin, Walkie-Talkie, Cheesegrater, Shard, with live labels and TfL stations](docs/screenshots/twin-skyline.jpg) | ![Bankside: Falcon Point and the Halkin hackathon venue marked with beacons](docs/screenshots/twin-bankside.jpg) |
+| **3D twin.** Real OpenStreetMap London: buildings, roads, pavements, trees, the Thames with boats and a Tower Bridge that lifts. | **Halkin.** The hackathon venue on Bankside, with its beacon, inside the same twin. |
+
+![Compare CCTV: the real TfL JamCam on the left, the twin through the same calibrated camera on the right](docs/screenshots/twin-compare.jpg)
+
+**Compare CCTV.** The real TfL JamCam clip (left) next to our twin seen through the same camera (right). Nemotron
+3.5 Super VL estimates the camera pose, YOLO tracks every person and vehicle, and the twin replays them on the
+road network so what you see on the right is what the camera saw on the left.
+
+## Why it hits
+
+- **Cosmos, VAST, Nemotron, W&B, Weave and YOLO are in the loop, not on a slide.** VAST VSS searches 612 videos, Cosmos
+  descriptions are the evidence, Nemotron on W&B Inference writes the verdict, and every call is a Weave trace.
+- **It is live.** TfL JamCams, TfL buses and disruptions, air quality, the Thames level and crime data feed one picture of
+  "right now".
+- **It rehearses the future.** Tell chat your location in the twin and Reddit-style personas (superfans, opportunists,
+  haters, locals) decide who comes, from where and how fast. Predict then grades itself against what the cameras saw.
+- **It never goes blank.** Every network call has a timeout and a cached or rule-based fallback, so the demo survives
+  bad venue wifi.
 
 Built on **17 October 2026** at the **VAST Builders Challenge: Real-Time Video Agents Hack, London**
 ([tokens&](https://tokensand.com/vastlondon)). Team 47. Public repo: `chocoliticekreem/classroom-47`.
@@ -33,8 +63,12 @@ Built on **17 October 2026** at the **VAST Builders Challenge: Real-Time Video A
 5. **Predict** (`services/predict`): a MiroFish-style 30-minute crowd forecast seeded from the live field,
    with a *what-if* ("I tell chat my location") and `/score`, which grades the forecast against what the
    cameras saw when the time arrived.
-6. **Follower watch** (PR #15): warns when the same person keeps appearing behind the streamer.
-   **Chat that reacts to the stream** (PR #16): chat lines conditioned on what W&B vision sees in the frame.
+6. **Chat that reacts to the stream**: a crowd of personas (hype, opportunist, hater, local, superfan, questioner,
+   mod) written by Nemotron on W&B Inference from what the vision model sees in the frame, the location and the
+   streamer's own messages, traced in Weave. Without a key it falls back to a local crowd that never repeats itself.
+   The chat header shows a `W&B` or `local` badge.
+7. **Compare CCTV** (`/twin`): a real JamCam clip next to the twin through the same calibrated camera, with the
+   tracked people and vehicles replayed on the road network.
 
 ## Sponsor tools and where they are used
 
