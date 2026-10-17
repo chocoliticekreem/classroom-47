@@ -23,7 +23,7 @@ interface Rig {
 
 const WAKE_Y = 0.2;
 const WAKE_FULL_SPEED = 6;
-const WAKE_SCALE = 0.55;
+const WAKE_SCALE = 0.4;
 
 /** V-shaped foam wake behind a stern at the origin, trailing toward -z: two arms plus a faint filled wedge and a centre trail. */
 function wakeGeometry() {
@@ -172,10 +172,10 @@ export function Boats() {
     };
   }, [sim]);
 
-  useFrame((_, delta) => {
+  useFrame(({ clock }, delta) => {
     if (!sim) return;
     const { fleet, rig } = sim;
-    stepFleet(fleet, Math.min(delta, 0.1));
+    stepFleet(fleet, Math.min(delta, 0.1), clock.elapsedTime);
     drawFleet(fleet, rig);
   });
 

@@ -1,7 +1,7 @@
 import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 import { cached, TTL } from "@/lib/server/cache";
-import { ORIGIN, toLocal, WORLD_RADIUS_M, type Ring, type TwinGeometry, type TwinPoi } from "@/twin/config";
+import { GEOMETRY_BOUNDS as B, insideGeometryBounds, ORIGIN, toLatLon, toLocal, type Ring, type TwinGeometry, type TwinPoi } from "@/twin/config";
 
 /** Server-side loader for the real OSM geometry around the origin (OpenFreeMap z14 vector tiles). */
 
@@ -23,7 +23,7 @@ const OSM_COLOURS: Record<string, string> = {
 
 /** Bump when the extraction changes shape so a stale `.cache/` file is not served. */
 const GEOMETRY_VERSION = 2;
-const CACHE_KEY = `twin-osm-v${GEOMETRY_VERSION}-z${ZOOM}-${ORIGIN.lat}_${ORIGIN.lon}-r${WORLD_RADIUS_M}`;
+const CACHE_KEY = `twin-osm-v${GEOMETRY_VERSION}-z${ZOOM}-${ORIGIN.lat}_${ORIGIN.lon}-b${B.xMin}_${B.xMax}_${B.zMin}_${B.zMax}`;
 /** Polygons whose courtyard hole we dropped: they must not be used to hide buildings inside them. */
 const holed = new WeakSet<Ring>();
 
@@ -38,11 +38,11 @@ function tileXY(lat: number, lon: number, z: number) {
   return { x, y };
 }
 
-function tilesAround(radiusM: number) {
-  const dLat = radiusM / 111_320;
-  const dLon = radiusM / (111_320 * Math.cos((ORIGIN.lat * Math.PI) / 180));
-  const a = tileXY(ORIGIN.lat + dLat, ORIGIN.lon - dLon, ZOOM);
-  const b = tileXY(ORIGIN.lat - dLat, ORIGIN.lon + dLon, ZOOM);
+function tilesCovering() {
+  const nw = toLatLon(B.xMin, B.zMin);
+  const se = toLatLon(B.xMax, B.zMax);
+  const a = tileXY(nw.lat, nw.lon, ZOOM);
+  const b = tileXY(se.lat, se.lon, ZOOM);
   const out: { x: number; y: number }[] = [];
   for (let x = a.x; x <= b.x; x++) for (let y = a.y; y <= b.y; y++) out.push({ x, y });
   return out;
@@ -70,7 +70,7 @@ const bboxOf = (ring: Ring) => {
 
 const inRange = (ring: Ring) => {
   const b = bboxOf(ring);
-  return b.x1 >= -WORLD_RADIUS_M && b.x0 <= WORLD_RADIUS_M && b.z1 >= -WORLD_RADIUS_M && b.z0 <= WORLD_RADIUS_M;
+  return b.x1 >= B.xMin && b.x0 <= B.xMax && b.z1 >= B.zMin && b.z0 <= B.zMax;
 };
 
 const ringArea = (ring: Ring) => {
@@ -302,7 +302,7 @@ async function loadTile(template: string, x: number, y: number, out: Collected, 
     const g = geometry("poi", i);
     if (g.type !== "Point") continue;
     const pos = toLocal(g.coordinates[1], g.coordinates[0]);
-    if (!insideRect(pos, rect) || Math.abs(pos[0]) > WORLD_RADIUS_M || Math.abs(pos[1]) > WORLD_RADIUS_M) continue;
+    if (!insideRect(pos, rect) || !insideGeometryBounds(pos[0], pos[1])) continue;
     const name = String(props["name:latin"] ?? props.name ?? "");
     const stationOf = props.class === "railway" ? stationKind(String(props.subclass)) : null;
     if (stationOf && name) out.stations.push({ pos, name, kind: stationOf });
@@ -364,7 +364,7 @@ async function fetchGeometry(): Promise<TwinGeometry> {
   const { tiles } = (await (await fetch(TILEJSON, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })).json()) as { tiles: string[] };
   const out: Collected = { buildings: [], roads: [], water: [], parks: [], pois: [], stations: [], waterways: [] };
   const lightRail: Ring[] = [];
-  await Promise.all(tilesAround(WORLD_RADIUS_M).map(({ x, y }) => loadTile(tiles[0], x, y, out, lightRail)));
+  await Promise.all(tilesCovering().map(({ x, y }) => loadTile(tiles[0], x, y, out, lightRail)));
   out.buildings = dropHiddenBuildings(out.buildings);
   out.water.push(...uncoveredWaterways(out.waterways, out.water));
   for (const s of out.stations) {

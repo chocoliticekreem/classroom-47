@@ -15,19 +15,30 @@ const COMMITTED_M = 8;
 const ENTRY_M = 30;
 const WATER_Y = 0.14;
 
+/**
+ * The same plane waves as the water shader (scene/Water.tsx waveSlope): direction, wavenumber, angular speed and
+ * slope amplitude. Heights follow from slope / k, so hulls rise and tilt with the surface the camera sees.
+ */
+const WAVES = [
+  { dx: 0.96, dz: 0.28, k: 0.28, w: 0.8, slope: 0.098 },
+  { dx: -0.5, dz: 0.87, k: 0.51, w: 1.1, slope: 0.102 },
+  { dx: 0.2, dz: -0.98, k: 1.1, w: 1.6, slope: 0.11 },
+  { dx: -0.85, dz: -0.53, k: 2.3, w: 2.2, slope: 0.115 },
+];
+const HEAVE_GAIN = 0.5;
+const TILT_GAIN = 0.7;
+/** Bow lift per m/s of speed, radians. */
+const BOW_LIFT = 0.0035;
+
 const POPULATION: [BoatKind, number][] = [
-  ["clipper", 6],
+  ["clipper", 4],
   ["rib", 2],
-  ["sleek", 5],
-  ["superA", 2],
-  ["superB", 1],
+  ["sleek", 2],
   ["cruise", 3],
-  ["tug", 3],
-  ["tall", 2],
-  ["sailbarge", 1],
+  ["tug", 2],
 ];
 /** Lighters towed behind each tug, in tug order. */
-const TOWS = [2, 1, 1];
+const TOWS = [2, 1];
 
 export interface Boat {
   kind: BoatKind;
@@ -49,7 +60,6 @@ export interface Boat {
   leader: Boat | null;
   gone: boolean;
   respawn: number;
-  phase: number;
   posed: boolean;
   turn: number;
   yaw: number;
@@ -65,6 +75,8 @@ export interface Boat {
 export interface Fleet {
   boats: Boat[];
   time: number;
+  /** Clock the water shader runs on (`uTime`), so hulls and surface stay in phase. */
+  seaTime: number;
   rng: () => number;
   forceLift: boolean;
   lift: { cooldown: number; target: Boat | null; progress: number; held: number };
@@ -91,7 +103,6 @@ function makeBoat(f: Fleet, kind: BoatKind, slot: number, dir: 1 | -1): Boat {
     leader: null,
     gone: false,
     respawn: 0,
-    phase: f.rng() * 6.283,
     posed: false,
     turn: 0,
     yaw: 0,
@@ -109,6 +120,7 @@ export function createFleet(forceLift: boolean): Fleet {
   const f: Fleet = {
     boats: [],
     time: 0,
+    seaTime: 0,
     rng: mulberry32(0xb0a7),
     forceLift,
     lift: { cooldown: 0, target: null, progress: 0, held: 0 },
@@ -256,7 +268,6 @@ function stepLift(f: Fleet, dt: number) {
 
 function pose(f: Fleet, b: Boat, dt: number) {
   const L = river.length;
-  const t = f.time + b.phase;
   const look = Math.max(4, b.half * 0.5);
   sampleRiver(b.s, b.lane, P0);
   sampleRiver(b.s + b.dir * look, b.lane, P1);
@@ -269,13 +280,28 @@ function pose(f: Fleet, b: Boat, dt: number) {
     b.turn += (dy / Math.max(dt, 1e-3) - b.turn) * Math.min(1, dt * 3);
     b.yaw += dy * Math.min(1, dt * 4);
   }
-  const bob = b.spec.bob;
+  const fx = Math.sin(b.yaw);
+  const fz = Math.cos(b.yaw);
+  let heave = 0;
+  let slopeFwd = 0;
+  let slopePort = 0;
+  for (let i = 0; i < WAVES.length; i++) {
+    const w = WAVES[i];
+    const phase = (w.dx * P0.x + w.dz * P0.z) * w.k + f.seaTime * w.w;
+    // Waves shorter than the hull average out along it, so long hulls only answer the swell.
+    const reach = w.k * b.spec.length * 0.25;
+    const along = 1 / (1 + reach * reach);
+    heave += (w.slope / w.k) * Math.sin(phase) * along;
+    const slope = w.slope * Math.cos(phase) * along;
+    slopeFwd += slope * (w.dx * fx + w.dz * fz);
+    slopePort += slope * (w.dx * fz - w.dz * fx);
+  }
   const lean = Math.max(-0.12, Math.min(0.12, b.turn * b.speed * 0.012 * b.spec.lean));
   b.x = P0.x;
   b.z = P0.z;
-  b.y = WATER_Y + Math.sin(t * 1.1) * (0.05 + b.half * 0.003);
-  b.roll = Math.sin(t * 0.9) * bob + Math.sin(t * 1.7 + 2) * bob * 0.4 - lean;
-  b.pitch = Math.sin(t * 0.7 + 1) * bob * 0.7 - Math.min(b.speed, 12) * 0.0025;
+  b.y = WATER_Y + heave * HEAVE_GAIN * b.spec.bob;
+  b.roll = slopePort * TILT_GAIN * b.spec.bob - lean;
+  b.pitch = -slopeFwd * TILT_GAIN * b.spec.bob - Math.min(b.speed, 12) * BOW_LIFT;
   const edge = Math.min(b.s, L - b.s);
   const k = Math.min(1, Math.max(0, (edge + 30) / 70));
   b.fade = b.gone ? 0 : k * k * (3 - 2 * k);
@@ -337,8 +363,9 @@ function stepBoat(f: Fleet, b: Boat, dt: number) {
 }
 
 /** Advances every vessel and the bridge-lift schedule by `dt` seconds of sim time. */
-export function stepFleet(f: Fleet, dt: number) {
+export function stepFleet(f: Fleet, dt: number, seaTime: number) {
   f.time += dt;
+  f.seaTime = seaTime;
   stepLift(f, dt);
   for (let i = 0; i < f.boats.length; i++) {
     if (!f.boats[i].leader) stepBoat(f, f.boats[i], dt);

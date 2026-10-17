@@ -1,8 +1,9 @@
 import * as THREE from "three";
-import { WORLD_RADIUS_M, type TwinGeometry } from "../../config";
+import { GEOMETRY_BOUNDS, type TwinGeometry } from "../../config";
 import {
   BITUMEN,
   GLASS_PLINTH,
+  MAST,
   METAL_TRIM,
   PLANT,
   PLINTH_STONE,
@@ -12,8 +13,9 @@ import {
   seededRandom,
   wallColour,
 } from "./facades";
-import { offsetRing, pointInRing, prepareFootprint, ringArea, type Footprint, type P2 } from "./footprint";
+import { offsetRing, pointInRing, ringArea, type Footprint, type P2 } from "./footprint";
 import { MeshBuilder, type Surface, type V3 } from "./meshBuilder";
+import { resolveBuildings, type PlacedBuilding } from "./overlaps";
 
 type Building = TwinGeometry["buildings"][number];
 
@@ -23,7 +25,7 @@ export const BAY = { masonry: 2.7, glass: 1.8 };
 /** Shopfront bays are this much wider than the storeys above. */
 export const SHOP_BAY_SCALE = 4 / 3;
 
-const CHUNKS_PER_SIDE = 3;
+const CHUNKS_PER_SIDE = 4;
 const TALL_RIM_HEIGHT = 90;
 
 function surface(colour: THREE.Color, seed: number, lit: number, style: number, tone = 1): Surface {
@@ -47,6 +49,7 @@ interface Look {
   roof: Surface;
   plant: Surface;
   light: Surface;
+  mast: Surface;
 }
 
 /** Walls from y0 to y1; window bays are stretched so every wall holds a whole number of them. */
@@ -184,20 +187,20 @@ function addPrism(b: MeshBuilder, cx: number, cz: number, r0: number, y0: number
   }
 }
 
-function addRoofClutter(b: MeshBuilder, roof: P2[], y: number, fp: Footprint, height: number, look: Look, rnd: () => number) {
+function addRoofClutter(b: MeshBuilder, roof: P2[], y: number, fp: Footprint, height: number, mast: boolean, look: Look, rnd: () => number) {
   const area = ringArea(roof);
   if (area < 12) return;
   const safe = offsetRing(roof, -0.6);
   if (ringArea(safe) < 4) return;
   const tall = height > 60;
-  const count = tall ? 2 + Math.floor(rnd() * 3) : height > 12 ? Math.floor(rnd() * (1 + Math.min(3, area / 200))) : rnd() < 0.3 ? 1 : 0;
+  const count = tall ? 1 + Math.floor(rnd() * 2) : height > 12 ? Math.floor(rnd() * (1 + Math.min(3, area / 200))) : rnd() < 0.3 ? 1 : 0;
   const bbox = safe.reduce(
     (m, [x, z]) => [Math.min(m[0], x), Math.max(m[1], x), Math.min(m[2], z), Math.max(m[3], z)],
     [Infinity, -Infinity, Infinity, -Infinity],
   );
   for (let n = 0; n < count; n++) {
     for (let attempt = 0; attempt < 6; attempt++) {
-      const hw = (1.6 + rnd() * (tall ? 5 : 3)) / 2;
+      const hw = (1.6 + rnd() * (tall ? 3.5 : 3)) / 2;
       const hd = (1.4 + rnd() * 3) / 2;
       const x = bbox[0] + rnd() * (bbox[1] - bbox[0]);
       const z = bbox[2] + rnd() * (bbox[3] - bbox[2]);
@@ -210,7 +213,7 @@ function addRoofClutter(b: MeshBuilder, roof: P2[], y: number, fp: Footprint, he
         [0, 0],
       ].every(([ox, oz]) => pointInRing(x + ox, z + oz, safe));
       if (!fits) continue;
-      b.box(x, z, fp.ax, fp.az, hw, hd, y, y + 1.1 + rnd() * (tall ? 3.5 : 1.8), look.plant);
+      b.box(x, z, fp.ax, fp.az, hw, hd, y, y + 1.1 + rnd() * (tall ? 1.8 : 1.5), look.plant);
       break;
     }
   }
@@ -224,12 +227,12 @@ function addRoofClutter(b: MeshBuilder, roof: P2[], y: number, fp: Footprint, he
       b.cap(lid, y + 3.3, look.plant);
     }
   }
-  if (height >= 120 && rnd() < (height >= 200 ? 1 : 0.35) && pointInRing(fp.cx, fp.cz, safe)) {
-    const mast = 12 + rnd() * 26;
-    addPrism(b, fp.cx, fp.cz, 0.9, y, 0.4, y + mast * 0.4, 6, look.trim);
-    addPrism(b, fp.cx, fp.cz, 0.4, y + mast * 0.4, 0.1, y + mast, 6, look.trim);
+  if (mast && height >= 120 && rnd() < (height >= 200 ? 0.8 : 0.3) && pointInRing(fp.cx, fp.cz, safe)) {
+    const mastHeight = 7 + rnd() * 9;
+    addPrism(b, fp.cx, fp.cz, 0.5, y, 0.25, y + mastHeight * 0.4, 6, look.mast);
+    addPrism(b, fp.cx, fp.cz, 0.25, y + mastHeight * 0.4, 0.08, y + mastHeight, 6, look.mast);
     if (height >= 150) {
-      b.box(fp.cx, fp.cz, 1, 0, 0.35, 0.35, y + mast, y + mast + 0.7, { ...look.light, style: 5 });
+      b.box(fp.cx, fp.cz, 1, 0, 0.3, 0.3, y + mastHeight, y + mastHeight + 0.6, { ...look.light, style: 5 });
     }
   }
 }
@@ -269,23 +272,24 @@ function planTiers(fp: Footprint, ring: P2[], floors: number, height: number, rn
   return tiers.length ? tiers : single;
 }
 
-function addBuilding(b: MeshBuilder, data: Building, fp: Footprint) {
-  const rnd = seededRandom(Math.round(fp.cx * 10) * 7919 + Math.round(fp.cz * 10) * 104729 + 13);
+function addBuilding(b: MeshBuilder, placed: PlacedBuilding) {
+  const { fp, minHeight: minH, height, part } = placed;
+  const rnd = seededRandom(placed.lookSeed);
   const seed = rnd();
-  const minH = Math.max(0, data.minHeight);
-  const height = Math.max(data.height, minH + 3);
-  const material = chooseMaterial(height, rnd());
+  const lookHeight = placed.lookHeight;
+  const material = chooseMaterial(lookHeight, rnd());
   const glass = material === "glass";
   const storey = glass ? STOREY.glass : STOREY.masonry;
   const bay = glass ? BAY.glass : BAY.masonry;
-  const floors = Math.max(1, Math.round((height - minH) / storey));
+  const floors = Math.max(1, part ? Math.ceil((height - minH) / storey - 0.2) : Math.round((height - minH) / storey));
 
-  const lit = (glass ? 0.38 : height > 60 ? 0.26 : height > 25 ? 0.17 : 0.11) * (0.55 + rnd() * 0.9);
+  const lit = (glass ? 0.38 : lookHeight > 60 ? 0.26 : lookHeight > 25 ? 0.17 : 0.11) * (0.55 + rnd() * 0.9);
   const style = glass ? 2 : 1;
-  const wallTone = wallColour(material, data.colour, rnd, new THREE.Color());
+  const wallTone = wallColour(material, placed.colour, rnd, new THREE.Color());
   const trimTone = glass ? METAL_TRIM : new THREE.Color().copy(STONE_TRIM).lerp(wallTone, 0.25);
   const shopTone = glass ? GLASS_PLINTH : new THREE.Color().copy(PLINTH_STONE).lerp(wallTone, 0.35);
   const pitched =
+    !part &&
     !glass &&
     height <= 14 &&
     floors <= 3 &&
@@ -294,7 +298,7 @@ function addBuilding(b: MeshBuilder, data: Building, fp: Footprint) {
     fp.area < 600 &&
     fp.area / (fp.length * fp.width) > 0.8 &&
     rnd() < (height <= 9 ? 0.6 : 0.3);
-  const mansard = !pitched && !glass && floors >= 4 && floors <= 9 && fp.pts.length <= 12 && fp.width >= 9 && rnd() < 0.18;
+  const mansard = !part && !pitched && !glass && floors >= 4 && floors <= 9 && fp.pts.length <= 12 && fp.width >= 9 && rnd() < 0.18;
   const roofTone = roofColour(pitched || mansard, rnd, new THREE.Color());
 
   const look: Look = {
@@ -309,15 +313,16 @@ function addBuilding(b: MeshBuilder, data: Building, fp: Footprint) {
     roof: surface(roofTone, seed, 0, 0),
     plant: surface(PLANT, seed, 0, 0, 0.8 + rnd() * 0.4),
     light: surface(BITUMEN, seed, 0, 4),
+    mast: surface(MAST, seed, 0, 0),
   };
   const slope = surface(roofTone, seed, 0, 0, 1.1);
 
   const base = offsetRing(fp.pts, 0.01 + Math.floor(seed * 6) * 0.025);
-  const tiers = planTiers(fp, base, floors, height, rnd);
-  const plinth = minH < 1 && floors >= 2 && (height > 40 || (height > 8 && rnd() < 0.6));
+  const tiers = part ? [{ ring: base, from: 0, to: floors }] : planTiers(fp, base, floors, height, rnd);
+  const plinth = !part && minH < 1 && floors >= 2 && (height > 40 || (height > 8 && rnd() < 0.6));
   const ledgeEvery = glass ? 4 : floors <= 6 ? 1 : floors <= 12 ? 2 : 3;
-  const pilasterStep = glass ? (height > 40 ? 2 : 0) : rnd() < 0.55 && floors >= 3 ? 1 + Math.floor(rnd() * 2) : 0;
-  const rim = height >= TALL_RIM_HEIGHT;
+  const pilasterStep = glass ? (lookHeight > 40 ? 2 : 0) : rnd() < 0.55 && floors >= 3 ? 1 + Math.floor(rnd() * 2) : 0;
+  const rim = lookHeight >= TALL_RIM_HEIGHT;
 
   let roofRing: P2[] | null = null;
   let roofY = minH;
@@ -359,6 +364,10 @@ function addBuilding(b: MeshBuilder, data: Building, fp: Footprint) {
         continue;
       }
     }
+    if (last && placed.roof !== "open") {
+      if (placed.roof === "partial") b.cap(tier.ring, yTop, look.roof);
+      continue;
+    }
     const small = height < 12;
     const inner = addFlatRoof(b, tier.ring, yTop, look, small, rim);
     if (last) {
@@ -367,7 +376,7 @@ function addBuilding(b: MeshBuilder, data: Building, fp: Footprint) {
     }
   }
 
-  if (roofRing) addRoofClutter(b, roofRing, roofY, fp, height, look, rnd);
+  if (roofRing) addRoofClutter(b, roofRing, roofY, fp, lookHeight, placed.carriesMast, look, rnd);
 }
 
 export interface BuildingChunk {
@@ -378,13 +387,13 @@ export interface BuildingChunk {
 /** Builds merged geometry for every building, bucketed into a grid so frustum culling still works. */
 export function buildBuildingChunks(buildings: Building[]): BuildingChunk[] {
   const builders = Array.from({ length: CHUNKS_PER_SIDE * CHUNKS_PER_SIDE }, () => new MeshBuilder());
-  const cell = (WORLD_RADIUS_M * 2) / CHUNKS_PER_SIDE;
-  for (const data of buildings) {
-    const fp = prepareFootprint(data.ring);
-    if (!fp) continue;
-    const cx = Math.min(CHUNKS_PER_SIDE - 1, Math.max(0, Math.floor((fp.cx + WORLD_RADIUS_M) / cell)));
-    const cz = Math.min(CHUNKS_PER_SIDE - 1, Math.max(0, Math.floor((fp.cz + WORLD_RADIUS_M) / cell)));
-    addBuilding(builders[cz * CHUNKS_PER_SIDE + cx], data, fp);
+  const cellX = (GEOMETRY_BOUNDS.xMax - GEOMETRY_BOUNDS.xMin) / CHUNKS_PER_SIDE;
+  const cellZ = (GEOMETRY_BOUNDS.zMax - GEOMETRY_BOUNDS.zMin) / CHUNKS_PER_SIDE;
+  for (const placed of resolveBuildings(buildings)) {
+    const { fp } = placed;
+    const cx = Math.min(CHUNKS_PER_SIDE - 1, Math.max(0, Math.floor((fp.cx - GEOMETRY_BOUNDS.xMin) / cellX)));
+    const cz = Math.min(CHUNKS_PER_SIDE - 1, Math.max(0, Math.floor((fp.cz - GEOMETRY_BOUNDS.zMin) / cellZ)));
+    addBuilding(builders[cz * CHUNKS_PER_SIDE + cx], placed);
   }
   return builders
     .filter((builder) => builder.vertexCount > 0)

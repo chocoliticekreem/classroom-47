@@ -51,9 +51,9 @@ const BRIDGE_LON = -0.07537;
 const CLIP_X = 730;
 const MIN_REACH_M = 150;
 /** Lane offsets used by traffic (inner, middle, outer), metres from the centreline. */
-export const LANES_M = [18, 40, 62];
+export const LANES_M = [16, 34, 52];
 /** Where those lanes squeeze to under the bridge, so even the widest yacht clears the towers (central span is about +-33 m). */
-const BRIDGE_LANES_M = [5.5, 13.5, 24];
+const BRIDGE_LANES_M = [5.5, 12, 20];
 const BRIDGE_FUNNEL_FROM_M = 60;
 const BRIDGE_FUNNEL_LEN_M = 220;
 

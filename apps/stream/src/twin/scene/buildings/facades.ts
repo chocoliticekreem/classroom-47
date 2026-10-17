@@ -20,19 +20,20 @@ const SOOT = ["#5b5149", "#665e57", "#524c47"].map(c);
 const STONE = ["#b8b0a0", "#a39d92", "#c7c0b0", "#9a968c"].map(c);
 const RENDER = ["#cfc6b4", "#c4b9a6", "#b9b4a8"].map(c);
 const CONCRETE = ["#7c7f84", "#9a9c9e", "#6d7075", "#8a8c8e"].map(c);
-const GLASS = ["#2b3d52", "#31475d", "#3a4a55", "#2f5256", "#26364a"].map(c);
-const ROOF = ["#3a3d42", "#44474d", "#34373b"].map(c);
-const SLATE = ["#4a4f58", "#3f444c"].map(c);
-const TERRACOTTA = ["#8a4b38", "#7c4333", "#94553f"].map(c);
+const GLASS = ["#41607f", "#4a6a86", "#4d6872", "#3f6c70", "#3a5878"].map(c);
+const ROOF = ["#6d7176", "#7a7e82", "#62666b"].map(c);
+const SLATE = ["#5d636d", "#535963"].map(c);
+const TERRACOTTA = ["#8a5545", "#7c4d3f", "#8f5f4a"].map(c);
 
 export type Material = "brick" | "stone" | "concrete" | "glass";
 
 export const STONE_TRIM = c("#b2aa9a");
-export const METAL_TRIM = c("#1a2026");
+export const METAL_TRIM = c("#46515b");
+export const MAST = c("#a4acb3");
 export const PLINTH_STONE = c("#5d5a56");
-export const PLANT = c("#6a6d72");
+export const PLANT = c("#8a8d92");
 export const BITUMEN = c("#2c2f33");
-export const GLASS_PLINTH = c("#1b232c");
+export const GLASS_PLINTH = c("#34424f");
 
 function pick<T>(list: T[], r: number): T {
   return list[Math.min(list.length - 1, Math.floor(r * list.length))];
