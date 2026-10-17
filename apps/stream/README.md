@@ -27,4 +27,14 @@ The code is laid out by CAMP layer (Coding agents, Agent runtimes, Model service
 
 Powered by TfL Open Data.
 
+## Streaming from your phone
+
+Camera and GPS need HTTPS on a phone, so the dev server is exposed through a Cloudflare quick tunnel.
+
+1. Laptop: `npm run dev:stream` (port 3047), then in a second terminal `npm run tunnel` (set `PORT=3051 npm run tunnel` for another port). Copy the `https://<random>.trycloudflare.com` URL it prints. The host is already in `allowedDevOrigins` in `next.config.ts`.
+2. Phone: open that URL, tap **Go live** (rear camera + GPS) and allow camera and location. Tap the flip icon for the selfie camera. The screen stays awake while live. The badge under the clock shows `Phone GPS · ±8 m · 2 s ago` and `Sync: connected`.
+3. Laptop: open `http://localhost:3047` and `http://localhost:3047/twin`. Both follow the phone: the Live tab and Around me take the phone's position (`Following phone`), the twin's beacon, heading cone and **Streamer view** move with it. More than 650 m from Tower Hill the twin says `Outside the mirrored area`; Around me works anywhere.
+
+The phone posts its state to `POST /api/live/state` every 2 s; every other page listens on `GET /api/live/stream` (server-sent events). State is in memory, one session called `default`; add `?session=<name>` to the phone and laptop URLs to run several streamers on one server. Without GPS the location picker is the **Demo location**.
+
 Set `NEXT_PUBLIC_MIRROR_URL` in your local env file in `apps/stream` to change where **Mirror** opens the city (default `/twin`, the 3D twin in this app).

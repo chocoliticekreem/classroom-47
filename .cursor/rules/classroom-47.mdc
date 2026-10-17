@@ -1,0 +1,35 @@
+---
+description: Classroom 47 ground rules for the VAST Builders Challenge (London, 17 Oct 2026). Applies to every session in this repo.
+alwaysApply: true
+---
+
+# Classroom 47: read before you work
+
+Hackathon project: IRL-streamer awareness plus a "what if I tell chat?" parallel London.
+Submissions close at **16:30 BST**, and we freeze code at 15:45.
+
+**Read these first:**
+- `AGENTS.md`: event facts, judging criteria, CAMP requirements, access, repo map.
+- `HANDOFF.md`: current state, what's broken, next steps and owners.
+
+**How to build on the infrastructure:** the `vast-camp` skill (`.cursor/skills/vast-camp/SKILL.md`).
+**The official VAST guide and skills:** `vast-builders-challenge/`, a git submodule. Fetch it with `npm run vast:guide`.
+
+## Rules
+
+- **The project must run on VAST's CAMP stack:**
+  - Cursor (coding agent);
+  - an agent deployed on the VAST cluster at `/app` (agent runtime);
+  - NVIDIA Cosmos and YOLO on CoreWeave, plus W&B inference + Weave (model services);
+  - VSS/VastDB on VAST (platform).
+- **The judges score:** Idea, Technical (documented inputs, outputs and evaluation), Design, Impact (3 or more sponsor tools) and a 2-minute demo.
+- **VAST-side work happens on the lab VM** (Cursor Remote-SSH to `bc-<username>`). Use the official skills there before writing raw REST calls.
+- **Footage:** build on the pre-ingested corpus and re-ingest it with our prompt. Never ingest internet video (YouTube, TfL) into VAST. Ask the organisers before uploading anything.
+- **The repo is public.** Never print, log or commit secrets.
+  - List env var names only: `env | cut -d= -f1 | sort`.
+  - Team credentials stay in `/config/<team>.config` on the VM.
+  - The venue Wi-Fi password and the VM passcode never go in files.
+- **Build web apps, CLIs or scripts.** No native apps.
+- **Don't edit `vast-builders-challenge/`**: it's VAST's repo, pinned as a submodule.
+- **Git:** `git pull --rebase` before pushing. Branch → PR → `main`, and push only when your human asks.
+- **When stuck on VAST infrastructure,** use the `ask-cosmos` skill on the VM and post its note in the Cosmos workshop.

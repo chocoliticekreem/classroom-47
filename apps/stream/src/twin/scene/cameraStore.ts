@@ -1,21 +1,21 @@
 import { create } from "zustand";
+import type { CamFrame } from "../live/project";
 
-export type CameraPreset = "aerial" | "street" | "skyline" | "streamer";
+import { BANKSIDE_VIEW } from "./Bankside";
+
+export type CameraPreset = "aerial" | "street" | "skyline" | "bankside" | "streamer";
 
 export const PRESETS: Record<CameraPreset, { pos: [number, number, number]; target: [number, number, number]; label: string }> = {
   aerial: { pos: [470, 270, 640], target: [-140, 0, -140], label: "Aerial" },
   street: { pos: [60, 26, 150], target: [-60, 10, -120], label: "Street" },
   skyline: { pos: [240, 70, 320], target: [-420, 110, -500], label: "Skyline" },
+  bankside: BANKSIDE_VIEW,
   /** First person at the streamer; the rig follows the live position, so pos/target are placeholders. */
   streamer: { pos: [0, 1.7, 0], target: [0, 1.7, -10], label: "Streamer view" },
 };
 
-/** A real CCTV pose the rig reproduces: local metres + compass heading in radians (0 = north). */
-export interface CctvPose {
-  x: number;
-  z: number;
-  headingRad: number;
-}
+/** A real CCTV pose the rig reproduces: the same pinhole camera the ground projection uses (live/project.ts). */
+export type CctvPose = CamFrame;
 
 interface CameraState {
   preset: CameraPreset;

@@ -6,6 +6,7 @@ import { Car, LocateFixed, User } from "lucide-react";
 import type { StreamLocation } from "@/lib/types";
 import { useFlowLayer } from "@/platform/around/useFlowLayer";
 import { CamCard, DisruptionCard } from "./cards";
+import { RoutePicker } from "./RoutePicker";
 import { circlePolygon, disruptionCollection, PITCH, setData, WALK_RADIUS_M, ZOOM } from "./mapLayers";
 import { useAroundData } from "./useAroundData";
 import { useAroundMap, type DisruptionEvents } from "./useAroundMap";
@@ -173,6 +174,7 @@ export function AroundMe({ location, activeCamUrl }: AroundMeProps) {
         )}
       </div>
 
+      <RoutePicker mapRef={mapRef} ready={ready} from={point} />
     </section>
   );
 }

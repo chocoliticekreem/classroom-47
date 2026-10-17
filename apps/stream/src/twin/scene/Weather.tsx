@@ -10,9 +10,14 @@ import { ATMOS, ATMOS_TARGET, lerpAtmosphere, setAtmosphereTarget } from "./pale
 const SUN_DIR = new THREE.Vector3();
 const DEG = Math.PI / 180;
 
-/** Fixed sun for overridden time buckets; live time uses the real solar position. */
+/**
+ * Fixed sun for overridden time buckets; live dusk/night use the real solar position.
+ * Day is a stylised golden-hour sun, live or overridden: every camera preset looks north-west
+ * (aerial pitches ~15 deg down, so a sun above ~11 deg clips the 50 deg vertical FOV), and the real
+ * midday sun sits due south behind the camera. Azimuth 316 lines up with the sky's city-glow direction.
+ */
 const OVERRIDE_SUN: Record<TimeOfDay, { elevation: number; azimuth: number }> = {
-  day: { elevation: 42, azimuth: 190 },
+  day: { elevation: 8, azimuth: 316 },
   dusk: { elevation: 4, azimuth: 252 },
   night: { elevation: -20, azimuth: 300 },
 };
@@ -35,7 +40,7 @@ export function Atmosphere({ conditions, timeOverridden }: { conditions: Conditi
 
   useEffect(() => {
     const apply = () => {
-      const angles = timeOverridden ? OVERRIDE_SUN[time] : sunAngles(ORIGIN);
+      const angles = timeOverridden || time === "day" ? OVERRIDE_SUN[time] : sunAngles(ORIGIN);
       setAtmosphereTarget({ weather, time, sunDir: toSceneDir(angles.elevation, angles.azimuth, SUN_DIR), visibilityM });
     };
     apply();
