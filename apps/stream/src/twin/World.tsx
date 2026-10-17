@@ -10,6 +10,7 @@ import { ORIGIN } from "./config";
 import { LiveHud, LiveLayers } from "./live";
 import { Boats } from "./live/Boats";
 import { Pedestrians } from "./live/Pedestrians";
+import { useScenario } from "./live/scenario";
 import { Traffic } from "./live/Traffic";
 import { ModuleBoundary } from "./ModuleBoundary";
 import { Bankside } from "./scene/Bankside";
@@ -112,6 +113,7 @@ export function World() {
   const [toggles] = useState(readToggles);
   const conditions = useConditions(ORIGIN);
   const settings = useDemoSettings();
+  const scenario = useScenario((s) => s.scenario);
   const geometry = useGeometryLoader();
   const [dpr, setDpr] = useState(perf.dprCap);
   const [gpu, setGpu] = useState("");
@@ -178,15 +180,21 @@ export function World() {
             <Module name="Parks" toggles={toggles}>
               <Parks />
             </Module>
-            <Module name="Traffic" toggles={toggles}>
-              <Traffic />
-            </Module>
-            <Module name="Pedestrians" toggles={toggles}>
-              <Pedestrians />
-            </Module>
-            <Module name="Boats" toggles={toggles}>
-              <Boats />
-            </Module>
+            {(settings.estimate || scenario) && (
+              <Module name="Traffic" toggles={toggles}>
+                <Traffic respondersOnly={!settings.estimate} />
+              </Module>
+            )}
+            {settings.estimate && (
+              <Module name="Pedestrians" toggles={toggles}>
+                <Pedestrians />
+              </Module>
+            )}
+            {settings.boats && (
+              <Module name="Boats" toggles={toggles}>
+                <Boats />
+              </Module>
+            )}
             <Module name="Landmarks" toggles={toggles}>
               <Landmarks />
             </Module>

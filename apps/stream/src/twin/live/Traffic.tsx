@@ -3,7 +3,6 @@
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { useDemoSettings } from "@/platform/demo";
 import { toLocal } from "../config";
 import { useNetwork } from "../network/useNetwork";
@@ -13,6 +12,7 @@ import { useScenario } from "./scenario";
 import { useTwinCounts } from "./sim/counts";
 import { coveredBy, snapToField } from "./sim/field";
 import { writeYawMatrix } from "./sim/matrix";
+import { beam, cabBody, carBody, lampMaterial, lamps, paintMaterial, vanBody } from "./models/vehicles";
 import { ROLE_AMBULANCE, ROLE_NONE, ROLE_POLICE, ROLE_QUARRY, TrafficSim } from "./sim/traffic";
 import { useLive } from "./store";
 
@@ -27,6 +27,8 @@ const AMBULANCE_PAINT = new THREE.Color("#f5e31a");
 const QUARRY_PAINT = new THREE.Color("#8a1c1c");
 const SEED = 4717;
 const GROUND_Y = 0.05;
+/** Small pool kept on the road in responders-only mode: enough cars and vans to cast a chase or an ambulance. */
+const RESPONDER_POOL = 12;
 
 const PAINTS = [
   "#0d0e12",
@@ -43,122 +45,6 @@ const PAINTS = [
 ].map((c) => new THREE.Color(c));
 const VAN_PAINTS = ["#d9dce0", "#c4c8cc", "#1d2c52", "#8a9099", "#e8e2d0"].map((c) => new THREE.Color(c));
 const CAB_PAINTS = ["#0b0b0e", "#111216", "#15161b"].map((c) => new THREE.Color(c));
-
-const GLASS: [number, number, number] = [0.03, 0.05, 0.08];
-const DARK: [number, number, number] = [0.05, 0.05, 0.06];
-const WHITE: [number, number, number] = [1, 1, 1];
-const HEAD: [number, number, number] = [3, 2.7, 2.1];
-const TAIL: [number, number, number] = [2.6, 0.12, 0.06];
-const SIGN: [number, number, number] = [3, 2, 0.5];
-
-function tint(g: THREE.BufferGeometry, [r, gr, b]: [number, number, number]) {
-  const n = g.getAttribute("position").count;
-  const c = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    c[i * 3] = r;
-    c[i * 3 + 1] = gr;
-    c[i * 3 + 2] = b;
-  }
-  g.setAttribute("color", new THREE.BufferAttribute(c, 3));
-  return g;
-}
-
-/** A flat-shaded box whose roof is narrowed (`top`) and whose nose / tail roof edges are pulled in. */
-function block(
-  [w, h, l]: [number, number, number],
-  [x, y, z]: [number, number, number],
-  color: [number, number, number],
-  top = 1,
-  nose = 1,
-  tail = 1,
-) {
-  const g = new THREE.BoxGeometry(w, h, l).toNonIndexed();
-  const p = g.getAttribute("position") as THREE.BufferAttribute;
-  for (let i = 0; i < p.count; i++) {
-    if (p.getY(i) > 0) {
-      p.setX(i, p.getX(i) * top);
-      p.setZ(i, p.getZ(i) * (p.getZ(i) > 0 ? nose : tail));
-    }
-  }
-  g.translate(x, y, z);
-  g.computeVertexNormals();
-  return tint(g, color);
-}
-
-function wheels(width: number, wheelbase: number, shift = 0) {
-  const parts: THREE.BufferGeometry[] = [];
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      const g = new THREE.CylinderGeometry(0.33, 0.33, 0.24, 10).toNonIndexed();
-      g.rotateZ(Math.PI / 2);
-      g.translate((sx * width) / 2, 0.33, sz * wheelbase + shift);
-      parts.push(tint(g, DARK));
-    }
-  }
-  return parts;
-}
-
-function carBody() {
-  return mergeGeometries([
-    block([1.78, 0.6, 4.3], [0, 0.58, 0], WHITE, 0.96, 0.92, 1),
-    block([1.55, 0.5, 2.2], [0, 1.13, -0.2], WHITE, 0.8, 0.62, 0.84),
-    block([1.58, 0.32, 2.05], [0, 1.08, -0.2], GLASS, 0.82, 0.64, 0.86),
-    block([1.76, 0.22, 0.14], [0, 0.4, 2.2], DARK),
-    block([1.76, 0.22, 0.14], [0, 0.4, -2.2], DARK),
-    ...wheels(1.82, 1.4),
-  ])!;
-}
-
-function vanBody() {
-  return mergeGeometries([
-    block([1.95, 0.55, 5.3], [0, 0.6, 0], WHITE, 0.98, 0.94, 1),
-    block([1.95, 1.05, 3.5], [0, 1.4, -0.95], WHITE, 0.97, 1, 1),
-    block([1.8, 0.7, 1.7], [0, 1.2, 1.5], WHITE, 0.86, 0.6, 1),
-    block([1.82, 0.4, 1.5], [0, 1.28, 1.52], GLASS, 0.88, 0.62, 1),
-    block([1.93, 0.22, 0.14], [0, 0.42, 2.65], DARK),
-    block([1.93, 0.22, 0.14], [0, 0.42, -2.65], DARK),
-    ...wheels(2.0, 1.75),
-  ])!;
-}
-
-function cabBody() {
-  return mergeGeometries([
-    block([1.76, 0.6, 4.6], [0, 0.6, 0], WHITE, 0.96, 0.94, 1),
-    block([1.6, 0.9, 2.75], [0, 1.35, -0.45], WHITE, 0.9, 0.78, 0.92),
-    block([1.63, 0.55, 2.6], [0, 1.32, -0.45], GLASS, 0.92, 0.8, 0.94),
-    block([1.74, 0.22, 0.14], [0, 0.4, 2.3], DARK),
-    block([1.74, 0.22, 0.14], [0, 0.4, -2.3], DARK),
-    ...wheels(1.8, 1.45),
-  ])!;
-}
-
-function lamps(length: number, width: number, sign?: number) {
-  const parts: THREE.BufferGeometry[] = [];
-  for (const sx of [-1, 1]) {
-    parts.push(block([0.34, 0.14, 0.06], [sx * width * 0.34, 0.66, length / 2 + 0.03], HEAD));
-    parts.push(block([0.3, 0.12, 0.06], [sx * width * 0.36, 0.7, -length / 2 - 0.03], TAIL));
-  }
-  if (sign !== undefined) parts.push(block([0.5, 0.14, 0.22], [0, sign, 0.1], SIGN));
-  return mergeGeometries(parts)!;
-}
-
-/** A pool of light on the road ahead of the car; additive, fading to black at the far edge. */
-function beam() {
-  const g = new THREE.BufferGeometry();
-  g.setAttribute(
-    "position",
-    new THREE.BufferAttribute(
-      new Float32Array([-0.7, 0, 2.5, 0.7, 0, 2.5, 2.1, 0, 12, -0.7, 0, 2.5, 2.1, 0, 12, -2.1, 0, 12]),
-      3,
-    ),
-  );
-  const near = [0.3, 0.26, 0.16];
-  g.setAttribute(
-    "color",
-    new THREE.BufferAttribute(new Float32Array([...near, ...near, 0, 0, 0, ...near, 0, 0, 0, 0, 0, 0]), 3),
-  );
-  return g;
-}
 
 const PALETTES = [PAINTS, VAN_PAINTS, CAB_PAINTS];
 
@@ -196,6 +82,7 @@ function step(
   cam: THREE.Vector3,
   dt: number,
   frame: number,
+  respondersOnly: boolean,
 ) {
   const st = useLive.getState().streamer;
   if (st.lat !== seen.lat || st.lon !== seen.lon) {
@@ -204,12 +91,19 @@ function step(
     sim.setFocus(toLocal(st.lat, st.lon));
   }
   sim.update(dt, cam.x, cam.z);
+  if (respondersOnly) {
+    const scenario = useScenario.getState().scenario;
+    if (scenario && sim.active > 0 && !sim.vehicles.some((v) => v.role !== ROLE_NONE)) {
+      sim.dispatch(scenario.kind);
+      paint(sim, meshes.bodies, meshes.lamp);
+    }
+  }
   const poolArr = meshes.pool.instanceMatrix.array;
   const vs = sim.vehicles;
   const strobe = Math.floor(performance.now() / 120) % 2 === 0;
   for (let i = 0; i < vs.length; i++) {
     const v = vs[i];
-    const sc = v.parked ? 0 : 1;
+    const sc = v.parked || (respondersOnly && v.role === ROLE_NONE) ? 0 : 1;
     writeYawMatrix(meshes.bodies[v.kind].instanceMatrix.array, v.slot * 16, v.x, GROUND_Y, v.z, v.yaw, sc, sc);
     writeYawMatrix(poolArr, i * 16, v.x, GROUND_Y + 0.04, v.z, v.yaw, sc, sc);
     if (v.role === ROLE_POLICE || v.role === ROLE_AMBULANCE) {
@@ -220,14 +114,19 @@ function step(
   }
   for (const m of meshes.bodies) m.instanceMatrix.needsUpdate = true;
   meshes.pool.instanceMatrix.needsUpdate = true;
-  if (frame % 60 === 0 && useTwinCounts.getState().vehicles !== sim.active) useTwinCounts.setState({ vehicles: sim.active });
+  const shown = respondersOnly ? 0 : sim.active;
+  if (frame % 60 === 0 && useTwinCounts.getState().vehicles !== shown) useTwinCounts.setState({ vehicles: shown });
   const night = ATMOS.windowGlow;
   lights.color.setScalar(0.3 + 0.7 * night);
   pool.color.setScalar(night);
   meshes.pool.visible = night > 0.03;
 }
 
-export function Traffic() {
+/**
+ * Arvin's field-driven ambient traffic (an estimate, not real vehicles). In `respondersOnly` mode the
+ * ambient population is hidden and only the scenario's responder vehicles are drawn.
+ */
+export function Traffic({ respondersOnly = false }: { respondersOnly?: boolean }) {
   const net = useNetwork();
   const sim = useMemo(() => {
     const { lat, lon } = useLive.getState().streamer;
@@ -272,12 +171,12 @@ export function Traffic() {
       weight[i] = field.segments[seg].vehicles;
       target += (weight[i] * edges[i].length) / 100;
     }
-    sim.setField(weight, speed, target * crowd);
-  }, [sim, net, fieldAt, covered, crowd, disruptions]);
+    sim.setField(weight, speed, respondersOnly ? RESPONDER_POOL : target * crowd);
+  }, [sim, net, fieldAt, covered, crowd, disruptions, respondersOnly]);
 
   const shared = useMemo(() => {
-    const paint = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.2 });
-    const lights = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+    const paint = paintMaterial();
+    const lights = lampMaterial();
     const pool = new THREE.MeshBasicMaterial({
       vertexColors: true,
       transparent: true,
@@ -342,7 +241,7 @@ export function Traffic() {
   }, [sim, meshes, scenario]);
 
   useFrame(({ camera }, dt) =>
-    step(sim, meshes, shared.lights, shared.pool, streamerSeen.current, camera.position, dt, frame.current++),
+    step(sim, meshes, shared.lights, shared.pool, streamerSeen.current, camera.position, dt, frame.current++, respondersOnly),
   );
 
   return (

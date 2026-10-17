@@ -4,6 +4,10 @@ import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { TrackedClass, TrackedObject } from "@/platform/around/types";
+import { ATMOS } from "../scene/palette";
+import { BUS_L, getBusKit } from "./bus/busKit";
+import { personBody, personHead, personMaterial, SKIN } from "./models/people";
+import { bikeBody, CAR_LENGTH, carBody, lampMaterial, lamps, paintMaterial, VAN_LENGTH, vanBody } from "./models/vehicles";
 import { camFrame, projectInto, sampleInto, type CamFrame } from "./project";
 import { syncClock } from "../compare/store";
 import { useLive } from "./store";
@@ -13,6 +17,11 @@ const MAX_VEHICLES = 200;
 const TRAIL_N = 5;
 const TRAIL_STEP_S = 0.22;
 const FADE_S = 0.6;
+const BIKE_LENGTH = 2;
+const BIKE_HEIGHT = 1.2;
+/** Walking pace at which the figure's bob reaches full amplitude. */
+const STRIDE_MS = 1.4;
+const GLOW = { value: 0.4 };
 
 /** Real-world footprint per YOLO class: [width, height, length] in metres. */
 const DIMS: Record<Exclude<TrackedClass, "person">, [number, number, number]> = {
@@ -44,7 +53,31 @@ interface FlatTrack {
   t0: number;
   t1: number;
   seed: number;
+  model: Model;
+  skin: THREE.Color;
 }
+
+/** Which of Arvin's models a tracked object is drawn with. */
+type Model = "person" | "car" | "van" | "bus" | "bike";
+
+const MODEL_OF: Record<TrackedClass, Model> = {
+  person: "person",
+  car: "car",
+  truck: "van",
+  bus: "bus",
+  motorcycle: "bike",
+  bicycle: "bike",
+};
+
+/** Uniform scale that brings each model to its class's real length. */
+const MODEL_SCALE: Record<Exclude<TrackedClass, "person">, number> = {
+  car: DIMS.car[2] / CAR_LENGTH,
+  truck: DIMS.truck[2] / VAN_LENGTH,
+  bus: DIMS.bus[2] / BUS_L,
+  motorcycle: DIMS.motorcycle[2] / BIKE_LENGTH,
+  bicycle: DIMS.bicycle[2] / BIKE_LENGTH,
+};
+const BUS_WHITE = new THREE.Color("#ffffff");
 
 const _m = new THREE.Matrix4();
 const _p = new THREE.Vector3();
@@ -55,30 +88,39 @@ const _xz = new Float32Array(2);
 const _prevXz = new Float32Array(2);
 const UP = new THREE.Vector3(0, 1, 0);
 
-const _dims = new THREE.Vector3();
 const PERSON = new THREE.Color("#ffb37a");
 const PERSON_DIM = new THREE.Color("#8a4a2a");
 const CAR = new THREE.Color("#6f93c9");
 const CAR_DIM = new THREE.Color("#2b3b5c");
 
+interface Slot {
+  /** Meshes sharing one instance matrix buffer: the first carries the colour and the matrix. */
+  meshes: THREE.InstancedMesh[];
+  n: number;
+}
+
 interface Scene {
-  pm: THREE.InstancedMesh;
-  bm: THREE.InstancedMesh;
-  cm: THREE.InstancedMesh;
+  person: Slot;
+  car: Slot;
+  van: Slot;
+  bus: Slot;
+  bike: Slot;
+  head: THREE.InstancedMesh;
   tl: THREE.LineSegments;
   pos: Float32Array;
   col: Float32Array;
 }
 
-function animate({ pm, bm, cm, tl, pos, col }: Scene, tracks: FlatTrack[], now: number, syncT: number) {
-  let np = 0;
-  let nv = 0;
+function animate(scene: Scene, tracks: FlatTrack[], now: number, syncT: number) {
+  const { tl, pos, col } = scene;
+  scene.person.n = scene.car.n = scene.van.n = scene.bus.n = scene.bike.n = 0;
   let seg = 0;
 
   for (let i = 0; i < tracks.length; i++) {
     const tr = tracks[i];
     const isPerson = tr.kind === "person";
-    if (isPerson ? np >= MAX_PEOPLE : nv >= MAX_VEHICLES) continue;
+    const slot = scene[tr.model];
+    if (slot.n >= (isPerson ? MAX_PEOPLE : MAX_VEHICLES)) continue;
     const synced = syncT >= 0 && tr.camId === syncClock.camId;
     const t = synced ? syncT : (now + tr.seed * tr.duration) % tr.duration;
     if (!sampleInto(tr.pts, t, _uv)) continue;
@@ -88,26 +130,31 @@ function animate({ pm, bm, cm, tl, pos, col }: Scene, tracks: FlatTrack[], now: 
 
     let yaw = 0;
     let moving = false;
+    let speed = 0;
     if (sampleInto(tr.pts, t - 0.3, _uv)) {
       projectInto(tr.frame, _uv[0], _uv[1], _prevXz);
       const dx = _xz[0] - _prevXz[0];
       const dz = _xz[1] - _prevXz[1];
-      if (dx * dx + dz * dz > 1e-4) {
+      const d2 = dx * dx + dz * dz;
+      if (d2 > 1e-4) {
         yaw = Math.atan2(dx, dz);
         moving = true;
+        speed = Math.sqrt(d2) / 0.3;
       }
     }
     _q.setFromAxisAngle(UP, yaw);
 
+    const body = slot.meshes[0];
     if (isPerson) {
-      const bob = Math.sin(now * 7 + tr.seed * 20) * 0.06;
+      const pace = Math.min(1, speed / STRIDE_MS);
+      const bob = Math.abs(Math.sin(now * (4 + 6 * pace) + tr.seed * 20)) * 0.04 * pace;
       _p.set(_xz[0], bob * fade, _xz[1]);
       _s.set(fade, fade, fade);
-      pm.setMatrixAt(np, _m.compose(_p, _q, _s));
-      pm.setColorAt(np, tr.color);
-      np++;
+      body.setMatrixAt(slot.n, _m.compose(_p, _q, _s));
+      body.setColorAt(slot.n, tr.color);
+      scene.head.setColorAt(slot.n, tr.skin);
     } else {
-      const [w, h, l] = DIMS[tr.cls as keyof typeof DIMS] ?? DIMS.car;
+      const [w, , l] = DIMS[tr.cls as keyof typeof DIMS] ?? DIMS.car;
       // YOLO's point is the bottom of the box: the vehicle's near edge. Push the centre away from the
       // camera by half the footprint seen along the ray, so the far side lands where the real one ends.
       const rx = _xz[0] - tr.frame.x;
@@ -118,15 +165,13 @@ function animate({ pm, bm, cm, tl, pos, col }: Scene, tracks: FlatTrack[], now: 
       const along = Math.abs((rx / rl) * Math.sin(yaw) + (rz / rl) * Math.cos(yaw));
       const push = 0.5 * (along * l + Math.sqrt(1 - Math.min(1, along * along)) * w);
       _p.set(_xz[0] + (rx / rl) * push, 0, _xz[1] + (rz / rl) * push);
-      _dims.set(w * fade, h * fade, l * fade);
-      bm.setMatrixAt(nv, _m.compose(_p, _q, _dims));
-      bm.setColorAt(nv, tr.color);
-      // Only cars get the glass cabin; buses, trucks and bikes are drawn as one block.
-      const cabin = tr.cls === "car" ? fade : 0;
-      _s.set(cabin, cabin, cabin);
-      cm.setMatrixAt(nv, _m.compose(_p, _q, _s));
-      nv++;
+      const k = fade * (MODEL_SCALE[tr.cls as keyof typeof MODEL_SCALE] ?? MODEL_SCALE.car);
+      _s.set(k, k, k);
+      body.setMatrixAt(slot.n, _m.compose(_p, _q, _s));
+      // A London bus is red on the CCTV too; keep Arvin's livery rather than the camera's dim median.
+      body.setColorAt(slot.n, tr.model === "bus" ? BUS_WHITE : tr.color);
     }
+    slot.n++;
 
     const base = isPerson ? PERSON : CAR;
     const dim = isPerson ? PERSON_DIM : CAR_DIM;
@@ -158,19 +203,30 @@ function animate({ pm, bm, cm, tl, pos, col }: Scene, tracks: FlatTrack[], now: 
     }
   }
 
-  pm.count = np;
-  bm.count = nv;
-  cm.count = nv;
-  pm.instanceMatrix.needsUpdate = true;
-  bm.instanceMatrix.needsUpdate = true;
-  if (pm.instanceColor) pm.instanceColor.needsUpdate = true;
-  if (bm.instanceColor) bm.instanceColor.needsUpdate = true;
-  cm.instanceMatrix.needsUpdate = true;
+  for (const slot of [scene.person, scene.car, scene.van, scene.bus, scene.bike]) {
+    for (const m of slot.meshes) m.count = slot.n;
+    const lead = slot.meshes[0];
+    lead.instanceMatrix.needsUpdate = true;
+    if (lead.instanceColor) lead.instanceColor.needsUpdate = true;
+  }
+  if (scene.head.instanceColor) scene.head.instanceColor.needsUpdate = true;
   tl.geometry.setDrawRange(0, seg * 2);
   const posAttr = tl.geometry.getAttribute("position") as THREE.BufferAttribute;
   const colAttr = tl.geometry.getAttribute("color") as THREE.BufferAttribute;
   posAttr.needsUpdate = true;
   colAttr.needsUpdate = true;
+}
+
+/** Instanced meshes that share the lead mesh's matrix buffer, so one write per object places every part. */
+function makeSlot(parts: [THREE.BufferGeometry, THREE.Material][], capacity: number): Slot {
+  const meshes = parts.map(([g, m]) => {
+    const mesh = new THREE.InstancedMesh(g, m, capacity);
+    mesh.frustumCulled = false;
+    mesh.count = 0;
+    return mesh;
+  });
+  for (let i = 1; i < meshes.length; i++) meshes[i].instanceMatrix = meshes[0].instanceMatrix;
+  return { meshes, n: 0 };
 }
 
 export function Agents() {
@@ -197,15 +253,14 @@ export function Agents() {
           t0: tr.pts[0][0],
           t1: tr.pts[tr.pts.length - 1][0],
           seed: (tr.id * 0.618) % 1,
+          model: MODEL_OF[cls],
+          skin: SKIN[tr.id % SKIN.length],
         });
       }
     }
     return out;
   }, [cams, clips]);
 
-  const people = useRef<THREE.InstancedMesh>(null);
-  const bodies = useRef<THREE.InstancedMesh>(null);
-  const cabins = useRef<THREE.InstancedMesh>(null);
   const trails = useRef<THREE.LineSegments>(null);
 
   const trailBuffers = useMemo(() => {
@@ -216,53 +271,94 @@ export function Agents() {
     };
   }, []);
 
-  const geo = useMemo(() => {
-    const person = new THREE.CapsuleGeometry(0.32, 1.1, 3, 8);
-    person.translate(0, 0.87, 0);
-    // Unit box standing on the ground; each instance is scaled to its class's real size.
-    const body = new THREE.BoxGeometry(1, 1, 1);
-    body.translate(0, 0.5, 0);
-    const cabin = new THREE.BoxGeometry(1.6, 0.55, 2.2);
-    cabin.translate(0, 1.3, -0.2);
-    return { person, body, cabin };
+  const rig = useMemo(() => {
+    const paint = paintMaterial();
+    const lights = lampMaterial();
+    const clothes = personMaterial(GLOW);
+    const kit = getBusKit();
+    const geos = {
+      body: personBody(),
+      head: personHead(),
+      car: carBody(),
+      carLamps: lamps(CAR_LENGTH, 1.8),
+      van: vanBody(),
+      vanLamps: lamps(VAN_LENGTH, 2),
+      bike: bikeBody(BIKE_LENGTH, BIKE_HEIGHT),
+    };
+    const person = makeSlot(
+      [
+        [geos.body, clothes],
+        [geos.head, clothes],
+      ],
+      MAX_PEOPLE,
+    );
+    const car = makeSlot(
+      [
+        [geos.car, paint],
+        [geos.carLamps, lights],
+      ],
+      MAX_VEHICLES,
+    );
+    const van = makeSlot(
+      [
+        [geos.van, paint],
+        [geos.vanLamps, lights],
+      ],
+      MAX_VEHICLES,
+    );
+    const bus = makeSlot(
+      [
+        [kit.body, kit.bodyMat],
+        [kit.glass, kit.glassMat],
+        [kit.lamps, kit.lampMat],
+      ],
+      MAX_VEHICLES,
+    );
+    const bike = makeSlot([[geos.bike, paint]], MAX_VEHICLES);
+    return { paint, lights, clothes, geos, person, car, van, bus, bike };
   }, []);
 
   useEffect(() => {
     return () => {
-      geo.person.dispose();
-      geo.body.dispose();
-      geo.cabin.dispose();
+      for (const s of [rig.person, rig.car, rig.van, rig.bus, rig.bike]) for (const m of s.meshes) m.dispose();
+      for (const g of Object.values(rig.geos)) g.dispose();
+      rig.paint.dispose();
+      rig.lights.dispose();
+      rig.clothes.dispose();
     };
-  }, [geo]);
+  }, [rig]);
 
   const scene = useRef<Scene | null>(null);
 
   useFrame(({ clock }) => {
     if (!scene.current) {
-      const pm = people.current;
-      const bm = bodies.current;
-      const cm = cabins.current;
       const tl = trails.current;
-      if (!pm || !bm || !cm || !tl) return;
-      scene.current = { pm, bm, cm, tl, pos: trailBuffers.pos, col: trailBuffers.col };
+      if (!tl) return;
+      scene.current = {
+        person: rig.person,
+        car: rig.car,
+        van: rig.van,
+        bus: rig.bus,
+        bike: rig.bike,
+        head: rig.person.meshes[1],
+        tl,
+        pos: trailBuffers.pos,
+        col: trailBuffers.col,
+      };
     }
     const video = syncClock.video;
     const syncT = video && video.readyState >= 2 ? video.currentTime : -1;
+    const night = ATMOS.windowGlow;
+    rig.lights.color.setScalar(0.3 + 0.7 * night);
+    GLOW.value = 0.1 + 0.35 * night;
     animate(scene.current, tracks, clock.elapsedTime, syncT);
   });
 
   return (
     <group>
-      <instancedMesh ref={people} args={[geo.person, undefined, MAX_PEOPLE]} frustumCulled={false}>
-        {/* White base: each instance carries the person's real colour from the CCTV frame. */}
-        <meshStandardMaterial color="#ffffff" emissive="#ff6a2e" emissiveIntensity={0.12} roughness={0.7} />
-      </instancedMesh>
-      <instancedMesh ref={bodies} args={[geo.body, undefined, MAX_VEHICLES]} frustumCulled={false}>
-        <meshStandardMaterial color="#ffffff" roughness={0.35} metalness={0.3} />
-      </instancedMesh>
-      <instancedMesh ref={cabins} args={[geo.cabin, undefined, MAX_VEHICLES]} frustumCulled={false}>
-        <meshStandardMaterial color="#9fd3ff" emissive="#7fc4ff" emissiveIntensity={1.4} roughness={0.2} />
-      </instancedMesh>
+      {[rig.person, rig.car, rig.van, rig.bus, rig.bike].map((s, i) =>
+        s.meshes.map((m, j) => <primitive key={`${i}-${j}`} object={m} />),
+      )}
       <lineSegments ref={trails} frustumCulled={false}>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" args={[trailBuffers.pos, 3]} />

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { hull, Mesh } from "./mesh";
 
-export type BoatKind = "clipper" | "superA" | "superB" | "sleek" | "cruise" | "tug" | "lighter" | "tall" | "sailbarge" | "rib";
+export type BoatKind = "clipper" | "sleek" | "cruise" | "tug" | "lighter" | "rib";
 
 export interface BoatSpec {
   /** Length overall in world metres (model is built at real size then scaled by SCALE). */
@@ -13,7 +13,7 @@ export interface BoatSpec {
   speed: [number, number];
   /** Wake length in metres at full speed, 0 for towed barges. */
   wake: number;
-  /** Roll amplitude of the idle bob, radians. */
+  /** How strongly the hull answers the waves (small, light craft more than heavy ones). */
   bob: number;
   /** How much the hull heels into turns. */
   lean: number;
@@ -25,16 +25,12 @@ export const SCALE = 1.25;
 const spec = (length: number, o: Omit<BoatSpec, "length">): BoatSpec => ({ length: length * SCALE, ...o });
 
 export const SPECS: Record<BoatKind, BoatSpec> = {
-  clipper: spec(36, { tall: false, lane: 0, speed: [10, 11.5], wake: 80, bob: 0.008, lean: 0.5 }),
-  rib: spec(9, { tall: false, lane: 0, speed: [10, 13], wake: 50, bob: 0.03, lean: 1.4 }),
-  sleek: spec(26, { tall: false, lane: 0, speed: [7.5, 9.5], wake: 55, bob: 0.015, lean: 0.8 }),
-  superA: spec(78, { tall: true, lane: 2, speed: [4.5, 5.5], wake: 70, bob: 0.006, lean: 0.2 }),
-  superB: spec(62, { tall: true, lane: 2, speed: [4.8, 6], wake: 60, bob: 0.007, lean: 0.25 }),
-  cruise: spec(32, { tall: true, lane: 2, speed: [5.5, 7], wake: 45, bob: 0.012, lean: 0.4 }),
-  tug: spec(15, { tall: false, lane: 1, speed: [3.2, 4.2], wake: 38, bob: 0.02, lean: 0.4 }),
-  lighter: spec(30, { tall: false, lane: 1, speed: [3.2, 4.2], wake: 0, bob: 0.01, lean: 0.1 }),
-  tall: spec(46, { tall: true, lane: 2, speed: [4, 4.8], wake: 36, bob: 0.014, lean: 0.3 }),
-  sailbarge: spec(27, { tall: true, lane: 2, speed: [3, 3.8], wake: 24, bob: 0.016, lean: 0.3 }),
+  clipper: spec(36, { tall: false, lane: 0, speed: [10, 11.5], wake: 80, bob: 0.8, lean: 0.5 }),
+  rib: spec(9, { tall: false, lane: 0, speed: [10, 13], wake: 50, bob: 1.6, lean: 1.4 }),
+  sleek: spec(26, { tall: false, lane: 0, speed: [7.5, 9.5], wake: 55, bob: 1.2, lean: 0.8 }),
+  cruise: spec(32, { tall: true, lane: 2, speed: [5.5, 7], wake: 45, bob: 0.9, lean: 0.4 }),
+  tug: spec(15, { tall: false, lane: 1, speed: [3.2, 4.2], wake: 38, bob: 1.0, lean: 0.4 }),
+  lighter: spec(30, { tall: false, lane: 1, speed: [3.2, 4.2], wake: 0, bob: 0.6, lean: 0.1 }),
 };
 
 export interface BoatParts {
@@ -53,10 +49,6 @@ const GREY = c("#7d8590");
 const LIGHTGREY = c("#a9b0b9");
 const TEAK = c("#9a7448");
 const WOOD = c("#6d5033");
-const MAST = c("#55402c");
-const ROPE = c("#3b3128");
-const OCHRE = c("#a8421f");
-const OCHRE2 = c("#b44f27");
 const LAMP_WHITE = c("#ffffff");
 const LAMP_RED = c("#ff2020");
 const LAMP_GREEN = c("#20ff70");
@@ -219,64 +211,6 @@ function lighter(): BoatParts {
   return p;
 }
 
-function tallShip(): BoatParts {
-  const p = parts();
-  hull(p.hull, { length: 46, beam: 9, top: 2.3, draft: 3.4, upper: WHITE, lower: c("#15110e"), deck: WOOD, stripeY: 1.7, bowFrac: 0.7, sternW: 0.8, sheer: 1.4 });
-  p.hull.box(c("#5a3f27"), 0, 2.25, -15, 5.2, 1.6, 8, 0.8, 0);
-  p.hull.box(c("#4a3320"), 0, 3.85, -15, 5.5, 0.15, 8.4);
-  windows(p, 2.62, 2.85, 0.65, -18.5, -11.5, 3);
-  p.glass.box(GLASS, 0, 2.85, -19.05, 4.0, 0.65, 0.08);
-  p.hull.box(c("#5a3f27"), 0, 2.25, -3, 3.4, 1.1, 5);
-  const masts: [number, number][] = [
-    [11, 30],
-    [0, 34],
-    [-11, 26],
-  ];
-  for (const [z, H] of masts) {
-    p.hull.rod(MAST, [0, 2.3, z], [0, H, z], 0.4, 0.18, 6);
-    const levels = [H * 0.42, H * 0.68, H * 0.88];
-    const widths = [15, 12.5, 9.5].map((w) => (w * H) / 34);
-    let bottom = 4.2;
-    levels.forEach((y, i) => {
-      const w = widths[i];
-      p.hull.rod(MAST, [-w / 2 - 0.4, y, z], [w / 2 + 0.4, y, z], 0.17, 0.17, 5);
-      const col = i % 2 ? OCHRE2 : OCHRE;
-      p.hull.sail(col, [-w / 2, bottom, z + 0.45], [w / 2, bottom, z + 0.45], [w / 2 - 0.4, y, z + 0.45], [-w / 2 + 0.4, y, z + 0.45], [0, 0, 1.5], 4, 3);
-      bottom = y + 0.9;
-    });
-    for (const x of [-4.2, 4.2]) p.hull.rod(ROPE, [x, 2.4, z], [0, H * 0.62, z], 0.05, 0.05, 3, false);
-  }
-  p.hull.rod(MAST, [0, 2.7, 20], [0, 4.7, 31.5], 0.24, 0.14, 5);
-  p.hull.sail(OCHRE2, [0, 4.6, 30.8], [0, 3.1, 18], [0, 26, 11.4], [0, 26, 11.4], [1.2, 0, 0], 3, 4);
-  p.hull.sail(OCHRE, [0, 4.1, 26.5], [0, 3.0, 16], [0, 22, 11.5], [0, 22, 11.5], [-1.1, 0, 0], 3, 4);
-  p.hull.rod(ROPE, [0, 30, 11], [0, 34, 0], 0.05, 0.05, 3, false);
-  p.hull.rod(ROPE, [0, 34, 0], [0, 26, -11], 0.05, 0.05, 3, false);
-  nav(p, 4.1, 3.5, 12.5, 34.6, 0);
-  p.lamps.box(LAMP_WHITE, 0, 4.0, -19.4, 0.4, 0.4, 0.4);
-  return p;
-}
-
-function sailbarge(): BoatParts {
-  const p = parts();
-  hull(p.hull, { length: 27, beam: 6.2, top: 1.2, draft: 0.8, upper: c("#2a1f17"), lower: c("#120e0b"), deck: c("#6c5236"), stripeY: 0.5, bowFrac: 0.78, sternW: 1, sheer: 0.5 });
-  p.hull.box(c("#6b2a20"), 0, 1.2, 3.4, 3.2, 0.7, 8);
-  p.hull.box(c("#7a2f22"), 0, 1.2, -9, 3.2, 1.5, 3.6);
-  windows(p, 1.62, 1.8, 0.6, -10.6, -7.4, 2);
-  p.glass.box(GLASS, 0, 1.8, -10.85, 2.2, 0.6, 0.08);
-  for (const x of [-3.3, 3.3]) p.hull.box(c("#7a2f22"), x, 0.2, 2, 0.25, 1.9, 4.6, 0, 0, 0.7);
-  p.hull.rod(MAST, [0, 1.2, 2.2], [0, 15, 2.2], 0.32, 0.2, 6);
-  p.hull.rod(MAST, [0, 14, 2.2], [0, 24, 2.2], 0.16, 0.08, 5);
-  p.hull.rod(MAST, [0, 3, 2.3], [0, 18.8, -6.6], 0.17, 0.1, 5);
-  p.hull.rod(MAST, [0, 1.2, -8.6], [0, 10.6, -8.6], 0.2, 0.1, 5);
-  p.hull.sail(OCHRE, [0, 3, 2], [0, 3.4, -10.5], [0, 18.5, -6.7], [0, 14, 2], [1.3, 0, 0], 4, 4);
-  p.hull.sail(OCHRE2, [0, 14.6, 2], [0, 17.8, -5.6], [0, 23.5, 2], [0, 23.5, 2], [-0.9, 0, 0], 3, 3);
-  p.hull.sail(OCHRE, [0, 2.6, -8.3], [0, 2.8, -13.4], [0, 10, -10.8], [0, 9, -8.3], [1, 0, 0], 3, 3);
-  p.hull.sail(OCHRE2, [0, 2.8, 13.5], [0, 2.6, 3.2], [0, 16.5, 2.6], [0, 16.5, 2.6], [-1.1, 0, 0], 3, 4);
-  nav(p, 2.7, 1.9, 9.5, 24.4, 2.2);
-  p.lamps.box(LAMP_WHITE, 0, 2.4, -13.2, 0.4, 0.4, 0.4);
-  return p;
-}
-
 function rib(): BoatParts {
   const p = parts();
   hull(p.hull, { length: 9, beam: 3, top: 0.55, draft: 0.3, upper: c("#e8ecf2"), lower: c("#16346e"), deck: c("#2b2f38"), stripeY: 0.25, bowFrac: 0.62, sternW: 0.9, sheer: 0.15 });
@@ -301,13 +235,9 @@ const BUILDERS: Record<BoatKind, () => BoatParts> = {
   clipper,
   rib,
   sleek: () => yacht({ length: 26, beam: 6, top: 1.5, draft: 1.0, upper: WHITE, lower: NAVY, super: WHITE, stripeY: 0.7, decks: 2, deckH: 1.9, mast: 2.4 }),
-  superA: () => yacht({ length: 78, beam: 13, top: 4.2, draft: 2.4, upper: WHITE, lower: c("#2f3a4c"), super: WHITE, stripeY: 1.2, decks: 4, deckH: 2.8, mast: 8 }),
-  superB: () => yacht({ length: 62, beam: 11, top: 3.6, draft: 2.2, upper: c("#161d2a"), lower: c("#0d1119"), super: c("#e6ebf1"), stripeY: 1.3, decks: 3, deckH: 2.7, mast: 6 }),
   cruise,
   tug,
   lighter,
-  tall: tallShip,
-  sailbarge,
 };
 
 /** Merged, scaled geometries for one vessel type. `strobe` is null unless the model has flashing lights. */
