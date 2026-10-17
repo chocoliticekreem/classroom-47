@@ -188,13 +188,28 @@ def to_float(value: Any) -> float | None:
         return None
 
 
+def parse_counts(raw: object) -> dict:
+    # VSS stores YOLO counts as a JSON string per segment.
+    if isinstance(raw, dict):
+        return raw
+    try:
+        val = json.loads(raw) if isinstance(raw, str) else {}
+    except json.JSONDecodeError:
+        return {}
+    return val if isinstance(val, dict) else {}
+
+
 def normalize_moment(m: dict) -> dict:
     return {
-        "video": str(first(m, "video", "video_name", "original_video", "source", "file", default="")),
-        "start_s": to_float(first(m, "start_s", "start", "start_time", "start_sec")),
-        "end_s": to_float(first(m, "end_s", "end", "end_time", "end_sec")),
-        "description": str(first(m, "description", "text", "caption", "content", "summary", default="")),
-        "similarity": to_float(first(m, "similarity", "score", "distance")),
+        "video": str(first(m, "filename", "original_video", "video", "video_name", "source", "file", default="")),
+        "start_s": to_float(first(m, "segment_start_sec", "start_s", "start", "start_time", "start_sec")),
+        "end_s": to_float(first(m, "segment_end_sec", "end_s", "end", "end_time", "end_sec")),
+        "description": str(
+            first(m, "reasoning_content", "description", "text", "caption", "content", "summary", default="")
+        ),
+        "similarity": to_float(first(m, "similarity_score", "similarity", "score", "distance")),
+        "camera": str(first(m, "camera_id", "camera", default="")),
+        "counts": parse_counts(first(m, "object_counts", default=None)),
     }
 
 
@@ -241,7 +256,8 @@ def build_llm_user_message(question: str, location: dict | None, yolo: dict | No
     lines.append("Video evidence (Cosmos descriptions):")
     for m in evidence:
         span = f"{m['start_s']}-{m['end_s']}s" if m["start_s"] is not None else "?"
-        lines.append(f"- [{m['video']} {span} sim={m['similarity']}] {m['description']}")
+        counts = f" yolo={json.dumps(m['counts'])}" if m["counts"] else ""
+        lines.append(f"- [{m['camera'] or m['video']} {span} sim={m['similarity']}{counts}] {m['description']}")
     if not evidence:
         lines.append("- none found")
     return "\n".join(lines)
