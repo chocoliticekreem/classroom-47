@@ -22,6 +22,9 @@ export interface CamCalibration {
   confidence?: number;
   reason?: string;
   street?: string;
+  /** Correction to the TfL-published camera position, metres east / south in local space. */
+  dxM?: number;
+  dzM?: number;
 }
 
 const CALIBRATIONS = CALIBRATION as Record<string, CamCalibration>;
@@ -73,21 +76,24 @@ export interface CamFrame {
 }
 
 export function camFrame(cam: AroundCam): CamFrame {
-  const [x, z] = toLocal(cam.lat, cam.lon);
   const cal = calibrationFor(cam.id);
-  const hfov = cal?.hfovDeg ?? DEFAULT_POSE.hfovDeg;
-  const aspect = cal?.aspect ?? DEFAULT_POSE.aspect;
-  const tanH = Math.tan((hfov * Math.PI) / 360);
+  return { ...frameFromPose(cam, { ...DEFAULT_POSE, ...cal, headingDeg: camHeadingDeg(cam) }), calibrated: cal !== null };
+}
+
+/** The frame a camera would have at `pose`, without registering it. */
+export function frameFromPose(cam: AroundCam, pose: CamCalibration): CamFrame {
+  const [x, z] = toLocal(cam.lat, cam.lon);
+  const tanH = Math.tan((pose.hfovDeg * Math.PI) / 360);
   return {
-    x,
-    z,
-    headingRad: (camHeadingDeg(cam) * Math.PI) / 180,
-    pitchRad: ((cal?.pitchDeg ?? DEFAULT_POSE.pitchDeg) * Math.PI) / 180,
-    heightM: cal?.heightM ?? DEFAULT_POSE.heightM,
+    x: x + (pose.dxM ?? 0),
+    z: z + (pose.dzM ?? 0),
+    headingRad: (pose.headingDeg * Math.PI) / 180,
+    pitchRad: (pose.pitchDeg * Math.PI) / 180,
+    heightM: pose.heightM,
     tanH,
-    tanV: tanH / aspect,
-    aspect,
-    calibrated: cal !== null,
+    tanV: tanH / pose.aspect,
+    aspect: pose.aspect,
+    calibrated: true,
   };
 }
 
@@ -138,6 +144,21 @@ export function projectInto(frame: CamFrame, u: number, v: number, out: Float32A
   if (reach > maxM) reach = maxM;
   out[o] = frame.x + (dx / flat) * reach;
   out[o + 1] = frame.z + (dz / flat) * reach;
+}
+
+/**
+ * YOLO's point is the bottom of the box: the vehicle's near edge. Writes the body centre into `out`
+ * as [x, z]: the ground point pushed away from the camera by half the footprint seen along the ray,
+ * so the far side lands where the real one ends. `yaw` is the vehicle's heading (atan2(dx, dz)).
+ */
+export function bodyCentreInto(frame: CamFrame, x: number, z: number, yaw: number, length: number, width: number, out: Float32Array | number[]) {
+  const rx = x - frame.x;
+  const rz = z - frame.z;
+  const rl = Math.hypot(rx, rz) || 1;
+  const along = Math.abs((rx / rl) * Math.sin(yaw) + (rz / rl) * Math.cos(yaw));
+  const push = 0.5 * (along * length + Math.sqrt(1 - Math.min(1, along * along)) * width);
+  out[0] = x + (rx / rl) * push;
+  out[1] = z + (rz / rl) * push;
 }
 
 /** Interpolates a track at clip time t into out[o], out[o+1] = (u, v). Returns false outside the track. */
