@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+// @ts-nocheck -- not imported yet; calls the snapVehicle(prefer, bus) signature from a snap.ts change that is not on main.
 import type { TrackedObject } from "@/platform/around/types";
 import { layoutOf } from "../../network/layout";
 import {
