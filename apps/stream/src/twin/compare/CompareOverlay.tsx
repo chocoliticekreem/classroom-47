@@ -65,6 +65,7 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
   const close = useCompare((s) => s.close);
   const clip = useLive((s) => s.clips[cam.id]);
   const [failed, setFailed] = useState(false);
+  const [ended, setEnded] = useState(false);
   const [frameAt, setFrameAt] = useState(0);
   const [clipT, setClipT] = useState(0);
   const video = useRef<HTMLVideoElement>(null);
@@ -155,8 +156,16 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
             src={src}
             autoPlay
             muted
-            loop
+            loop={virtual}
             playsInline
+            onPlay={() => {
+              syncClock.endedAt = null;
+              setEnded(false);
+            }}
+            onEnded={() => {
+              syncClock.endedAt = performance.now();
+              setEnded(true);
+            }}
             onLoadedMetadata={(e) => {
               if (virtual) e.currentTarget.currentTime = liveOffsetS(e.currentTarget.duration);
             }}
@@ -172,7 +181,11 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
           Real CCTV
           <span style={{ color: "var(--muted)", fontWeight: 500 }}>
             · {cam.name}
-            {failed ? " · latest frame (clip blocked)" : ` · ${clipT.toFixed(1)} s${clip ? " · the clip YOLO tracked" : ""}`}
+            {failed
+              ? " · latest frame (clip blocked)"
+              : ended
+                ? " · newest TfL clip played · the next one plays when TfL publishes it (every few min)"
+                : ` · ${clipT.toFixed(1)} s${clip ? " · newest clip, as YOLO tracked it" : ""}`}
           </span>
         </div>
       </div>
@@ -187,7 +200,7 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
               src={src}
               autoPlay
               muted
-              loop
+              loop={virtual}
               playsInline
               style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "fill", opacity: 0.5, pointerEvents: "none" }}
             />

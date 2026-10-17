@@ -10,7 +10,12 @@ import { useCameraStore, type CameraPreset } from "../scene/cameraStore";
  * of the wall clock so the simulated figures cross exactly when the real ones do. Plain object, not
  * zustand: it is read inside useFrame.
  */
-export const syncClock: { camId: string | null; video: HTMLVideoElement | null } = { camId: null, video: null };
+export const syncClock: { camId: string | null; video: HTMLVideoElement | null; endedAt: number | null } = {
+  camId: null,
+  video: null,
+  // performance.now() when a TfL clip finished: clips play once (no loop), and the twin's clock runs on past the end.
+  endedAt: null,
+};
 
 interface CompareState {
   camId: string | null;
