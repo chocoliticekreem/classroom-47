@@ -9,11 +9,16 @@ import { BUS_H, blindMaterial, getBusKit, setBusGlow } from "./bus/busKit";
 import type { AroundBusStop, BusArrival } from "@/platform/around/types";
 import type { TwinGeometry } from "../config";
 import { toLocal } from "../config";
+import { approachPath, pathAt, SNAP_ENABLED, useSnapIndex, type Path } from "../network/snap";
+import type { XZ } from "../network/types";
 import { useLive, useNow } from "./store";
 
 const APPROACH_S = 90;
 const APPROACH_M = 110;
+/** Lane path traced upstream of the stop, so the eased approach never runs off its end. */
+const PATH_M = 150;
 const DWELL_S = 25;
+const _xz: XZ = [0, 0];
 
 interface StopPlace {
   stop: AroundBusStop;
@@ -21,6 +26,8 @@ interface StopPlace {
   z: number;
   dirX: number;
   dirZ: number;
+  /** Keep-left lane path ending at the stop; null when the stop is off the network (straight-line fallback). */
+  path: Path | null;
 }
 
 function nearestRoadDir(x: number, z: number, roads: TwinGeometry["roads"]): [number, number] {
@@ -67,7 +74,7 @@ function Bus({ place, arrival }: { place: StopPlace; arrival: BusArrival }) {
   const phase = place.x * 0.37;
   const [label, setLabel] = useState("");
   const lastLabel = useRef(0);
-  const yaw = Math.atan2(place.dirX, place.dirZ);
+  const straightYaw = Math.atan2(place.dirX, place.dirZ);
 
   useFrame(() => {
     const g = group.current;
@@ -77,7 +84,14 @@ function Bus({ place, arrival }: { place: StopPlace; arrival: BusArrival }) {
     const k = Math.min(1, Math.max(0, rem / APPROACH_S));
     const eased = k * k;
     const dist = eased * APPROACH_M;
-    g.position.set(place.x - place.dirX * dist, 0, place.z - place.dirZ * dist);
+    const path = place.path;
+    if (path) {
+      g.rotation.y = pathAt(path, path.length - dist, _xz);
+      g.position.set(_xz[0], 0, _xz[1]);
+    } else {
+      g.rotation.y = straightYaw;
+      g.position.set(place.x - place.dirX * dist, 0, place.z - place.dirZ * dist);
+    }
     g.visible = rem > -DWELL_S;
     const b = body.current;
     if (b) {
@@ -95,7 +109,7 @@ function Bus({ place, arrival }: { place: StopPlace; arrival: BusArrival }) {
   });
 
   return (
-    <group ref={group} rotation={[0, yaw, 0]}>
+    <group ref={group}>
       <group ref={body}>
         <mesh geometry={kit.body} material={kit.bodyMat} castShadow />
         <mesh geometry={kit.glass} material={kit.glassMat} />
@@ -170,15 +184,17 @@ export function Buses() {
   const stops = useLive((s) => s.stops);
   const roads = useLive((s) => s.roads);
   const now = useNow();
+  const snap = useSnapIndex();
 
   const places = useMemo<StopPlace[]>(
     () =>
       stops.map((stop) => {
         const [x, z] = toLocal(stop.lat, stop.lon);
         const [dirX, dirZ] = nearestRoadDir(x, z, roads);
-        return { stop, x, z, dirX, dirZ };
+        const path = snap && SNAP_ENABLED ? approachPath(snap, x, z, PATH_M) : null;
+        return { stop, x, z, dirX, dirZ, path };
       }),
-    [stops, roads],
+    [stops, roads, snap],
   );
 
   const due = useMemo(() => {

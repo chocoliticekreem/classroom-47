@@ -81,8 +81,11 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync, remot
     const video = videoRef.current;
     let stream: MediaStream | null = null;
     let cancelled = false;
-    navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+    const insecure = !navigator.mediaDevices?.getUserMedia;
+    (insecure
+      ? Promise.reject(new Error("insecure"))
+      : navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+    )
       .then((s) => {
         if (cancelled) {
           s.getTracks().forEach((t) => t.stop());
@@ -95,7 +98,13 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync, remot
       .catch((e: unknown) => {
         if (cancelled) return;
         const denied = e instanceof DOMException && e.name === "NotAllowedError";
-        setCamError(denied ? "Camera access was denied. Allow it in your browser and try again." : "No camera available.");
+        setCamError(
+          insecure
+            ? "The browser blocks the camera on plain http. Open the https link (tunnel) or localhost."
+            : denied
+              ? "Camera access was denied. Allow it in your browser and try again."
+              : "No camera available.",
+        );
         onSourceChange({ kind: "idle" });
       });
     return () => {
@@ -114,11 +123,6 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync, remot
 
   const change = (s: StreamSource) => {
     setError(null);
-    // Plain http has no mediaDevices at all, so refuse here instead of letting the webcam effect fail.
-    if (s.kind === "webcam" && !navigator.mediaDevices?.getUserMedia) {
-      setCamError("The browser blocks the camera on plain http. Open the https link (tunnel) or localhost.");
-      return;
-    }
     setCamError(null);
     onSourceChange(s);
   };
@@ -130,8 +134,8 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync, remot
     size === "full"
       ? "h-full rounded-none"
       : size === "wide"
-        ? "h-[calc(100dvh-13rem)] min-h-[360px] rounded-[28px]"
-        : `rounded-[28px] ${walking ? "aspect-[3/4] sm:aspect-video" : "aspect-video"}`;
+        ? "mx-auto aspect-video w-[min(100%,calc((100dvh-13rem)*16/9))] rounded-[28px]"
+        : `rounded-[28px] ${walking || source.kind === "idle" ? "aspect-[3/4] sm:aspect-video" : "aspect-video"}`;
 
   return (
     <div
@@ -154,7 +158,7 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync, remot
             loop
             playsInline
             onError={() => setError("The stream stopped responding.")}
-            className={`size-full ${size !== "default" && !walking ? "object-contain" : "object-cover"} ${walking && facing === "user" ? "-scale-x-100" : ""}`}
+            className={`size-full ${size === "full" && !walking ? "object-contain" : "object-cover"} ${walking && facing === "user" ? "-scale-x-100" : ""}`}
           />
           <FollowerOverlay />
           <div className="grain scanlines pointer-events-none absolute inset-0" aria-hidden />

@@ -10,6 +10,8 @@ import { Hud } from "./Hud";
 import { LabelHost, LabelLayer } from "./Label";
 import { PredictLayers } from "../predict/Ghost";
 import { PredictPanel } from "../predict/Panel";
+import { ReplayHud } from "../predict/ReplayHud";
+import { ReportModal } from "../predict/ReportModal";
 import { FieldDebug } from "../sim/FieldDebug";
 import { useField } from "../sim/useField";
 import { useScenarioFeeds } from "./scenario";
@@ -49,6 +51,8 @@ export function LiveHud() {
       <ViewBar />
       <CompareOverlay />
       <PredictPanel />
+      <ReportModal />
+      <ReplayHud />
     </>
   );
 }

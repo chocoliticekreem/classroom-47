@@ -290,7 +290,7 @@ export function AroundMe({ location, activeCamUrl, feed }: AroundMeProps) {
               </div>
             </aside>
 
-            <div className="pointer-events-auto absolute bottom-3 right-3 flex w-[min(320px,calc(100%-1.5rem))] flex-col items-end gap-3">
+            <div className="pointer-events-auto absolute bottom-14 right-3 flex w-[min(320px,calc(100%-1.5rem))] flex-col items-end gap-3">
               {liveCam && <LiveCamCard cam={liveCam} onClose={() => setLiveCamId(null)} />}
               {station && <StationCard station={station} onClose={() => setStationId(null)} />}
               {selectedCam && !liveCam && (

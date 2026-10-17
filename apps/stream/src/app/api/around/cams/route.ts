@@ -1,8 +1,11 @@
 import type { NextRequest } from "next/server";
 import { cached, TTL } from "@/lib/server/cache";
 import { cacheShort, json } from "@/lib/server/json";
+import { virtualCams } from "@/lib/vcams";
 import { distanceM, parsePoint } from "@/platform/around/geo";
 import type { AroundCam } from "@/platform/around/types";
+
+const VIRTUAL_RADIUS_M = 1500;
 
 interface TflPlace {
   id: string;
@@ -46,10 +49,12 @@ export async function GET(request: NextRequest) {
   const point = parsePoint(request.nextUrl.searchParams, 800);
   if (!point) return Response.json({ error: "lat and lon query params are required" }, { status: 400 });
   try {
-    const cams: AroundCam[] = (await allCams())
-      .map((c) => ({ ...c, distanceM: distanceM(point.lat, point.lon, c.lat, c.lon) }))
-      .filter((c) => c.distanceM <= point.radius)
-      .sort((a, b) => a.distanceM - b.distanceM);
+    const withDistance = (c: Omit<AroundCam, "distanceM">) => ({ ...c, distanceM: distanceM(point.lat, point.lon, c.lat, c.lon) });
+    // Virtual cams reach a little further than TfL's: there are only a few, and Bank sits just past the twin's 700 m.
+    const virtual = virtualCams().map(withDistance).filter((c) => c.distanceM <= Math.max(point.radius, VIRTUAL_RADIUS_M));
+    const cams: AroundCam[] = [...virtual, ...(await allCams()).map(withDistance).filter((c) => c.distanceM <= point.radius)].sort(
+      (a, b) => a.distanceM - b.distanceM,
+    );
     return json({ cams }, request, cacheShort(300));
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 502 });

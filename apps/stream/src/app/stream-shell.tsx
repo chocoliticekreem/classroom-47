@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ExternalLink, Maximize, RectangleHorizontal } from "lucide-react";
 import { useChatCrowd } from "@/agents/chat-crowd/useChatCrowd";
+import { normalizePlace } from "@/agents/chat-crowd/scene";
 import { useSceneChat } from "@/agents/chat-crowd/useSceneChat";
 import { AroundMe } from "@/components/around/AroundMe";
 import { ChatDock } from "@/components/chat/ChatDock";
@@ -129,7 +130,7 @@ export function StreamShell() {
     const at = Date.now();
     setRevealedAt(at);
     publish({ type: "streamer:location_leaked", location, viewers, at });
-    send(`yo I'm at ${location.name} right now, come say hi`);
+    send(`yo I'm at ${normalizePlace(location.name, location.area).name} right now, come say hi`);
   }
 
   function mirror() {
@@ -269,7 +270,8 @@ function TwinView({ src, feed }: { src: string; feed: ReactNode | null }) {
   return (
     <PipStage
       className="min-h-[560px] flex-1"
-      corner="bottom-left"
+      corner="bottom-right"
+      toolbarAlign="center"
       primaryLabel="3D mirror"
       secondaryLabel="stream"
       secondary={feed}

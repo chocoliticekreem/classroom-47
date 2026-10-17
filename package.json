@@ -30,6 +30,7 @@
     "yolo": "cd services/yolo && uv venv -q -p 3.12 --allow-existing .venv && uv pip install -q -p .venv/bin/python ultralytics lap && .venv/bin/python server.py",
     "dev:stream": "concurrently -n web,warm -c green,yellow \"npm run dev -w stream -- --port 3047\" \"node scripts/warm.mjs --wait\"",
     "warm": "node scripts/warm.mjs",
+    "vcams": "cd services/vision && uv run python vcams.py && uv run python vcams.py --calibrate",
     "predict": "cd services/predict && uv venv -q -p 3.12 --allow-existing .venv && uv pip install -q -p .venv/bin/python -r requirements.txt && .venv/bin/python server.py",
     "tunnel": "cloudflared tunnel --url http://localhost:${PORT:-3047}",
     "vast:guide": "git submodule update --init vast-builders-challenge"
