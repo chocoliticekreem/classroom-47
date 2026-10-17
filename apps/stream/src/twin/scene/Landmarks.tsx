@@ -3,6 +3,7 @@
 import { useFrame } from "@react-three/fiber";
 import type { ReactNode } from "react";
 import { ModuleBoundary } from "../ModuleBoundary";
+import { LANDMARKS, landmarkInRange, towerHillInRange, towerHillOffset } from "../landmarks";
 import { updateLandmarkMaterials } from "./landmarks/materials";
 import { LondonBridge } from "./landmarks/LondonBridge";
 import { Rail } from "./landmarks/Rail";
@@ -19,14 +20,19 @@ function Safe({ name, children }: { name: string; children: ReactNode }) {
 /** Hero London landmarks, stations and elevated rail. Needs GeometryContext (stations, rail). */
 export function Landmarks() {
   useFrame(({ clock }) => updateLandmarkMaterials(clock.elapsedTime));
+  const [thx, thz] = towerHillOffset();
   return (
     <>
-      <Safe name="TowerBridge"><TowerBridge /></Safe>
-      <Safe name="LondonBridge"><LondonBridge /></Safe>
-      <Safe name="TowerOfLondon"><TowerOfLondon /></Safe>
+      {landmarkInRange(LANDMARKS.towerBridge) && <Safe name="TowerBridge"><TowerBridge /></Safe>}
+      {landmarkInRange(LANDMARKS.londonBridge) && <Safe name="LondonBridge"><LondonBridge /></Safe>}
+      {towerHillInRange() && (
+        <group position={[thx, 0, thz]}>
+          <Safe name="TowerOfLondon"><TowerOfLondon /></Safe>
+        </group>
+      )}
       <Safe name="Skyline"><Skyline /></Safe>
-      <Safe name="Westminster"><Westminster /></Safe>
-      <Safe name="LondonEye"><LondonEye /></Safe>
+      {landmarkInRange(LANDMARKS.elizabethTower) && <Safe name="Westminster"><Westminster /></Safe>}
+      {landmarkInRange(LANDMARKS.londonEye) && <Safe name="LondonEye"><LondonEye /></Safe>}
       <Safe name="Rail"><Rail /></Safe>
       <Safe name="Stations"><Stations /></Safe>
     </>

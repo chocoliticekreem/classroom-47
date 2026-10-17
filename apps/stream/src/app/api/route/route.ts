@@ -3,7 +3,7 @@ import { cacheShort, json } from "@/lib/server/json";
 import type { AroundDisruption } from "@/platform/around/types";
 import { buildGraph, planRoutes } from "@/platform/route/plan";
 import { DESTINATIONS } from "@/platform/route/types";
-import { ORIGIN, toLatLon, toLocal } from "@/twin/config";
+import { projection, snapOrigin, type Projection } from "@/twin/config";
 import type { FieldResponse } from "@/twin/field/types";
 
 async function getJson<T>(url: string, fallback: T): Promise<T> {
@@ -21,7 +21,7 @@ function parseLatLon(s: string | null): { lat: number; lon: number } | null {
   return Number.isFinite(lat) && Number.isFinite(lon) && !(lat === 0 && lon === 0) ? { lat, lon } : null;
 }
 
-function resolveTo(raw: string | null, anchors: FieldResponse["anchors"]) {
+function resolveTo(raw: string | null, anchors: FieldResponse["anchors"], { toLocal, toLatLon }: Projection) {
   const point = parseLatLon(raw);
   if (point) return { name: `${point.lat.toFixed(4)}, ${point.lon.toFixed(4)}`, ...point, xz: toLocal(point.lat, point.lon) };
   const q = (raw ?? "").trim().toLowerCase();
@@ -38,15 +38,16 @@ export async function GET(request: NextRequest) {
   const from = parseLatLon(params.get("from"));
   if (!from) return Response.json({ error: "from=lat,lon is required" }, { status: 400 });
   const origin = request.nextUrl.origin;
+  // The field (and so the street graph) is built around the streamer's snapped area, like the twin.
+  const project = projection(snapOrigin(from.lat, from.lon));
+  const q = `lat=${project.origin.lat}&lon=${project.origin.lon}`;
+  const { toLocal } = project;
   const [field, disruptions] = await Promise.all([
-    getJson<FieldResponse | null>(`${origin}/api/twin/field`, null),
-    getJson<{ items: AroundDisruption[] }>(
-      `${origin}/api/around/disruptions?lat=${ORIGIN.lat}&lon=${ORIGIN.lon}&radius=900`,
-      { items: [] },
-    ),
+    getJson<FieldResponse | null>(`${origin}/api/twin/field?${q}`, null),
+    getJson<{ items: AroundDisruption[] }>(`${origin}/api/around/disruptions?${q}&radius=900`, { items: [] }),
   ]);
   if (!field) return Response.json({ error: "Crowd field unavailable" }, { status: 502 });
-  const to = resolveTo(params.get("to"), field.anchors);
+  const to = resolveTo(params.get("to"), field.anchors, project);
   if (!to) return Response.json({ error: "to must be a known place or lat,lon" }, { status: 400 });
   const closedLines = (disruptions.items ?? [])
     .filter((d) => /closed/i.test(d.closure))
@@ -58,6 +59,7 @@ export async function GET(request: NextRequest) {
     from: { ...from, xz: toLocal(from.lat, from.lon) },
     to,
     at: field.at,
+    project,
   });
   if ("error" in result) return Response.json(result, { status: 400 });
   const mode = params.get("mode") === "fast" ? "fast" : "calm";

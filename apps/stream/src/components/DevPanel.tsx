@@ -11,6 +11,8 @@ import {
   type WeatherKind,
 } from "@/platform/demo";
 import { triggerScenario, useScenario } from "@/twin/live/scenario";
+import { useLive } from "@/twin/live/store";
+import { PLACES, useOrigin } from "@/twin/origin";
 
 const WEATHER: { value: WeatherKind | null; label: string }[] = [
   { value: null, label: "Live" },
@@ -87,6 +89,8 @@ export function DevPanel() {
   const root = useRef<HTMLDivElement>(null);
   const live = isLive(settings);
   const scenario = useScenario((s) => s.scenario);
+  const origin = useOrigin((s) => s.origin);
+  const pending = useOrigin((s) => s.pending);
 
   useEffect(() => {
     if (!open) return;
@@ -191,6 +195,29 @@ export function DevPanel() {
                     }`}
                   >
                     {o.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div role="group" aria-label="Jump to" className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-medium text-muted">Jump to {pending ? "· loading…" : ""}</span>
+            <div className="flex flex-wrap gap-1">
+              {PLACES.map((p) => {
+                const active = Math.abs(p.lat - origin.lat) < 0.003 && Math.abs(p.lon - origin.lon) < 0.004;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() =>
+                      useLive.setState({ streamer: { lat: p.lat, lon: p.lon }, streamerSource: "demo", streamerTs: Date.now() })
+                    }
+                    className={`rounded-md px-2.5 py-1 text-[12px] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-text ${
+                      active ? "bg-text text-bg" : "bg-surface-3 text-muted hover:text-text"
+                    }`}
+                  >
+                    {p.name}
                   </button>
                 );
               })}

@@ -4,7 +4,8 @@ import { useDemoSettings } from "@/platform/demo";
 import { useCompare } from "../compare/store";
 import { useFieldStore } from "../sim/useField";
 import { distanceM } from "@/platform/around/geo";
-import { insideGeometryBounds, ORIGIN, toLocal } from "../config";
+import { insideGeometryBounds, toLocal } from "../config";
+import { areaName, useOrigin } from "../origin";
 import { useScenario } from "./scenario";
 import { useTwinCounts } from "./sim/counts";
 import { useLive, useLiveFeeds, useNow } from "./store";
@@ -18,7 +19,9 @@ function StreamerStatus() {
   const ts = useLive((s) => s.streamerTs);
   const speed = useLive((s) => s.streamerSpeed);
   const now = useNow();
-  const away = distanceM(ORIGIN.lat, ORIGIN.lon, streamer.lat, streamer.lon);
+  const origin = useOrigin((s) => s.origin);
+  const pending = useOrigin((s) => s.pending);
+  const away = distanceM(origin.lat, origin.lon, streamer.lat, streamer.lon);
   const outside = !insideGeometryBounds(...toLocal(streamer.lat, streamer.lon));
   const age = ts ? `${Math.max(0, Math.round((now - ts) / 1000))} s ago` : "";
   const label =
@@ -38,10 +41,14 @@ function StreamerStatus() {
           {pace}
         </span>
       </div>
-      {outside && (
-        <div style={{ marginTop: 6, color: "var(--warn)", fontWeight: 600 }}>
-          Outside the mirrored area ({(away / 1000).toFixed(1)} km from Tower Hill)
-        </div>
+      {pending ? (
+        <div style={{ marginTop: 6, color: "var(--muted)", fontWeight: 600 }}>Re-centring on {areaName(pending)}…</div>
+      ) : (
+        outside && (
+          <div style={{ marginTop: 6, color: "var(--warn)", fontWeight: 600 }}>
+            Outside the mirrored area ({(away / 1000).toFixed(1)} km from {areaName(origin)})
+          </div>
+        )
       )}
     </div>
   );
@@ -77,6 +84,7 @@ export function Hud() {
   const twin = useTwinCounts();
   const scenario = useScenario((s) => s.scenario);
   const settings = useDemoSettings();
+  const origin = useOrigin((s) => s.origin);
   if (comparing) return null;
 
   let people = 0;
@@ -137,7 +145,7 @@ export function Hud() {
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 14 }}>
         <Swatch color="var(--live)" glow />
-        Live · Tower Hill
+        Live · {areaName(origin)}
       </div>
       <div style={{ color: "var(--muted)", fontSize: 11, marginTop: 2 }}>
         {updatedAt ? `Updated ${new Date(updatedAt).toLocaleTimeString("en-GB")}` : "Connecting…"}

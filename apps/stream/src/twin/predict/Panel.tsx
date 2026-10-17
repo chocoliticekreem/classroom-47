@@ -1,6 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
 import { useCompare } from "../compare/store";
+import { TOWER_HILL } from "../config";
+import { areaName, sameOrigin, useOrigin } from "../origin";
 import { ModeChip, Report } from "./Report";
 import { Score } from "./Score";
 import { runForecast, setMinute, shownRun, usePredict } from "./store";
@@ -83,7 +86,30 @@ export function PredictPanel() {
   const baseline = usePredict((s) => s.baseline);
   const whatIf = usePredict((s) => s.whatIf);
   const run = usePredict(shownRun);
+  const origin = useOrigin((s) => s.origin);
+  const atTowerHill = sameOrigin(origin, TOWER_HILL);
+  useEffect(() => {
+    // Why: the Predict service seeds Tower Hill only; a run's ghosts are meaningless in another frame.
+    if (!atTowerHill) usePredict.setState({ baseline: null, whatIf: null, shown: "baseline", score: null, minute: 0, playing: false });
+  }, [atTowerHill]);
   if (comparing) return null;
+
+  if (!atTowerHill) {
+    return (
+      <>
+        <style>{CSS}</style>
+        <div className="predict-panel closed">
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px" }}>
+            <span style={{ width: 9, height: 9, borderRadius: 999, background: "var(--muted)" }} />
+            <span style={{ fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>Predict · Tower Hill only</span>
+          </div>
+          <div style={{ ...label, padding: "0 12px 10px", maxWidth: 300 }}>
+            The 30-minute forecast is seeded for Tower Hill; it is not available for {areaName(origin)} yet.
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import * as THREE from "three";
-import { bearingToYaw, LANDMARKS, landmarkPos, type Landmark } from "../../landmarks";
+import { bearingToYaw, LANDMARKS, landmarkInRange, landmarkPos, type Landmark } from "../../landmarks";
 import { Kit, KitMeshes, scaleUV, winBoxGeometry, winCylinder } from "./kit";
 
 function shard(kit: Kit) {
@@ -163,7 +163,7 @@ function Piece({ landmark, build }: { landmark: Landmark; build: (kit: Kit) => v
 export function Skyline() {
   return (
     <>
-      {PIECES.map((p) => (
+      {PIECES.filter((p) => landmarkInRange(p.landmark)).map((p) => (
         <Piece key={p.landmark.id} {...p} />
       ))}
     </>

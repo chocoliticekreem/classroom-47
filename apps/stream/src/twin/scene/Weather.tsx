@@ -4,7 +4,7 @@ import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { sunAngles, type Conditions, type TimeOfDay } from "@/platform/demo";
-import { ORIGIN } from "../config";
+import { currentOrigin } from "../config";
 import { ATMOS, ATMOS_TARGET, lerpAtmosphere, setAtmosphereTarget } from "./palette";
 
 const SUN_DIR = new THREE.Vector3();
@@ -40,7 +40,7 @@ export function Atmosphere({ conditions, timeOverridden }: { conditions: Conditi
 
   useEffect(() => {
     const apply = () => {
-      const angles = timeOverridden || time === "day" ? OVERRIDE_SUN[time] : sunAngles(ORIGIN);
+      const angles = timeOverridden || time === "day" ? OVERRIDE_SUN[time] : sunAngles(currentOrigin());
       setAtmosphereTarget({ weather, time, sunDir: toSceneDir(angles.elevation, angles.azimuth, SUN_DIR), visibilityM });
     };
     apply();

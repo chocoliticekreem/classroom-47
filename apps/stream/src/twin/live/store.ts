@@ -5,7 +5,8 @@ import { useEffect } from "react";
 import type { AroundBusStop, AroundCam, AroundDisruption, CamClipTracks } from "@/platform/around/types";
 import { subscribe } from "@/platform/bus";
 import type { LiveState as LiveRelayState } from "@/platform/live/types";
-import { ORIGIN, type TwinGeometry } from "../config";
+import { currentOrigin, type TwinGeometry } from "../config";
+import { useOrigin } from "../origin";
 
 export interface LiveState {
   cams: AroundCam[];
@@ -33,7 +34,7 @@ export const useLive = create<LiveState>(() => ({
   stops: [],
   disruptions: [],
   roads: [],
-  streamer: { ...ORIGIN },
+  streamer: { ...useOrigin.getState().origin },
   streamerSource: "demo",
   streamerHeading: null,
   streamerSpeed: null,
@@ -85,7 +86,13 @@ const DISRUPTIONS_MS = 60_000;
 const BUSES_MS = 30_000;
 const TRACKS_MS = 15_000;
 
-function poll<T>(url: () => string | null, everyMs: number, apply: (data: T) => void) {
+interface Poll {
+  stop(): void;
+  /** Re-fetch now (the origin moved). */
+  tick(): void;
+}
+
+function poll<T>(url: () => string | null, everyMs: number, apply: (data: T) => void): Poll {
   let controller: AbortController | null = null;
   let stopped = false;
   const tick = async () => {
@@ -107,14 +114,20 @@ function poll<T>(url: () => string | null, everyMs: number, apply: (data: T) => 
   };
   void tick();
   const timer = setInterval(() => void tick(), everyMs);
-  return () => {
-    stopped = true;
-    controller?.abort();
-    clearInterval(timer);
+  return {
+    stop: () => {
+      stopped = true;
+      controller?.abort();
+      clearInterval(timer);
+    },
+    tick: () => void tick(),
   };
 }
 
-const q = (radius: number) => `lat=${ORIGIN.lat}&lon=${ORIGIN.lon}&radius=${radius}`;
+const q = (radius: number) => {
+  const o = currentOrigin();
+  return `lat=${o.lat}&lon=${o.lon}&radius=${radius}`;
+};
 
 /** The phone's relayed GPS (another device) drives the streamer unless this tab's own GPS is on. */
 function followRelay() {
@@ -145,7 +158,7 @@ let refs = 0;
 let stopAll: (() => void) | null = null;
 
 function start() {
-  const stops: (() => void)[] = [
+  const areaPolls: Poll[] = [
     poll<{ cams: AroundCam[] }>(() => `/api/around/cams?${q(700)}`, CAMS_MS, (d) =>
       useLive.setState({ cams: d.cams ?? [] }),
     ),
@@ -155,6 +168,22 @@ function start() {
     poll<{ stops: AroundBusStop[] }>(() => `/api/around/buses?${q(400)}`, BUSES_MS, (d) =>
       useLive.setState({ stops: d.stops ?? [] }),
     ),
+    poll<TwinGeometry>(
+      () => {
+        const o = currentOrigin();
+        return `/api/twin/osm?lat=${o.lat}&lon=${o.lon}`;
+      },
+      10 * 60_000,
+      (d) => useLive.setState({ roads: (d.roads ?? []).filter((r) => r.kind === "major" || r.kind === "minor") }),
+    ),
+  ];
+  const stops: (() => void)[] = [
+    ...areaPolls.map((p) => p.stop),
+    useOrigin.subscribe((s, prev) => {
+      if (s.version === prev.version) return;
+      useLive.setState({ cams: [], clips: {}, stops: [], disruptions: [] });
+      for (const p of areaPolls) p.tick();
+    }),
     poll<{ clips: CamClipTracks[] }>(
       () => {
         const ids = useLive.getState().cams.map((c) => c.id);
@@ -166,10 +195,7 @@ function start() {
         for (const clip of d.clips ?? []) if (clip.tracks?.length) clips[clip.camId] = clip;
         useLive.setState({ clips });
       },
-    ),
-    poll<TwinGeometry>(() => "/api/twin/osm", 10 * 60_000, (d) =>
-      useLive.setState({ roads: (d.roads ?? []).filter((r) => r.kind === "major" || r.kind === "minor") }),
-    ),
+    ).stop,
     subscribe((e) => {
       if (e.type === "stream.location" && useLive.getState().gps !== "on") {
         useLive.setState({

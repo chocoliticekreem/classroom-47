@@ -1,7 +1,7 @@
 import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 import { cached, TTL } from "@/lib/server/cache";
-import { GEOMETRY_BOUNDS as B, insideGeometryBounds, ORIGIN, toLatLon, toLocal, type Ring, type TwinGeometry, type TwinPoi } from "@/twin/config";
+import { GEOMETRY_BOUNDS as B, insideGeometryBounds, originKey, projection, snapOrigin, TOWER_HILL, type LatLon, type Projection, type Ring, type TwinGeometry, type TwinPoi } from "@/twin/config";
 
 /** Server-side loader for the real OSM geometry around the origin (OpenFreeMap z14 vector tiles). */
 
@@ -23,7 +23,7 @@ const OSM_COLOURS: Record<string, string> = {
 
 /** Bump when the extraction changes shape so a stale `.cache/` file is not served. */
 const GEOMETRY_VERSION = 2;
-const CACHE_KEY = `twin-osm-v${GEOMETRY_VERSION}-z${ZOOM}-${ORIGIN.lat}_${ORIGIN.lon}-b${B.xMin}_${B.xMax}_${B.zMin}_${B.zMax}`;
+const cacheKey = (origin: LatLon) => `twin-osm-v${GEOMETRY_VERSION}-z${ZOOM}-${originKey(origin)}-b${B.xMin}_${B.xMax}_${B.zMin}_${B.zMax}`;
 /** Polygons whose courtyard hole we dropped: they must not be used to hide buildings inside them. */
 const holed = new WeakSet<Ring>();
 
@@ -38,7 +38,7 @@ function tileXY(lat: number, lon: number, z: number) {
   return { x, y };
 }
 
-function tilesCovering() {
+function tilesCovering({ toLatLon }: Projection) {
   const nw = toLatLon(B.xMin, B.zMin);
   const se = toLatLon(B.xMax, B.zMax);
   const a = tileXY(nw.lat, nw.lon, ZOOM);
@@ -49,7 +49,7 @@ function tilesCovering() {
 }
 
 /** The tile's exact footprint in local metres. Tiles carry a ~24 m buffer, so everything is clipped to this to avoid overlapping duplicates. */
-function tileRect(x: number, y: number): Rect {
+function tileRect(x: number, y: number, { toLocal }: Projection): Rect {
   const n = 2 ** ZOOM;
   const lat = (ty: number) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * ty) / n))) * 180) / Math.PI;
   const [x0, z0] = toLocal(lat(y), (x / n) * 360 - 180);
@@ -195,13 +195,14 @@ const buildingColour = (raw: unknown) => {
 
 const vertexKey = ([x, z]: [number, number]) => `${x.toFixed(3)},${z.toFixed(3)}`;
 
-async function loadTile(template: string, x: number, y: number, out: Collected, lightRail: Ring[]) {
+async function loadTile(template: string, x: number, y: number, out: Collected, lightRail: Ring[], P: Projection) {
+  const { toLocal } = P;
   const res = await fetch(template.replace("{z}", String(ZOOM)).replace("{x}", String(x)).replace("{y}", String(y)), {
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`tile ${x}/${y} failed: HTTP ${res.status}`);
   const tile = new VectorTile(new PbfReader(new Uint8Array(await res.arrayBuffer())));
-  const rect = tileRect(x, y);
+  const rect = tileRect(x, y, P);
   const geometry = (layer: string, i: number) => tile.layers[layer].feature(i).toGeoJSON(x, y, ZOOM).geometry;
   const toRings = (g: GeoJSON.Geometry): { ring: Ring; hasHole: boolean }[] => {
     const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
@@ -360,11 +361,12 @@ function dropHiddenBuildings(buildings: TwinGeometry["buildings"]) {
 const round2 = (v: number) => Math.round(v * 100) / 100;
 const roundRing = (ring: Ring): Ring => ring.map(([x, z]) => [round2(x), round2(z)]);
 
-async function fetchGeometry(): Promise<TwinGeometry> {
+async function fetchGeometry(origin: LatLon): Promise<TwinGeometry> {
+  const P = projection(origin);
   const { tiles } = (await (await fetch(TILEJSON, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })).json()) as { tiles: string[] };
   const out: Collected = { buildings: [], roads: [], water: [], parks: [], pois: [], stations: [], waterways: [] };
   const lightRail: Ring[] = [];
-  await Promise.all(tilesCovering().map(({ x, y }) => loadTile(tiles[0], x, y, out, lightRail)));
+  await Promise.all(tilesCovering(P).map(({ x, y }) => loadTile(tiles[0], x, y, out, lightRail, P)));
   out.buildings = dropHiddenBuildings(out.buildings);
   out.water.push(...uncoveredWaterways(out.waterways, out.water));
   for (const s of out.stations) {
@@ -380,7 +382,15 @@ async function fetchGeometry(): Promise<TwinGeometry> {
   };
 }
 
-/** Geometry for the process lifetime and, via `.cache/`, across restarts; concurrent callers share one fetch. */
-export function loadGeometry(): Promise<TwinGeometry> {
-  return cached(CACHE_KEY, { ttlMs: TTL.week }, fetchGeometry);
+/** Geometry for the process lifetime and, via `.cache/`, across restarts; concurrent callers share one fetch. Pass a snapped origin. */
+export function loadGeometry(origin: LatLon = TOWER_HILL): Promise<TwinGeometry> {
+  return cached(cacheKey(origin), { ttlMs: TTL.week }, () => fetchGeometry(origin));
+}
+
+/** Snapped origin from `lat`/`lon` query params, Tower Hill when absent or malformed. */
+export function originFromParams(params: URLSearchParams): LatLon {
+  const lat = Number(params.get("lat"));
+  const lon = Number(params.get("lon"));
+  if (!params.has("lat") || !params.has("lon") || !Number.isFinite(lat) || !Number.isFinite(lon)) return TOWER_HILL;
+  return snapOrigin(lat, lon);
 }

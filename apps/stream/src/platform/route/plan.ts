@@ -1,4 +1,4 @@
-import { toLatLon } from "@/twin/config";
+import type { Projection } from "@/twin/config";
 import type { FieldAnchor, FieldSegment } from "@/twin/field/types";
 import type { RouteMode, RoutePath, RouteResponse } from "./types";
 
@@ -149,7 +149,7 @@ export function shortestPath(g: Graph, from: number, to: number, mode: RouteMode
   return edges.reverse();
 }
 
-function describe(g: Graph, from: number, edges: Edge[], mode: RouteMode): RoutePath {
+function describe(g: Graph, from: number, edges: Edge[], mode: RouteMode, project: Projection): RoutePath {
   const xz: [number, number][] = [g.nodes[from]];
   let lengthM = 0;
   let exposure = 0;
@@ -165,7 +165,7 @@ function describe(g: Graph, from: number, edges: Edge[], mode: RouteMode): Route
     mode,
     xz,
     polyline: xz.map(([x, z]) => {
-      const { lat, lon } = toLatLon(x, z);
+      const { lat, lon } = project.toLatLon(x, z);
       return [Number(lat.toFixed(6)), Number(lon.toFixed(6))];
     }),
     lengthM: Math.round(lengthM),
@@ -201,19 +201,21 @@ export interface PlanInput {
   from: { lat: number; lon: number; xz: [number, number] };
   to: { name: string; lat: number; lon: number; xz: [number, number] };
   at: number;
+  /** Projection the field segments were built in (the twin origin). */
+  project: Projection;
 }
 
 export function planRoutes(input: PlanInput): RouteResponse | { error: string } {
   const { graph } = input;
   const a = nearestNode(graph, input.from.xz);
   const b = nearestNode(graph, input.to.xz);
-  if (a < 0) return { error: "Start is outside the twin's street graph (Tower Hill, ~650 m)" };
-  if (b < 0) return { error: "Destination is outside the twin's street graph (Tower Hill, ~650 m)" };
+  if (a < 0) return { error: "Start is outside the twin's street graph (~650 m around the streamer)" };
+  if (b < 0) return { error: "Destination is outside the twin's street graph (~650 m around the streamer)" };
   const fast = shortestPath(graph, a, b, "fast");
   const calm = shortestPath(graph, a, b, "calm");
   if (!fast || !calm) return { error: "No walkable path between those points" };
-  const fastest = describe(graph, a, fast, "fast");
-  const calmest = describe(graph, a, calm, "calm");
+  const fastest = describe(graph, a, fast, "fast", input.project);
+  const calmest = describe(graph, a, calm, "calm", input.project);
   return {
     from: { lat: input.from.lat, lon: input.from.lon },
     to: { name: input.to.name, lat: input.to.lat, lon: input.to.lon },
