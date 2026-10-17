@@ -1,4 +1,4 @@
-# Classroom 47: product-market fit research
+# Mirrorverse: product-market fit research
 
 *Drafted 17 Oct 2026 at the VAST Real-Time Video Agents Hack, London. Every figure has a numbered source in section 7. Anything marked **estimate** or **hypothesis** is our own reasoning and has no source behind it.*
 

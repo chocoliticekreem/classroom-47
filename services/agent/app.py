@@ -1,4 +1,4 @@
-"""Classroom 47 agent: the CAMP "A" layer, served on the cluster at /app."""
+"""Mirrorverse agent: the CAMP "A" layer, served on the cluster at /app."""
 
 from __future__ import annotations
 
@@ -617,7 +617,7 @@ def validate_assess_body(body: Any) -> tuple[str, dict | None, dict | None]:
 
 DASHBOARD_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Classroom 47 agent</title>
+<title>Mirrorverse agent</title>
 <style>
 :root{--bg:#0b0d10;--card:#14181d;--line:#232a33;--fg:#e8edf2;--mute:#8b98a5;--calm:#36c275;--busy:#f0b429;--danger:#ff4d4f;--accent:#5aa9ff}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,Inter,Segoe UI,sans-serif}
@@ -631,7 +631,7 @@ button{background:var(--accent);color:#06101c;border:0;padding:12px 18px;border-
 .ev{border-top:1px solid var(--line);padding:10px 0}.ev:first-of-type{border-top:0}.meta{color:var(--mute);font-size:12px}
 .err{color:var(--danger)}a{color:var(--accent)}.hidden{display:none}
 </style></head><body><main>
-<h1>Classroom 47 agent</h1>
+<h1>Mirrorverse agent</h1>
 <p class="sub">Know what's around you. Rehearse the future before you cause it.</p>
 <form id="f"><input id="q" placeholder="What's happening near the streamer?" value="What's happening near the streamer?"><button id="b">Assess</button></form>
 <div id="out" class="hidden">

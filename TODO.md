@@ -1,4 +1,4 @@
-# Classroom 47 — Team TODO
+# Mirrorverse — Team TODO
 
 IRL streaming platform + London awareness layer + parallel-reality 3D city sim with Reddit-archetype personas.
 Hard deadline: **16:30 BST** submission. Code freeze **15:45**. Backup recording by **15:30**.

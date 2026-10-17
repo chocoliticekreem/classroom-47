@@ -12,7 +12,7 @@ Name the CAMP layer out loud as you touch it. Judges look for each sponsor.
 
 | t | Say | Show |
 |---|---|---|
-| 0:00 | "Union Square 2023, Oxford Street 2023. Both started with one message from a streamer. Classroom 47 is a video agent that tells an IRL streamer what's around them before they send that message." | Stream page, live from the phone, GPS pin on Tower Hill, viewer count |
+| 0:00 | "Union Square 2023, Oxford Street 2023. Both started with one message from a streamer. Mirrorverse is a video agent that tells an IRL streamer what's around them before they send that message." | Stream page, live from the phone, GPS pin on Tower Hill, viewer count |
 | 0:20 | "The streamer asks: should I tell chat where I am? That question goes to **our agent running on the VAST cluster**: a Deployment in our team namespace at `/app`, built and deployed from **Cursor** on the lab VM." | Click the advisor card's question. Flip to the `/app/` dashboard tab for 3 s: same request, same verdict |
 | 0:40 | "The agent searches the team's **VSS index on VAST**, 612 videos. Each hit comes with the **NVIDIA Cosmos** description and **YOLO** counts the DataEngine pipeline wrote into **VastDB**." | Advisor card: evidence clips with camera, timestamps, Cosmos text, people/vehicle counts |
 | 1:00 | "Then **Nemotron on W&B Inference** turns that evidence into one verdict: calm, busy or danger, two sentences of advice. Every call is a **Weave** trace." | Verdict + reasons. Flip to the Weave tab: the `assess` trace with the VSS results and the model call inside |
