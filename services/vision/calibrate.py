@@ -2,6 +2,7 @@
 
     uv run python calibrate.py                      # cameras within 700 m of Tower Hill (the twin's area)
     uv run python calibrate.py JamCams_00001.03500  # specific cameras
+    uv run python calibrate.py --fit                # also fit YOLO vehicle tracks to OSM roads (experimental)
 
 For each camera: grab the live still, list the streets at the camera from OpenStreetMap with their
 compass bearings, and ask the VLM which way the camera looks, where the horizon sits, how high the
@@ -20,9 +21,12 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import requests
 from dotenv import load_dotenv
 from openai import OpenAI
+
+import fit_pose
 
 HERE = Path(__file__).parent
 load_dotenv(HERE / ".env")
@@ -32,6 +36,9 @@ TOWER_HILL = (51.5098, -0.0766)
 RADIUS_M = 700
 STREET_RADIUS_M = 45
 LENS_HFOV = {"wide": 70.0, "normal": 55.0, "zoom": 32.0}
+YOLO_URL = os.environ.get("JAMCAM_YOLO_URL", "http://127.0.0.1:8047")
+MIN_FIT_POINTS = 40
+FIT = "--fit" in sys.argv
 UA = {"User-Agent": "classroom-47-hackathon/0.1"}
 OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"]
 
@@ -157,10 +164,19 @@ def pose(answer: dict, aspect: float) -> dict:
     }
 
 
+def vehicle_points(cam_id: str) -> np.ndarray:
+    """(u, v) bottom-centre points of every vehicle track YOLO has for this camera (services/yolo must be running)."""
+    try:
+        clips = requests.get(f"{YOLO_URL}/tracks", params={"ids": cam_id}, timeout=10).json().get("clips", [])
+    except requests.RequestException:
+        return np.zeros((0, 2))
+    pts = [(p[1], p[2]) for c in clips for t in c["tracks"] if t["kind"] == "vehicle" for p in t["pts"]]
+    return np.array(pts[:: max(1, len(pts) // 800)]) if pts else np.zeros((0, 2))
+
+
 def calibrate(cam: dict) -> dict | None:
     jpeg = requests.get(cam["image"], headers=UA, timeout=20).content
     import cv2
-    import numpy as np
     img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
     h, w = img.shape[:2]
     candidates = street_candidates(cam["lat"], cam["lon"])
@@ -180,9 +196,27 @@ def calibrate(cam: dict) -> dict | None:
     print(f"  {cam['id']} {cam['name']}: facing {answer['candidate']['street']} {p['headingDeg']:.0f}°, "
           f"pitch {p['pitchDeg']}°, height {p['heightM']} m, {answer.get('lens')} lens, "
           f"confidence {answer.get('confidence')} ({time.time() - t:.1f}s) - {answer.get('reason')}")
-    return {**p, "source": os.environ["WANDB_VL_MODEL"], "confidence": answer.get("confidence"),
-            "reason": answer.get("reason"), "street": answer["candidate"]["street"],
-            "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    result = {**p, "source": os.environ["WANDB_VL_MODEL"], "confidence": answer.get("confidence"),
+              "reason": answer.get("reason"), "street": answer["candidate"]["street"],
+              "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+
+    # Optional refinement (--fit): the pose where YOLO's vehicle tracks land on OpenStreetMap's roads. Off by
+    # default: near junctions it is ambiguous (a steep tilt pulls every point onto the road under the camera),
+    # so the compare view's Align controls are the reliable way to finish a pose.
+    if not FIT:
+        return result
+    uv = vehicle_points(cam["id"])
+    if len(uv) < MIN_FIT_POINTS:
+        print(f"    only {len(uv)} vehicle points from YOLO, keeping the VLM pose (start services/yolo and retry)")
+        return result
+    # A straight road fits equally well facing either way, so the search stays near a known direction:
+    # TfL's stated one, else the VLM's.
+    window = (stated - 70, stated + 70) if stated is not None else (p["headingDeg"] - 60, p["headingDeg"] + 60)
+    fitted = fit_pose.fit(fit_pose.road_distance_field(cam["lat"], cam["lon"]), uv, w / h, p, window)
+    print(f"    fitted to roads with {len(uv)} vehicle points: facing {fitted['headingDeg']:.0f}°, pitch {fitted['pitchDeg']}°, "
+          f"height {fitted['heightM']} m, {fitted['hfovDeg']}° lens; mean distance to a road {fitted['priorErrorM']} m -> {fitted['fitErrorM']} m")
+    return {**result, **fitted, "vlm": p, "fitPoints": len(uv),
+            "source": f"{os.environ['WANDB_VL_MODEL']} estimate, refined by fitting YOLO vehicle tracks to OpenStreetMap roads"}
 
 
 def main(ids: list[str]) -> None:
@@ -214,4 +248,4 @@ def main(ids: list[str]) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    main([a for a in sys.argv[1:] if not a.startswith("--")])

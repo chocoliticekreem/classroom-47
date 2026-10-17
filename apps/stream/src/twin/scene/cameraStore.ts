@@ -20,14 +20,17 @@ interface CameraState {
   flight: number;
   /** When set, the camera sits at this real CCTV pose and the preset is ignored. */
   cctv: CctvPose | null;
+  /** Jump straight to the CCTV pose instead of flying (used while aligning a pose by hand). */
+  snap: boolean;
   fly: (preset: CameraPreset) => void;
-  setCctv: (pose: CctvPose | null) => void;
+  setCctv: (pose: CctvPose | null, snap?: boolean) => void;
 }
 
 export const useCameraStore = create<CameraState>((set) => ({
   preset: "aerial",
   flight: 0,
   cctv: null,
-  fly: (preset) => set((s) => ({ preset, flight: s.flight + 1, cctv: null })),
-  setCctv: (cctv) => set((s) => ({ cctv, flight: s.flight + 1 })),
+  snap: false,
+  fly: (preset) => set((s) => ({ preset, flight: s.flight + 1, cctv: null, snap: false })),
+  setCctv: (cctv, snap = false) => set((s) => ({ cctv, snap, flight: s.flight + 1 })),
 }));

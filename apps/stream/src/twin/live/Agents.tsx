@@ -4,7 +4,7 @@ import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { TrackedClass, TrackedObject } from "@/platform/around/types";
-import { camFrame, projectInto, sampleInto, type CamFrame } from "./project";
+import { camFrame, projectInto, sampleInto, usePoseVersion, type CamFrame } from "./project";
 import { syncClock } from "../compare/store";
 import { useLive } from "./store";
 
@@ -176,6 +176,7 @@ function animate({ pm, bm, cm, tl, pos, col }: Scene, tracks: FlatTrack[], now: 
 export function Agents() {
   const cams = useLive((s) => s.cams);
   const clips = useLive((s) => s.clips);
+  const poseVersion = usePoseVersion((s) => s.v);
 
   const tracks = useMemo<FlatTrack[]>(() => {
     const out: FlatTrack[] = [];
@@ -201,7 +202,9 @@ export function Agents() {
       }
     }
     return out;
-  }, [cams, clips]);
+    // poseVersion: re-project when a camera's pose is adjusted in the compare view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cams, clips, poseVersion]);
 
   const people = useRef<THREE.InstancedMesh>(null);
   const bodies = useRef<THREE.InstancedMesh>(null);
