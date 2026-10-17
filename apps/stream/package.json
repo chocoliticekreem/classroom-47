@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "copy-map-worker": "node -e \"require('fs').copyFileSync(require.resolve('maplibre-gl/dist/maplibre-gl-worker.mjs'),'public/maplibre-gl-worker.mjs')\"",
+    "copy-map-worker": "node -e \"const fs=require('fs');fs.mkdirSync('public',{recursive:true});fs.copyFileSync(require.resolve('maplibre-gl/dist/maplibre-gl-worker.mjs'),'public/maplibre-gl-worker.mjs')\"",
     "predev": "npm run copy-map-worker",
     "prebuild": "npm run copy-map-worker",
     "dev": "next dev",
