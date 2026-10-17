@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/ban-ts-comment */
-// @ts-nocheck -- not imported yet; calls the snapVehicle(prefer, bus) signature from a snap.ts change that is not on main.
 import type { TrackedObject } from "@/platform/around/types";
 import { layoutOf } from "../../network/layout";
 import {
@@ -241,11 +239,33 @@ function overlap(
   return true;
 }
 
+/**
+ * True when two bodies (full length and width, yaw from +z toward +x) sit closer than the minimum
+ * bumper gap, or, at a junction, when their centres are not clear of each other by half their lengths plus 1 m.
+ */
+export function bodiesClash(
+  ax: number, az: number, ayaw: number, al: number, aw: number,
+  bx: number, bz: number, byaw: number, bl: number, bw: number,
+  atJunction: boolean,
+): boolean {
+  const gap = MIN_GAP_M + GAP_PER_LENGTH * (al + bl);
+  const dx = bx - ax;
+  const dz = bz - az;
+  const reach = (al + bl) / 2 + gap + 2;
+  if (dx * dx + dz * dz > reach * reach) return false;
+  if (overlap(ax, az, ayaw, aw / 2 + SIDE_PAD_M, al / 2 + gap / 2, bx, bz, byaw, bw / 2 + SIDE_PAD_M, bl / 2 + gap / 2)) return true;
+  return atJunction && Math.hypot(dx, dz) < (al + bl) / 2 + 1;
+}
+
 const NODE_CELL = 16;
 const nodeKey = (cx: number, cz: number) => (cx + 4096) * 8192 + (cz + 4096);
 
+const junctionLookups = new WeakMap<SnapIndex, (x: number, z: number) => boolean>();
+
 /** True within a junction's asphalt disc plus a margin, where bodies from different roads meet. */
-function junctionLookup(idx: SnapIndex) {
+export function junctionLookup(idx: SnapIndex) {
+  const found = junctionLookups.get(idx);
+  if (found) return found;
   const radius = layoutOf(idx.net).nodeRadius;
   const cells = new Map<number, number[]>();
   for (const n of idx.net.nodes) {
@@ -255,7 +275,7 @@ function junctionLookup(idx: SnapIndex) {
     if (list) list.push(n.id);
     else cells.set(k, [n.id]);
   }
-  return (x: number, z: number) => {
+  const lookup = (x: number, z: number) => {
     const cx = Math.floor(x / NODE_CELL);
     const cz = Math.floor(z / NODE_CELL);
     for (let dx = -1; dx <= 1; dx++) {
@@ -270,6 +290,8 @@ function junctionLookup(idx: SnapIndex) {
     }
     return false;
   };
+  junctionLookups.set(idx, lookup);
+  return lookup;
 }
 
 export function buildReplay(idx: SnapIndex, inputs: ReplayInput[]): ReplaySet {
@@ -308,13 +330,7 @@ export function buildReplay(idx: SnapIndex, inputs: ReplayInput[]): ReplaySet {
     for (const o of live) {
       if (o === i) continue;
       const b = plans[o];
-      const gap = MIN_GAP_M + GAP_PER_LENGTH * (a.inp.length + b.inp.length);
-      const reach = a.hl + b.hl + gap + 2;
-      const dx = cx[o] - x;
-      const dz = cz[o] - z;
-      if (dx * dx + dz * dz > reach * reach) continue;
-      if (overlap(x, z, yaw, a.hw + SIDE_PAD_M, a.hl + gap / 2, cx[o], cz[o], cyaw[o], b.hw + SIDE_PAD_M, b.hl + gap / 2)) return true;
-      if ((jx || cj[o] === 1) && Math.hypot(dx, dz) < a.hl + b.hl + 1) return true;
+      if (bodiesClash(x, z, yaw, a.inp.length, a.inp.width, cx[o], cz[o], cyaw[o], b.inp.length, b.inp.width, jx || cj[o] === 1)) return true;
     }
     return false;
   };
