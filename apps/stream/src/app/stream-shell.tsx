@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, MessageSquare } from "lucide-react";
 import { useChatCrowd } from "@/agents/chat-crowd/useChatCrowd";
 import { useSceneChat } from "@/agents/chat-crowd/useSceneChat";
@@ -18,7 +18,10 @@ import { LOCATIONS } from "@/lib/locations";
 import type { StreamContext, StreamLocation, StreamSource } from "@/lib/types";
 import { useSurroundings } from "@/platform/around/useSurroundings";
 import { publish } from "@/platform/bus";
+import { StreamVideo } from "@/components/stream/PhoneFeed";
+import { usePhoneVideo } from "@/platform/live/rtc/usePhoneVideo";
 import { useLiveLink } from "@/platform/live/useLiveLink";
+import { sessionFromUrl } from "@/platform/live/useRemoteLive";
 import { useWakeLock } from "@/platform/live/useWakeLock";
 
 const BASE_VIEWERS = 1840;
@@ -51,6 +54,8 @@ export function StreamShell() {
   const live = source.kind !== "idle";
   const link = useLiveLink({ live, viewers, demo: demoLocation });
   const location = link.location;
+  const session = useMemo(() => sessionFromUrl(), []);
+  const phone = usePhoneVideo(session, link.followPhone);
   useWakeLock(live);
   useEffect(() => {
     // The 3D tab is an iframe of /twin on this origin, so warming the Cache API here makes its first paint instant.
@@ -154,7 +159,7 @@ export function StreamShell() {
           <ViewTabs tab={tab} onChange={setTab} />
           {/* The player stays mounted across tabs so the stream never drops. */}
           <div className={tab === "live" ? "flex flex-col gap-4 lg:gap-5" : "hidden"}>
-            <Player source={source} onSourceChange={changeSource} ctx={ctx} positionBadge={link.badge} sync={link.sync} />
+            <Player source={source} onSourceChange={changeSource} ctx={ctx} positionBadge={link.badge} sync={link.sync} remote={phone} />
             <StreamerBar
               ctx={ctx}
               positionSource={link.source}
@@ -169,7 +174,7 @@ export function StreamShell() {
           {tab === "around" && (
             <AroundMe location={location} activeCamUrl={source.kind === "url" ? source.url : null} />
           )}
-          {tab === "3d" && <TwinView src={mirrorUrl ?? `/twin?lat=${location.lat}&lon=${location.lon}`} />}
+          {tab === "3d" && <TwinView src={mirrorUrl ?? `/twin?lat=${location.lat}&lon=${location.lon}`} pip={phone.stream} />}
         </main>
 
         {desktop ? (
@@ -259,10 +264,19 @@ function ViewTabs({ tab, onChange }: { tab: View; onChange: (v: View) => void })
   );
 }
 
-function TwinView({ src }: { src: string }) {
+function TwinView({ src, pip }: { src: string; pip: MediaStream | null }) {
   return (
     <section className="relative min-h-[520px] flex-1 overflow-hidden rounded-xl border border-line bg-black">
       <iframe src={src} title="3D mirror" className="absolute inset-0 size-full" allow="fullscreen" />
+      {pip && (
+        <div className="absolute bottom-3 left-3 w-[200px] overflow-hidden rounded-lg border border-line-strong bg-black shadow-[0_12px_40px_rgba(0,0,0,0.55)] sm:w-[260px]">
+          <StreamVideo stream={pip} className="aspect-video size-full object-cover" />
+          <span className="absolute left-2 top-2 flex h-5 items-center gap-1 rounded-[4px] bg-live px-1.5 font-mono text-[10px] font-semibold text-white">
+            <span className="animate-live size-1.5 rounded-full bg-white" />
+            Phone
+          </span>
+        </div>
+      )}
       <a
         href={src}
         target="_blank"
