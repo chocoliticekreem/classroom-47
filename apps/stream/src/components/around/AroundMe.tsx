@@ -5,14 +5,35 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { Car, LocateFixed, User } from "lucide-react";
 import type { StreamLocation } from "@/lib/types";
 import { useFlowLayer } from "@/platform/around/useFlowLayer";
-import { CamCard, DisruptionCard } from "./cards";
+import { CamCard, DisruptionCard, LiveCamCard, StationCard } from "./cards";
 import { RoutePicker } from "./RoutePicker";
-import { circlePolygon, disruptionCollection, PITCH, setData, WALK_RADIUS_M, ZOOM } from "./mapLayers";
+import {
+  circlePolygon,
+  crimeCollection,
+  disruptionCollection,
+  PITCH,
+  setData,
+  WALK_RADIUS_M,
+  ZOOM,
+} from "./mapLayers";
 import { useAroundData } from "./useAroundData";
 import { useAroundMap, type DisruptionEvents } from "./useAroundMap";
 import { useCamCounts } from "./useCamCounts";
 import { useGeolocation } from "./useGeolocation";
-import { useCamMarkers } from "./useMarkers";
+import { useCamMarkers, useLiveCamMarkers, useStationMarkers } from "./useMarkers";
+
+const AIR_TONE = {
+  good: "text-ok",
+  fair: "text-ok",
+  moderate: "text-warn",
+  poor: "text-live",
+  "very poor": "text-live",
+} as const;
+
+function monthLabel(ym: string) {
+  const [y, m] = ym.split("-").map(Number);
+  return y && m ? new Date(y, m - 1, 1).toLocaleDateString("en-GB", { month: "short", year: "numeric" }) : ym;
+}
 
 interface AroundMeProps {
   location: StreamLocation;
@@ -51,14 +72,18 @@ export function AroundMe({ location, activeCamUrl }: AroundMeProps) {
   const dot = geo.active && geo.fix ? geo.fix : point;
 
   const { mapRef, libRef, streamerRef, ready } = useAroundMap(containerRef, point, eventsRef);
-  const { cams, disruptions, updatedAt, failed } = useAroundData(point);
+  const { cams, disruptions, stations, crime, tide, air, liveCams, updatedAt, failed } = useAroundData(point);
   const readings = useCamCounts(cams.map((c) => c.id));
   const flow = useFlowLayer(mapRef, ready, cams, point);
+  const [stationId, setStationId] = useState<string | null>(null);
+  const [liveCamId, setLiveCamId] = useState<string | null>(null);
 
   const activeCam = cams.find((c) => c.videoUrl === activeCamUrl) ?? null;
   const selectedCam =
     selectedId === undefined ? activeCam : cams.find((c) => c.id === selectedId) ?? null;
   const disruption = disruptions.find((d) => d.id === disruptionId) ?? null;
+  const station = stations.find((s) => s.id === stationId) ?? null;
+  const liveCam = liveCams.find((c) => c.id === liveCamId) ?? null;
 
   useEffect(() => {
     const map = mapRef.current;
@@ -76,7 +101,20 @@ export function AroundMe({ location, activeCamUrl }: AroundMeProps) {
     if (ready && map) setData(map, "around-disruptions", disruptionCollection(disruptions));
   }, [mapRef, ready, disruptions]);
 
-  const selectCam = useCallback((id: string) => setSelectedId(id), []);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (ready && map) setData(map, "around-crime", crimeCollection(crime?.points ?? []));
+  }, [mapRef, ready, crime]);
+
+  const selectCam = useCallback((id: string) => {
+    setSelectedId(id);
+    setLiveCamId(null);
+  }, []);
+  const selectLiveCam = useCallback((id: string) => {
+    setLiveCamId(id);
+    setSelectedId(null);
+  }, []);
+  const selectStation = useCallback((id: string) => setStationId(id), []);
 
   const refs = { mapRef, libRef, ready };
   useCamMarkers(refs, {
@@ -86,7 +124,8 @@ export function AroundMe({ location, activeCamUrl }: AroundMeProps) {
     selectedCamId: selectedCam?.id ?? null,
     onSelect: selectCam,
   });
-
+  useStationMarkers(refs, { items: stations, selectedId: stationId, onSelect: selectStation });
+  useLiveCamMarkers(refs, { items: liveCams, selectedId: liveCamId, onSelect: selectLiveCam });
 
 
   return (
@@ -108,6 +147,21 @@ export function AroundMe({ location, activeCamUrl }: AroundMeProps) {
             {plural(flow.totals.vehicles, "vehicle")}
           </span>
           <span className="text-dim">from {plural(flow.clips, "live camera")}</span>
+          {air && (
+            <span className="font-mono text-dim" title={`PM2.5 ${air.pm25} · NO₂ ${air.no2} µg/m³`}>
+              Air <span className={AIR_TONE[air.band]}>{air.band}</span> {air.eaqi}
+            </span>
+          )}
+          {tide && (
+            <span className="font-mono text-dim" title={`EA gauge at ${tide.station}`}>
+              Thames {tide.levelM.toFixed(1)} m {tide.trend}
+            </span>
+          )}
+          {crime && crime.month && (
+            <span className="font-mono text-dim" title={crime.streets.map((s) => `${s.name}: ${s.count}`).join("\n")}>
+              {crime.total} crimes within 600 m, {monthLabel(crime.month)}
+            </span>
+          )}
           {updatedAt && (
             <span className="font-mono text-dim">
               Updated {updatedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
@@ -146,7 +200,11 @@ export function AroundMe({ location, activeCamUrl }: AroundMeProps) {
           className="absolute inset-0 h-full w-full [&_.maplibregl-ctrl-attrib]:!bg-bg/70 [&_.maplibregl-ctrl-attrib]:!text-[10px] [&_.maplibregl-ctrl-attrib_a]:!text-muted"
         />
 
-        {selectedCam && (
+        {liveCam && <LiveCamCard cam={liveCam} onClose={() => setLiveCamId(null)} />}
+
+        {station && <StationCard station={station} onClose={() => setStationId(null)} />}
+
+        {selectedCam && !liveCam && (
           <CamCard
             cam={selectedCam}
             reading={readings.get(selectedCam.id)}

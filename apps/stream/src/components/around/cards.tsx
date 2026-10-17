@@ -1,9 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Bus, Car, Radio, TriangleAlert, User, X } from "lucide-react";
-import type { AroundBusStop, AroundCam, AroundDisruption, CamReading } from "@/platform/around/types";
-import { crowdLevel, formatCountdown } from "./markers";
+import { Bus, Car, Radio, TrainFront, TriangleAlert, User, X } from "lucide-react";
+import type {
+  AroundBusStop,
+  AroundCam,
+  AroundDisruption,
+  AroundLiveCam,
+  AroundStation,
+  CamReading,
+} from "@/platform/around/types";
+import { crowdLevel, formatCountdown, stationCrowd } from "./markers";
 
 export function formatDistance(m: number) {
   return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
@@ -165,6 +172,84 @@ export function BusStopCard({ stop, now, fetchedAt, onClose }: BusStopCardProps)
           </li>
         ))}
       </ul>
+    </article>
+  );
+}
+
+const STATION_TONE = { quiet: "text-ok", normal: "text-text", crowded: "text-live" } as const;
+
+interface StationCardProps {
+  station: AroundStation;
+  onClose: () => void;
+}
+
+export function StationCard({ station, onClose }: StationCardProps) {
+  const crowd = stationCrowd(station.crowding);
+  return (
+    <article className={`${PANEL} bottom-3 right-3 w-[min(300px,calc(100%-24px))]`}>
+      <div className="flex items-start gap-2.5 px-3 py-2.5">
+        <TrainFront className="mt-0.5 size-4 shrink-0 text-muted" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-semibold text-text">{station.name}</p>
+          <p className="font-mono text-[11px] text-muted">{formatDistance(station.distanceM)} away</p>
+        </div>
+        <CloseButton label="Close station" onClick={onClose} />
+      </div>
+      <div className="border-t border-line px-3 py-2 text-[12px]">
+        {crowd && station.crowding !== null ? (
+          <p className="flex items-center gap-2 font-mono text-text/90">
+            <User className="size-3.5 text-muted" />
+            {Math.round(station.crowding * 100)}% of a normal {new Date().toLocaleDateString("en-GB", { weekday: "long" })}
+            <span className={`ml-auto capitalize ${STATION_TONE[crowd]}`}>{crowd}</span>
+          </p>
+        ) : (
+          <p className="text-muted">No live crowding from TfL for this station.</p>
+        )}
+      </div>
+      {station.lines.length > 0 && (
+        <ul className="border-t border-line">
+          {station.lines.map((l) => (
+            <li key={l.id} className="flex items-center gap-2 px-3 py-1.5 text-[12px]">
+              <span className="min-w-0 flex-1 truncate text-text/90">{l.name}</span>
+              <span className={`font-mono ${l.status === "Good Service" ? "text-ok" : "text-warn"}`}>{l.status}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </article>
+  );
+}
+
+interface LiveCamCardProps {
+  cam: AroundLiveCam;
+  onClose: () => void;
+}
+
+/** The public stream is only ever embedded (YouTube ToS forbids downloading it). */
+export function LiveCamCard({ cam, onClose }: LiveCamCardProps) {
+  return (
+    <article className={`${PANEL} left-3 top-3 w-[min(340px,calc(100%-24px))]`}>
+      <div className="relative aspect-video bg-black">
+        <iframe
+          key={cam.id}
+          src={cam.embedUrl}
+          title={cam.name}
+          allow="autoplay; encrypted-media; picture-in-picture"
+          allowFullScreen
+          className="size-full border-0"
+        />
+        <div className="absolute right-2 top-2">
+          <CloseButton label="Close live camera" onClick={onClose} />
+        </div>
+      </div>
+      <div className="px-3 py-2.5">
+        <p className="truncate text-[13px] font-semibold text-text">{cam.name}</p>
+        <p className="mt-0.5 flex items-center gap-1.5 text-[12px] text-muted">
+          <span className="font-mono">{formatDistance(cam.distanceM)} away</span>
+          <span className="text-dim">·</span>
+          <span>HD public stream{cam.precision === "approx" ? ", approximate spot" : ""}</span>
+        </p>
+      </div>
     </article>
   );
 }
