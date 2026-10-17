@@ -1,8 +1,9 @@
 "use client";
 
+import { areaName, useOrigin } from "../origin";
 import { KIND_COLOR } from "./Ghost";
 import { removeIntervention, runForecast, updateIntervention, usePredict } from "./store";
-import type { InterventionKind, PredictRun } from "./types";
+import type { Intervention, InterventionKind, PredictRun } from "./types";
 import { Button, Chip, Delta, card, label } from "./ui";
 
 const KINDS: { kind: InterventionKind; name: string }[] = [
@@ -12,6 +13,19 @@ const KINDS: { kind: InterventionKind; name: string }[] = [
   { kind: "weather", name: "Heavy rain" },
 ];
 const KIND_NAME = Object.fromEntries(KINDS.map((k) => [k.kind, k.name])) as Record<InterventionKind, string>;
+const KIND_VERB: Record<InterventionKind, string> = { closure: "closed", incident: "blocked traffic", event: "drew a crowd", weather: "hit" };
+
+/** "72 m W / 40 m N" from twin metres (x east, z south). */
+export function placeLabel(where: { x: number; z: number }): string {
+  const ew = `${Math.abs(where.x)} m ${where.x < 0 ? "W" : "E"}`;
+  const ns = `${Math.abs(where.z)} m ${where.z < 0 ? "N" : "S"}`;
+  return `${ew} / ${ns}`;
+}
+
+function describe(iv: Intervention & { replanned?: number }): string {
+  const what = iv.note ? `${KIND_NAME[iv.kind].toLowerCase()} "${iv.note}"` : KIND_NAME[iv.kind].toLowerCase();
+  return `${what} ${KIND_VERB[iv.kind]} ${placeLabel(iv.where)} at +${iv.atMin} min`;
+}
 
 function countReroutes(run: PredictRun): number {
   let n = 0;
@@ -31,7 +45,8 @@ export function Diff({ baseline, whatIf }: { baseline: PredictRun; whatIf: Predi
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
     .slice(0, 6);
   const reroutes = countReroutes(whatIf);
-  const why = whatIf.report.items.find((it) => it.intervention)?.reasons.join("; ");
+  const user = whatIf.interventions.filter((iv) => iv.source !== "observed" && typeof iv.where === "object" && "x" in iv.where);
+  const why = user.length ? `because ${user.map((iv) => describe(iv as Intervention)).join("; ")}` : null;
   return (
     <div style={card}>
       <div style={{ fontWeight: 600 }}>What-if vs baseline at +{last.minute} min</div>
@@ -44,8 +59,8 @@ export function Diff({ baseline, whatIf }: { baseline: PredictRun; whatIf: Predi
         </div>
       ))}
       <div style={{ fontSize: 12, color: "#c9c8d0" }}>
-        {reroutes > 0 ? `${reroutes} persona group${reroutes === 1 ? "" : "s"} reacted` : "No group changed plan"}
-        {why ? ` · ${why}` : ""}
+        {why ? `${why}, ` : ""}
+        {reroutes > 0 ? `${reroutes} persona group${reroutes === 1 ? "" : "s"} rerouted` : "no group changed plan"}
       </div>
     </div>
   );
@@ -56,6 +71,7 @@ export function WhatIf() {
   const interventions = usePredict((s) => s.interventions);
   const loading = usePredict((s) => s.loading);
   const baseline = usePredict((s) => s.baseline);
+  const origin = useOrigin((s) => s.origin);
   return (
     <div style={card}>
       <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
@@ -73,9 +89,7 @@ export function WhatIf() {
         <div key={i} style={{ display: "grid", gap: 4, paddingTop: 6, borderTop: "1px solid var(--border)" }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <Chip color={KIND_COLOR[iv.kind]}>{KIND_NAME[iv.kind]}</Chip>
-            <span style={{ ...label, flex: 1 }}>
-              {iv.where.x} m E, {iv.where.z} m S
-            </span>
+            <span style={{ ...label, flex: 1 }}>{placeLabel(iv.where)}</span>
             <select
               value={iv.atMin}
               onChange={(e) => updateIntervention(i, { atMin: Number(e.target.value) })}
@@ -100,7 +114,7 @@ export function WhatIf() {
         </div>
       ))}
       {interventions.length > 0 && (
-        <Button primary disabled={loading || !baseline} onClick={() => void runForecast("whatIf")}>
+        <Button primary disabled={loading || !baseline} onClick={() => void runForecast("whatIf", origin, areaName(origin))}>
           Re-run with {interventions.length} intervention{interventions.length === 1 ? "" : "s"}
         </Button>
       )}

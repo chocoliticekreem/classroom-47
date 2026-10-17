@@ -341,7 +341,7 @@ class Simulation:
                                       for w in affected],
                            "schema": {"decisions": [{"id": "g0", "action": "|".join(allowed), "why": "short"}]}})
         try:
-            data = llm.chat_json("Decide how each Tower Hill persona group reacts. Realistic, consistent with its "
+            data = llm.chat_json(f"Decide how each {self.seed.get('area') or 'Tower Hill'} persona group reacts. Realistic, consistent with its "
                                  "reactions. Return {\"decisions\": [...]}.", user, max_tokens=3000)
         except Exception as exc:
             self.events.append(f"LLM decision point failed ({type(exc).__name__}); rules used")
