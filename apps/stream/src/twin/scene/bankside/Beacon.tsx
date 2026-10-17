@@ -252,7 +252,9 @@ export function SiteLabel({
 
   return (
     <group ref={follow}>
-      <Label position={[0, 0, 0]}>{node}</Label>
+      <Label position={[0, 0, 0]} priority={20}>
+        {node}
+      </Label>
     </group>
   );
 }

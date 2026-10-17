@@ -9,30 +9,12 @@ import { BUS_L, getBusKit } from "./bus/busKit";
 import { personBody, personHead, personMaterial, SKIN } from "./models/people";
 import { bikeBody, CAR_LENGTH, carBody, lampMaterial, lamps, paintMaterial, VAN_LENGTH, vanBody } from "./models/vehicles";
 import { camFrame, projectInto, sampleInto, usePoseVersion, type CamFrame } from "./project";
-import {
-  DIMS,
-  fitVehicles,
-  makePlaced,
-  sampleVehicle,
-  separate,
-  spanOf,
-  type FittedVehicle,
-  type Placed,
-  type VehicleClass,
-  type VehiclePose,
-} from "./trackFit";
-import { syncClock } from "../compare/store";
-import {
-  ON_LANE_M,
-  SNAP_ENABLED,
-  SNAP_STATS,
-  snapPerson,
-  snapVehicle,
-  useSnapIndex,
-  type PersonSnap,
-  type SnapIndex,
-  type VehicleSnap,
-} from "../network/snap";
+import { syncClock, useCompare } from "../compare/store";
+import { PAVEMENT_Y, ROAD_Y } from "../network/layout";
+import { asphaltMargin, SNAP_STATS, useSnapIndex, type SnapIndex } from "../network/snap";
+import { DIMS, MODEL_OF, MotionSim, State, type Entity, type Model } from "./motion";
+import { beginFrame, endFrame, recordPose } from "./motionStats";
+import { buildReplay, sampleTraj, trajEnded, type ReplayInput, type ReplaySet, type Traj } from "./sim/replay";
 import { useLive } from "./store";
 
 const MAX_PEOPLE = 400;
@@ -40,17 +22,11 @@ const MAX_VEHICLES = 200;
 const TRAIL_N = 5;
 const TRAIL_STEP_S = 0.22;
 const FADE_S = 0.6;
-/** A track already there when the clip starts (or still there when it ends) doesn't fade: it was never "spawned". */
-const CLIP_EDGE_S = 0.2;
 const BIKE_LENGTH = 2;
 const BIKE_HEIGHT = 1.2;
 /** Walking pace at which the figure's bob reaches full amplitude. */
 const STRIDE_MS = 1.4;
 const GLOW = { value: 0.4 };
-/** Smoothing rate (1/s) toward the snapped pose, so a track settling between two lanes glides rather than flips. */
-const SNAP_RATE = 6;
-/** Smoothing rate (1/s) of the push that keeps one car from driving into another. */
-const PUSH_RATE = 8;
 
 /** Used when the YOLO server is older and sends no colour: a London bus is red, everything else neutral. */
 const FALLBACK_COLOR: Record<TrackedClass, string> = {
@@ -62,48 +38,143 @@ const FALLBACK_COLOR: Record<TrackedClass, string> = {
   bicycle: "#3a3a42",
 };
 
-interface PersonTrack {
+const _pose = new Float32Array(3);
+const _frustum = new THREE.Frustum();
+const _pv = new THREE.Matrix4();
+const _ball = new THREE.Sphere();
+/** A vehicle is never retired within this distance of the camera that tracked it. */
+const KEEP_NEAR_M = 150;
+
+/** True while any part of a vehicle is in the render camera's frustum or within KEEP_NEAR_M of the camera that tracked it. */
+function inView(x: number, z: number, length: number, camX: number, camZ: number) {
+  _ball.center.set(x, 1.2, z);
+  _ball.radius = length;
+  return Math.hypot(x - camX, z - camZ) < KEEP_NEAR_M || _frustum.intersectsSphere(_ball);
+}
+
+/** A compared camera's track, drawn 1:1 with the real video's clock (which loops). */
+interface SyncTrack {
   camId: string;
+  key: string;
   frame: CamFrame;
-  duration: number;
+  kind: TrackedObject["kind"];
+  cls: TrackedClass;
   color: THREE.Color;
   pts: TrackedObject["pts"];
   t0: number;
   t1: number;
   seed: number;
+  model: Model;
   skin: THREE.Color;
 }
 
-/** Which of Arvin's models a tracked vehicle is drawn with. */
-type Model = "car" | "van" | "bus" | "bike";
+/**
+ * Vehicles drawn, with the checks the twin must pass: none off the asphalt, a bumper gap of at least
+ * 2 m between vehicles in a line, and nobody vanishing while in view. Counts accumulate over frames;
+ * read via `window.__vehicleAudit` with `?snapstats`.
+ */
+interface VehicleAudit {
+  frames: number;
+  vehicleFrames: number;
+  offAsphalt: number;
+  minBumperGap: number;
+  minClearance: number;
+  overlaps: number;
+  vanished: number;
+  vanishedInView: number;
+  retired: number;
+  /** A few offenders, for diagnosis: key and how far off the asphalt (m) or short of the gap. */
+  offKeys: string[];
+}
+interface AuditPose {
+  key: string;
+  x: number;
+  z: number;
+  yaw: number;
+  length: number;
+  width: number;
+  camX: number;
+  camZ: number;
+  frame: number;
+}
+const audit: VehicleAudit = { frames: 0, vehicleFrames: 0, offAsphalt: 0, minBumperGap: Infinity, minClearance: Infinity, overlaps: 0, vanished: 0, vanishedInView: 0, retired: 0, offKeys: [] };
+const auditPoses = new Map<string, AuditPose>();
+let auditSyncT = -1;
+let auditSyncCam: string | null = null;
+if (SNAP_STATS) (window as unknown as { __vehicleAudit: VehicleAudit }).__vehicleAudit = audit;
 
-interface VehicleTrack {
-  camId: string;
-  /** Index of the camera: overlaps are resolved between one camera's cars. */
-  group: number;
-  frame: CamFrame;
-  duration: number;
-  fit: FittedVehicle;
-  t0: number;
-  t1: number;
-  color: THREE.Color;
-  seed: number;
-  model: Model;
-  scale: number;
-  halfL: number;
-  halfW: number;
+function noteDrawn(key: string, x: number, z: number, yaw: number, length: number, width: number, frame: CamFrame) {
+  if (!SNAP_STATS) return;
+  const e = auditPoses.get(key) ?? { key, x, z, yaw, length, width, camX: frame.x, camZ: frame.z, frame: 0 };
+  Object.assign(e, { x, z, yaw, length, width, frame: audit.frames + 1 });
+  auditPoses.set(key, e);
 }
 
-const MODEL_OF: Record<VehicleClass, Model> = {
-  car: "car",
-  truck: "van",
-  bus: "bus",
-  motorcycle: "bike",
-  bicycle: "bike",
-};
+/** Checks this frame's drawn vehicles, and flags any drawn last frame that are now gone without being retired out of sight. */
+function auditVehicles(snap: SnapIndex, retired: string[], syncT: number) {
+  const frame = ++audit.frames;
+  // A looped video or a switch of compared camera legitimately resets the replayed vehicles.
+  const reset = syncClock.camId !== auditSyncCam || (syncT >= 0 && syncT < auditSyncT - 0.5);
+  auditSyncT = syncT;
+  auditSyncCam = syncClock.camId;
+  const drawn: AuditPose[] = [];
+  for (const [key, e] of auditPoses) {
+    if (e.frame === frame) drawn.push(e);
+    else if (e.frame === frame - 1 && !reset) {
+      if (retired.includes(key)) audit.retired++;
+      else {
+        audit.vanished++;
+        if (inView(e.x, e.z, e.length, e.camX, e.camZ)) audit.vanishedInView++;
+      }
+    }
+  }
+  audit.vehicleFrames += drawn.length;
+  for (const a of drawn) {
+    const sn = Math.sin(a.yaw);
+    const cs = Math.cos(a.yaw);
+    let worst = Infinity;
+    for (const [lx, lz] of [[0, 0], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const x = a.x + (lx * a.width * cs) / 2 + (lz * a.length * sn) / 2;
+      const z = a.z - (lx * a.width * sn) / 2 + (lz * a.length * cs) / 2;
+      worst = Math.min(worst, asphaltMargin(snap, x, z));
+    }
+    if (worst < -0.1) {
+      audit.offAsphalt++;
+      if (audit.offKeys.length < 12 && !audit.offKeys.some((k) => k.startsWith(a.key))) audit.offKeys.push(`${a.key} ${worst.toFixed(2)} @${a.x.toFixed(0)},${a.z.toFixed(0)}`);
+    }
+  }
+  for (let i = 0; i < drawn.length; i++) {
+    for (let j = i + 1; j < drawn.length; j++) {
+      const a = drawn[i];
+      const b = drawn[j];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      if (Math.hypot(dx, dz) > 25) continue;
+      const lon = dx * Math.sin(a.yaw) + dz * Math.cos(a.yaw);
+      const lat = dx * Math.cos(a.yaw) - dz * Math.sin(a.yaw);
+      if (Math.abs(lat) < (a.width + b.width) / 2 && Math.cos(a.yaw - b.yaw) > 0.7) {
+        const gap = Math.abs(lon) - (a.length + b.length) / 2;
+        if (gap < 1.9 && audit.offKeys.length < 12) audit.offKeys.push(`gap ${a.key} ${b.key} ${gap.toFixed(2)}`);
+        audit.minBumperGap = Math.min(audit.minBumperGap, gap);
+      }
+      let sep = -Infinity;
+      for (const [yaw, p, q] of [[a.yaw, a, b], [b.yaw, b, a]] as const) {
+        for (const quarter of [0, Math.PI / 2]) {
+          const ux = Math.sin(yaw + quarter);
+          const uz = Math.cos(yaw + quarter);
+          const reach = (o: AuditPose) =>
+            (o.length / 2) * Math.abs(Math.sin(o.yaw) * ux + Math.cos(o.yaw) * uz) + (o.width / 2) * Math.abs(Math.cos(o.yaw) * ux - Math.sin(o.yaw) * uz);
+          sep = Math.max(sep, Math.abs(dx * ux + dz * uz) - reach(p) - reach(q));
+        }
+      }
+      audit.minClearance = Math.min(audit.minClearance, sep);
+      if (sep < 0) audit.overlaps++;
+    }
+  }
+}
 
 /** Uniform scale that brings each model to its class's real length. */
-const MODEL_SCALE: Record<VehicleClass, number> = {
+const MODEL_SCALE: Record<Exclude<TrackedClass, "person">, number> = {
   car: DIMS.car[2] / CAR_LENGTH,
   truck: DIMS.truck[2] / VAN_LENGTH,
   bus: DIMS.bus[2] / BUS_L,
@@ -120,49 +191,6 @@ const _uv = new Float32Array(2);
 const _xz = new Float32Array(2);
 const _prevXz = new Float32Array(2);
 const UP = new THREE.Vector3(0, 1, 0);
-const _vs: VehicleSnap = { x: 0, z: 0, heading: 0, laneId: -1, s: 0, dist: 0 };
-const _ps: PersonSnap = { x: 0, z: 0, footwayId: -1, s: 0, dist: 0 };
-const _pose: VehiclePose = { x: 0, z: 0, yaw: 0, ext: false };
-
-/** Per-track smoothed pose; `t` is the clip time it was last written at (a loop restart resets it). */
-interface Smooth {
-  x: Float32Array;
-  z: Float32Array;
-  yaw: Float32Array;
-  t: Float32Array;
-  push: Float32Array;
-}
-
-function makeSmooth(n: number): Smooth {
-  return {
-    x: new Float32Array(n),
-    z: new Float32Array(n),
-    yaw: new Float32Array(n),
-    t: new Float32Array(n).fill(Infinity),
-    push: new Float32Array(n),
-  };
-}
-
-/** Share of tracked vehicles within ON_LANE_M of a lane line and people within ON_LANE_M of a footway, raw vs snapped. Read via `window.__snapStats` with `?snapstats`. */
-const stats = { vehicles: 0, vehiclesOnLaneRaw: 0, vehiclesOnLane: 0, people: 0, peopleOnPavementRaw: 0, peopleOnPavement: 0 };
-if (SNAP_STATS) (window as unknown as { __snapStats: typeof stats }).__snapStats = stats;
-
-function lerpAngle(a: number, b: number, k: number) {
-  let d = b - a;
-  while (d > Math.PI) d -= 2 * Math.PI;
-  while (d < -Math.PI) d += 2 * Math.PI;
-  return a + d * k;
-}
-
-/** Fade in and out mid-clip only; at the clip's own start and end the real camera cuts too. */
-function fadeOf(t: number, t0: number, t1: number, duration: number) {
-  return Math.min(1, t0 > CLIP_EDGE_S ? (t - t0) / FADE_S : 1, t1 < duration - CLIP_EDGE_S ? (t1 - t) / FADE_S : 1);
-}
-
-/** Clip time for a track: the compared camera follows its <video>, the rest loop on the wall clock. */
-function clipTime(camId: string, seed: number, duration: number, now: number, syncT: number) {
-  return syncT >= 0 && camId === syncClock.camId ? syncT : (now + seed * duration) % duration;
-}
 
 const PERSON = new THREE.Color("#ffb37a");
 const PERSON_DIM = new THREE.Color("#8a4a2a");
@@ -185,18 +213,44 @@ interface Scene {
   tl: THREE.LineSegments;
   pos: Float32Array;
   col: Float32Array;
-  placed: Placed;
-  /** For each placed car: its index in the vehicle list, clip time, fade and whether its smoothing restarted. */
-  placedTrack: Int32Array;
-  placedT: Float32Array;
-  placedFade: Float32Array;
-  placedFresh: Uint8Array;
+  seg: number;
 }
 
-/** One trail segment from (x0, z0) to (x1, z1), brightness a0 → a1. Returns the next segment index. */
-function trailSegment(scene: Scene, seg: number, x0: number, z0: number, x1: number, z1: number, h: number, a0: number, a1: number, base: THREE.Color, dim: THREE.Color) {
+function placePerson(scene: Scene, x: number, z: number, yaw: number, fade: number, speed: number, seed: number, now: number, color: THREE.Color, skin: THREE.Color) {
+  const slot = scene.person;
+  if (slot.n >= MAX_PEOPLE) return false;
+  const pace = Math.min(1, speed / STRIDE_MS);
+  const bob = Math.abs(Math.sin(now * (4 + 6 * pace) + seed * 20)) * 0.04 * pace;
+  _q.setFromAxisAngle(UP, yaw);
+  _p.set(x, PAVEMENT_Y + bob * fade, z);
+  _s.set(fade, fade, fade);
+  slot.meshes[0].setMatrixAt(slot.n, _m.compose(_p, _q, _s));
+  slot.meshes[0].setColorAt(slot.n, color);
+  scene.head.setColorAt(slot.n, skin);
+  slot.n++;
+  return true;
+}
+
+function placeVehicle(scene: Scene, model: Model, cls: TrackedClass, x: number, z: number, yaw: number, fade: number, color: THREE.Color) {
+  const slot = scene[model];
+  if (slot.n >= MAX_VEHICLES) return false;
+  _q.setFromAxisAngle(UP, yaw);
+  _p.set(x, ROAD_Y, z);
+  const sc = fade * (MODEL_SCALE[cls as keyof typeof MODEL_SCALE] ?? MODEL_SCALE.car);
+  _s.set(sc, sc, sc);
+  slot.meshes[0].setMatrixAt(slot.n, _m.compose(_p, _q, _s));
+  // A London bus is red on the CCTV too; keep Arvin's livery rather than the camera's dim median.
+  slot.meshes[0].setColorAt(slot.n, model === "bus" ? BUS_WHITE : color);
+  slot.n++;
+  return true;
+}
+
+function trailSegment(scene: Scene, isPerson: boolean, x0: number, z0: number, x1: number, z1: number, a0: number, a1: number) {
   const { pos, col } = scene;
-  const o = seg * 6;
+  const base = isPerson ? PERSON : CAR;
+  const dim = isPerson ? PERSON_DIM : CAR_DIM;
+  const o = scene.seg * 6;
+  const h = isPerson ? 0.9 : 0.6;
   pos[o] = x0;
   pos[o + 1] = h;
   pos[o + 2] = z0;
@@ -209,28 +263,72 @@ function trailSegment(scene: Scene, seg: number, x0: number, z0: number, x1: num
   col[o + 3] = dim.r + (base.r - dim.r) * a1;
   col[o + 4] = dim.g + (base.g - dim.g) * a1;
   col[o + 5] = dim.b + (base.b - dim.b) * a1;
-  return seg + 1;
+  scene.seg++;
 }
 
-function animatePeople(scene: Scene, tracks: PersonTrack[], now: number, syncT: number, snap: SnapIndex | null, smooth: Smooth, dt: number, seg: number) {
-  const lerpK = 1 - Math.exp(-SNAP_RATE * dt);
-  const comparing = syncClock.camId;
-  const slot = scene.person;
-  const body = slot.meshes[0];
+/** Live entities: played once, dead-reckoned, never looped. The compared camera's entities are drawn by `drawSynced`. */
+function drawEntities(scene: Scene, ents: Entity[], now: number, skipCam: string | null) {
+  for (let i = 0; i < ents.length; i++) {
+    const e = ents[i];
+    if (e.camId === skipCam || e.fade <= 0) continue;
+    const isPerson = e.kind === "person";
+    const placed = isPerson
+      ? placePerson(scene, e.x, e.z, e.yaw, e.fade, e.speed, e.seed, now, e.color, e.skin)
+      : placeVehicle(scene, e.model, e.cls, e.x, e.z, e.yaw, e.fade, e.color);
+    if (!placed) continue;
+    if (!isPerson) noteDrawn(e.key, e.x, e.z, e.yaw, e.length, e.width, e.frame);
+    recordPose(e.key, e.x, e.z, isPerson ? -1 : e.laneId, isPerson);
+    if (e.state !== State.Tracked) continue;
+    const t = now - e.clipStart;
+    let px = e.x;
+    let pz = e.z;
+    for (let k = 1; k <= TRAIL_N; k++) {
+      if (!sampleInto(e.pts, t - k * TRAIL_STEP_S, _uv)) break;
+      projectInto(e.frame, _uv[0], _uv[1], _prevXz);
+      trailSegment(scene, isPerson, px, pz, _prevXz[0], _prevXz[1], e.fade * (1 - (k - 1) / TRAIL_N), e.fade * (1 - k / TRAIL_N));
+      px = _prevXz[0];
+      pz = _prevXz[1];
+    }
+  }
+}
+
+/** The compared camera stays 1:1 with its (looping) video clock, unsnapped, so figures cross when the real ones do. */
+/**
+ * A compared vehicle replayed on the road network (see sim/replay.ts): on the asphalt, kept a bumper
+ * gap from the rest, and driving on beyond the clip rather than fading out. It only leaves once its
+ * route has ended and nobody can see it.
+ */
+function drawReplayed(scene: Scene, tr: SyncTrack, rep: Traj, syncT: number) {
+  if (!sampleTraj(rep, syncT, _pose)) return;
+  if (trajEnded(rep, syncT) && !inView(_pose[0], _pose[1], rep.length, rep.camX, rep.camZ)) return;
+  if (!placeVehicle(scene, tr.model, tr.cls, _pose[0], _pose[1], _pose[2], 1, tr.color)) return;
+  noteDrawn(tr.key, _pose[0], _pose[1], _pose[2], rep.length, rep.width, tr.frame);
+  let px = _pose[0];
+  let pz = _pose[1];
+  for (let k = 1; k <= TRAIL_N; k++) {
+    if (!sampleTraj(rep, syncT - k * TRAIL_STEP_S, _pose)) break;
+    trailSegment(scene, false, px, pz, _pose[0], _pose[1], 1 - (k - 1) / TRAIL_N, 1 - k / TRAIL_N);
+    px = _pose[0];
+    pz = _pose[1];
+  }
+}
+
+function drawSynced(scene: Scene, tracks: SyncTrack[], syncT: number, now: number, replay: ReplaySet | null) {
   for (let i = 0; i < tracks.length; i++) {
     const tr = tracks[i];
-    if (slot.n >= MAX_PEOPLE) break;
-    // The compare view shows exactly what its camera saw: nobody from a neighbouring camera's clip.
-    if (comparing && tr.camId !== comparing) continue;
-    const t = clipTime(tr.camId, tr.seed, tr.duration, now, syncT);
-    if (!sampleInto(tr.pts, t, _uv)) continue;
+    const rep = tr.kind === "person" ? undefined : replay?.byKey.get(tr.key);
+    if (rep) {
+      drawReplayed(scene, tr, rep, syncT);
+      continue;
+    }
+    if (!sampleInto(tr.pts, syncT, _uv)) continue;
     projectInto(tr.frame, _uv[0], _uv[1], _xz);
-    const fade = fadeOf(t, tr.t0, tr.t1, tr.duration);
+    const fade = Math.min(1, (syncT - tr.t0) / FADE_S, (tr.t1 - syncT) / FADE_S);
     if (fade <= 0) continue;
-
     let yaw = 0;
     let speed = 0;
-    if (sampleInto(tr.pts, t - 0.3, _uv)) {
+    let moving = false;
+    if (sampleInto(tr.pts, syncT - 0.3, _uv)) {
       projectInto(tr.frame, _uv[0], _uv[1], _prevXz);
       const dx = _xz[0] - _prevXz[0];
       const dz = _xz[1] - _prevXz[1];
@@ -238,158 +336,39 @@ function animatePeople(scene: Scene, tracks: PersonTrack[], now: number, syncT: 
       if (d2 > 1e-4) {
         yaw = Math.atan2(dx, dz);
         speed = Math.sqrt(d2) / 0.3;
+        moving = true;
       }
     }
-    _q.setFromAxisAngle(UP, yaw);
-
-    // The compared camera stays 1:1 with its pixels; everything else is pulled onto Arvin's network.
-    const snapTo = SNAP_ENABLED && tr.camId !== syncClock.camId ? snap : null;
-    // A looping or freshly synced track restarts its smoothing instead of gliding across the scene.
-    const fresh = t < smooth.t[i] || t - smooth.t[i] > 1;
-    smooth.t[i] = t;
-    if (SNAP_STATS && snap) {
-      stats.people++;
-      if (snapPerson(snap, _xz[0], _xz[1], _ps, ON_LANE_M)) stats.peopleOnPavementRaw++;
+    const isPerson = tr.kind === "person";
+    let cx = _xz[0];
+    let cz = _xz[1];
+    if (isPerson) {
+      if (!placePerson(scene, cx, cz, yaw, fade, speed, tr.seed, now, tr.color, tr.skin)) continue;
+    } else {
+      const [w, , l] = DIMS[tr.cls as keyof typeof DIMS] ?? DIMS.car;
+      const rx = cx - tr.frame.x;
+      const rz = cz - tr.frame.z;
+      const rl = Math.hypot(rx, rz) || 1;
+      if (!moving) yaw = Math.atan2(rx, rz);
+      const along = Math.abs((rx / rl) * Math.sin(yaw) + (rz / rl) * Math.cos(yaw));
+      const push = 0.5 * (along * l + Math.sqrt(1 - Math.min(1, along * along)) * w);
+      cx += (rx / rl) * push;
+      cz += (rz / rl) * push;
+      if (!placeVehicle(scene, tr.model, tr.cls, cx, cz, yaw, fade, tr.color)) continue;
     }
-    if (snapTo && snapPerson(snapTo, _xz[0], _xz[1], _ps)) {
-      if (fresh) {
-        smooth.x[i] = _ps.x;
-        smooth.z[i] = _ps.z;
-      } else {
-        smooth.x[i] += (_ps.x - smooth.x[i]) * lerpK;
-        smooth.z[i] += (_ps.z - smooth.z[i]) * lerpK;
-      }
-      _xz[0] = smooth.x[i];
-      _xz[1] = smooth.z[i];
-    }
-    if (SNAP_STATS && snap && snapPerson(snap, _xz[0], _xz[1], _ps, ON_LANE_M)) stats.peopleOnPavement++;
-    const pace = Math.min(1, speed / STRIDE_MS);
-    const bob = Math.abs(Math.sin(now * (4 + 6 * pace) + tr.seed * 20)) * 0.04 * pace;
-    _p.set(_xz[0], bob * fade, _xz[1]);
-    _s.set(fade, fade, fade);
-    body.setMatrixAt(slot.n, _m.compose(_p, _q, _s));
-    body.setColorAt(slot.n, tr.color);
-    scene.head.setColorAt(slot.n, tr.skin);
-    slot.n++;
-
-    let px = _p.x;
-    let pz = _p.z;
+    let px = cx;
+    let pz = cz;
     for (let k = 1; k <= TRAIL_N; k++) {
-      if (!sampleInto(tr.pts, t - k * TRAIL_STEP_S, _uv)) break;
+      if (!sampleInto(tr.pts, syncT - k * TRAIL_STEP_S, _uv)) break;
       projectInto(tr.frame, _uv[0], _uv[1], _prevXz);
-      seg = trailSegment(scene, seg, px, pz, _prevXz[0], _prevXz[1], 0.9, fade * (1 - (k - 1) / TRAIL_N), fade * (1 - k / TRAIL_N), PERSON, PERSON_DIM);
+      trailSegment(scene, isPerson, px, pz, _prevXz[0], _prevXz[1], fade * (1 - (k - 1) / TRAIL_N), fade * (1 - k / TRAIL_N));
       px = _prevXz[0];
       pz = _prevXz[1];
     }
   }
-  return seg;
 }
 
-/**
- * Vehicles come pre-fitted (trackFit.ts): stitched, extended in and out of shot and kept on their road.
- * Each frame places them, then `separate` pushes any car that would clip a nearer one back along its ray.
- */
-function animateVehicles(scene: Scene, tracks: VehicleTrack[], now: number, syncT: number, snap: SnapIndex | null, smooth: Smooth, dt: number, seg: number) {
-  const lerpK = 1 - Math.exp(-SNAP_RATE * dt);
-  const pushK = 1 - Math.exp(-PUSH_RATE * dt);
-  const comparing = syncClock.camId;
-  const placed = scene.placed;
-  placed.n = 0;
-  for (let i = 0; i < tracks.length && placed.n < MAX_VEHICLES; i++) {
-    const tr = tracks[i];
-    if (comparing && tr.camId !== comparing) continue;
-    const clock = clipTime(tr.camId, tr.seed, tr.duration, now, syncT);
-    // A car there from the clip's first frame (or still there at its last) holds still across the loop point.
-    const t = !tr.fit.fadeIn && clock < tr.t0 ? tr.t0 : !tr.fit.fadeOut && clock > tr.t1 ? tr.t1 : clock;
-    if (!sampleVehicle(tr.fit, t, _pose)) continue;
-    const fade = fadeOf(t, tr.t0, tr.t1, tr.duration);
-    if (fade <= 0) continue;
-    let { x, z, yaw } = _pose;
-    // The compared camera stays 1:1 with its pixels; everything else is pulled onto Arvin's lane lines.
-    const snapTo = SNAP_ENABLED && tr.camId !== syncClock.camId ? snap : null;
-    const fresh = t < smooth.t[i] || t - smooth.t[i] > 1;
-    smooth.t[i] = t;
-    if (SNAP_STATS && snap) {
-      stats.vehicles++;
-      if (snapVehicle(snap, x, z, NaN, _vs, ON_LANE_M)) stats.vehiclesOnLaneRaw++;
-    }
-    if (snapTo && snapVehicle(snapTo, x, z, yaw, _vs)) {
-      if (fresh) {
-        smooth.x[i] = _vs.x;
-        smooth.z[i] = _vs.z;
-        smooth.yaw[i] = _vs.heading;
-      } else {
-        smooth.x[i] += (_vs.x - smooth.x[i]) * lerpK;
-        smooth.z[i] += (_vs.z - smooth.z[i]) * lerpK;
-        smooth.yaw[i] = lerpAngle(smooth.yaw[i], _vs.heading, lerpK);
-      }
-      x = smooth.x[i];
-      z = smooth.z[i];
-      yaw = smooth.yaw[i];
-    }
-    if (SNAP_STATS && snap && snapVehicle(snap, x, z, NaN, _vs, ON_LANE_M)) stats.vehiclesOnLane++;
-    const p = placed.n++;
-    placed.x[p] = x;
-    placed.z[p] = z;
-    placed.yaw[p] = yaw;
-    placed.halfL[p] = tr.halfL;
-    placed.halfW[p] = tr.halfW;
-    placed.camX[p] = tr.frame.x;
-    placed.camZ[p] = tr.frame.z;
-    placed.group[p] = tr.group;
-    placed.ext[p] = _pose.ext ? 1 : 0;
-    scene.placedTrack[p] = i;
-    scene.placedT[p] = t;
-    scene.placedFade[p] = fade;
-    scene.placedFresh[p] = fresh ? 1 : 0;
-  }
-
-  separate(placed);
-
-  for (let p = 0; p < placed.n; p++) {
-    const i = scene.placedTrack[p];
-    const tr = tracks[i];
-    const slot = scene[tr.model];
-    const target = placed.push[p];
-    // An extrapolated car sitting on one the camera really sees is a stale copy of it.
-    if (target < 0 || slot.n >= MAX_VEHICLES) {
-      smooth.push[i] = 0;
-      continue;
-    }
-    smooth.push[i] = scene.placedFresh[p] ? target : smooth.push[i] + (target - smooth.push[i]) * pushK;
-    const rx = placed.x[p] - placed.camX[p];
-    const rz = placed.z[p] - placed.camZ[p];
-    const rl = Math.hypot(rx, rz) || 1;
-    const fade = scene.placedFade[p];
-    _p.set(placed.x[p] + (rx / rl) * smooth.push[i], 0, placed.z[p] + (rz / rl) * smooth.push[i]);
-    _q.setFromAxisAngle(UP, placed.yaw[p]);
-    const sc = fade * tr.scale;
-    _s.set(sc, sc, sc);
-    const body = slot.meshes[0];
-    body.setMatrixAt(slot.n, _m.compose(_p, _q, _s));
-    // A London bus is red on the CCTV too; keep Arvin's livery rather than the camera's dim median.
-    body.setColorAt(slot.n, tr.model === "bus" ? BUS_WHITE : tr.color);
-    slot.n++;
-
-    let px = _p.x;
-    let pz = _p.z;
-    for (let k = 1; k <= TRAIL_N; k++) {
-      if (!sampleVehicle(tr.fit, scene.placedT[p] - k * TRAIL_STEP_S, _pose)) break;
-      seg = trailSegment(scene, seg, px, pz, _pose.x, _pose.z, 0.6, fade * (1 - (k - 1) / TRAIL_N), fade * (1 - k / TRAIL_N), CAR, CAR_DIM);
-      px = _pose.x;
-      pz = _pose.z;
-    }
-  }
-  return seg;
-}
-
-function animate(scene: Scene, people: PersonTrack[], vehicles: VehicleTrack[], now: number, syncT: number, snap: SnapIndex | null, smooth: { people: Smooth; vehicles: Smooth }, dt: number) {
-  const { tl } = scene;
-  scene.person.n = scene.car.n = scene.van.n = scene.bus.n = scene.bike.n = 0;
-  if (SNAP_STATS) stats.vehicles = stats.vehiclesOnLaneRaw = stats.vehiclesOnLane = stats.people = stats.peopleOnPavementRaw = stats.peopleOnPavement = 0;
-  let seg = animatePeople(scene, people, now, syncT, snap, smooth.people, dt, 0);
-  seg = animateVehicles(scene, vehicles, now, syncT, snap, smooth.vehicles, dt, seg);
-
+function flush(scene: Scene) {
   for (const slot of [scene.person, scene.car, scene.van, scene.bus, scene.bike]) {
     for (const m of slot.meshes) m.count = slot.n;
     const lead = slot.meshes[0];
@@ -397,11 +376,9 @@ function animate(scene: Scene, people: PersonTrack[], vehicles: VehicleTrack[], 
     if (lead.instanceColor) lead.instanceColor.needsUpdate = true;
   }
   if (scene.head.instanceColor) scene.head.instanceColor.needsUpdate = true;
-  tl.geometry.setDrawRange(0, seg * 2);
-  const posAttr = tl.geometry.getAttribute("position") as THREE.BufferAttribute;
-  const colAttr = tl.geometry.getAttribute("color") as THREE.BufferAttribute;
-  posAttr.needsUpdate = true;
-  colAttr.needsUpdate = true;
+  scene.tl.geometry.setDrawRange(0, scene.seg * 2);
+  (scene.tl.geometry.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
+  (scene.tl.geometry.getAttribute("color") as THREE.BufferAttribute).needsUpdate = true;
 }
 
 /** Instanced meshes that share the lead mesh's matrix buffer, so one write per object places every part. */
@@ -422,55 +399,60 @@ export function Agents() {
   const poseVersion = usePoseVersion((s) => s.v);
   const snap = useSnapIndex();
 
-  const { people, vehicles } = useMemo(() => {
-    const people: PersonTrack[] = [];
-    const vehicles: VehicleTrack[] = [];
-    cams.forEach((cam, group) => {
-      const clip = clips[cam.id];
-      if (!clip || clip.duration <= 0) return;
-      const frame = camFrame(cam);
-      for (const tr of clip.tracks) {
-        if (tr.kind !== "person" || tr.pts.length < 2) continue;
-        people.push({
-          camId: cam.id,
-          frame,
-          duration: clip.duration,
-          color: new THREE.Color(tr.color ?? FALLBACK_COLOR.person),
-          pts: tr.pts,
-          t0: tr.pts[0][0],
-          t1: tr.pts[tr.pts.length - 1][0],
-          seed: (tr.id * 0.618) % 1,
-          skin: SKIN[tr.id % SKIN.length],
-        });
-      }
-      for (const fit of fitVehicles(frame, clip.tracks, clip.duration, snap)) {
-        const [t0, t1] = spanOf(fit);
-        const [w, , l] = DIMS[fit.cls];
-        vehicles.push({
-          camId: cam.id,
-          group,
-          frame,
-          duration: clip.duration,
-          fit,
-          t0,
-          t1,
-          color: new THREE.Color(fit.color ?? FALLBACK_COLOR[fit.cls]),
-          seed: (fit.id * 0.618) % 1,
-          model: MODEL_OF[fit.cls],
-          scale: MODEL_SCALE[fit.cls],
-          halfL: l / 2,
-          halfW: w / 2,
-        });
-      }
-    });
-    return { people, vehicles };
+  const sim = useMemo(() => new MotionSim(), []);
+  const compareCamId = useCompare((s) => s.camId);
+
+  useEffect(() => {
+    sim.ingest(cams, clips, performance.now() / 1000);
+  }, [sim, cams, clips]);
+
+  useEffect(() => {
+    if (poseVersion > 0) sim.reframe(cams);
+  }, [sim, cams, poseVersion]);
+
+  // The compared camera is drawn straight from its clip on the video's clock, so it is memoised here, not simulated.
+  const synced = useMemo<SyncTrack[]>(() => {
+    const cam = cams.find((c) => c.id === compareCamId);
+    const clip = cam ? clips[cam.id] : null;
+    if (!cam || !clip || clip.duration <= 0) return [];
+    const frame = camFrame(cam);
+    const out: SyncTrack[] = [];
+    for (const tr of clip.tracks) {
+      if (tr.pts.length < 2) continue;
+      const cls: TrackedClass = tr.cls ?? (tr.kind === "person" ? "person" : "car");
+      out.push({
+        camId: cam.id,
+        key: `${cam.id}:${tr.id}`,
+        frame,
+        kind: tr.kind,
+        cls,
+        color: new THREE.Color(tr.color ?? FALLBACK_COLOR[cls]),
+        pts: tr.pts,
+        t0: tr.pts[0][0],
+        t1: tr.pts[tr.pts.length - 1][0],
+        seed: (tr.id * 0.618) % 1,
+        model: MODEL_OF[cls],
+        skin: SKIN[tr.id % SKIN.length],
+      });
+    }
+    return out;
     // poseVersion: re-project when a camera's pose is adjusted in the compare view.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cams, clips, poseVersion, snap]);
+  }, [cams, clips, compareCamId, poseVersion]);
+
+  // The compared camera's vehicles are replayed on the road network; a new analysis or pose edit rebuilds it.
+  const replay = useMemo<ReplaySet | null>(() => {
+    if (!snap) return null;
+    const inputs: ReplayInput[] = [];
+    for (const tr of synced) {
+      if (tr.kind === "person") continue;
+      const [width, , length] = DIMS[tr.cls as keyof typeof DIMS] ?? DIMS.car;
+      inputs.push({ key: tr.key, frame: tr.frame, pts: tr.pts, length, width, bus: tr.cls === "bus" });
+    }
+    return buildReplay(snap, inputs);
+  }, [snap, synced]);
 
   const trails = useRef<THREE.LineSegments>(null);
-
-  const smooth = useMemo(() => ({ people: makeSmooth(people.length), vehicles: makeSmooth(vehicles.length) }), [people, vehicles]);
 
   const trailBuffers = useMemo(() => {
     const n = (MAX_PEOPLE + MAX_VEHICLES) * TRAIL_N * 2;
@@ -539,7 +521,7 @@ export function Agents() {
 
   const scene = useRef<Scene | null>(null);
 
-  useFrame(({ clock }, dt) => {
+  useFrame(({ clock, camera }, dt) => {
     if (!scene.current) {
       const tl = trails.current;
       if (!tl) return;
@@ -553,19 +535,26 @@ export function Agents() {
         tl,
         pos: trailBuffers.pos,
         col: trailBuffers.col,
-        placed: makePlaced(MAX_VEHICLES),
-        placedTrack: new Int32Array(MAX_VEHICLES),
-        placedT: new Float32Array(MAX_VEHICLES),
-        placedFade: new Float32Array(MAX_VEHICLES),
-        placedFresh: new Uint8Array(MAX_VEHICLES),
+        seg: 0,
       };
     }
+    const sc = scene.current;
     const video = syncClock.video;
     const syncT = video && video.readyState >= 2 ? video.currentTime : -1;
     const night = ATMOS.windowGlow;
     rig.lights.color.setScalar(0.3 + 0.7 * night);
     GLOW.value = 0.1 + 0.35 * night;
-    animate(scene.current, people, vehicles, clock.elapsedTime, syncT, snap, smooth, Math.min(dt, 0.1));
+    sc.person.n = sc.car.n = sc.van.n = sc.bus.n = sc.bike.n = 0;
+    sc.seg = 0;
+    beginFrame();
+    _pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    _frustum.setFromProjectionMatrix(_pv);
+    sim.step(performance.now() / 1000, Math.min(dt, 0.1), snap, (e) => inView(e.x, e.z, e.length, e.frame.x, e.frame.z));
+    drawEntities(sc, sim.ents, performance.now() / 1000, syncClock.camId);
+    if (syncT >= 0) drawSynced(sc, synced, syncT, clock.elapsedTime, replay);
+    if (SNAP_STATS && snap) auditVehicles(snap, sim.retired, syncT);
+    endFrame();
+    flush(sc);
   });
 
   return (

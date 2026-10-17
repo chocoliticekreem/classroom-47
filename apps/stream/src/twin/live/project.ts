@@ -140,22 +140,19 @@ export function projectInto(frame: CamFrame, u: number, v: number, out: Float32A
   out[o + 1] = frame.z + (dz / flat) * reach;
 }
 
-/** Inverse of projectInto: frame coords (u, v) of point (x, y, z) written into `out`. False when it is behind the camera. */
-export function frameCoordsOf(frame: CamFrame, x: number, z: number, out: Float32Array | number[], y = 0) {
-  const sh = Math.sin(frame.headingRad);
-  const ch = Math.cos(frame.headingRad);
-  const sp = Math.sin(frame.pitchRad);
-  const cp = Math.cos(frame.pitchRad);
-  const px = x - frame.x;
-  const py = y - frame.heightM;
-  const pz = z - frame.z;
-  const depth = px * sh * cp - py * sp - pz * ch * cp;
-  if (depth < 1e-3) return false;
-  const xn = (px * ch + pz * sh) / depth;
-  const yn = (px * sh * sp + py * cp - pz * ch * sp) / depth;
-  out[0] = (xn / frame.tanH + 1) / 2;
-  out[1] = (1 - yn / frame.tanV) / 2;
-  return true;
+/**
+ * YOLO's point is the bottom of the box: the vehicle's near edge. Writes the body centre into `out`
+ * as [x, z]: the ground point pushed away from the camera by half the footprint seen along the ray,
+ * so the far side lands where the real one ends. `yaw` is the vehicle's heading (atan2(dx, dz)).
+ */
+export function bodyCentreInto(frame: CamFrame, x: number, z: number, yaw: number, length: number, width: number, out: Float32Array | number[]) {
+  const rx = x - frame.x;
+  const rz = z - frame.z;
+  const rl = Math.hypot(rx, rz) || 1;
+  const along = Math.abs((rx / rl) * Math.sin(yaw) + (rz / rl) * Math.cos(yaw));
+  const push = 0.5 * (along * length + Math.sqrt(1 - Math.min(1, along * along)) * width);
+  out[0] = x + (rx / rl) * push;
+  out[1] = z + (rz / rl) * push;
 }
 
 /** Interpolates a track at clip time t into out[o], out[o+1] = (u, v). Returns false outside the track. */

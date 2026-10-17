@@ -223,7 +223,7 @@ def llm_personas(seed: dict, horizon_min: int, rng: random.Random) -> list[dict]
                        "startingGroups": [{k: g[k] for k in ("id", "archetype", "size", "zone", "destination", "departMin")}
                                           for g in base],
                        "schema": SCHEMA_HINT})
-    system = ("You are MiroFish-style persona planner for Tower Hill, London. Keep the SAME group ids and total "
+    system = (f"You are MiroFish-style persona planner for {seed.get('area') or 'Tower Hill'}, London. Keep the SAME group ids and total "
               "people. Adjust archetype, destination, departMin, reactions and rationale so they fit the real time, "
               "weather, disruptions and bus arrivals given. Realistic city dynamics only. Return {\"groups\": [...]}.")
     try:

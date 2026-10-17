@@ -4,7 +4,7 @@ import { ModeChip } from "./Report";
 import { startReplay } from "./replay";
 import { shownRun, usePredict } from "./store";
 import type { PredictRun, ReportItem } from "./types";
-import { Button, Chip, Delta, label } from "./ui";
+import { Button, Chip, Confidence, Delta, label } from "./ui";
 
 const CSS = `
 .predict-modal-back { position: absolute; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px;
@@ -54,13 +54,7 @@ function Card({ it, at }: { it: ReportItem; at: number }) {
       </div>
       {why && <div style={{ fontSize: 12, color: "#d6d5dd" }}>{why}</div>}
       {it.inputs.length > 0 && <div style={{ ...label, fontSize: 10.5 }}>inputs: {it.inputs.slice(0, 2).join(" · ")}</div>}
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <span style={label}>confidence</span>
-        <span style={{ flex: 1, height: 3, borderRadius: 2, background: "var(--border-strong)", overflow: "hidden" }}>
-          <span style={{ display: "block", width: `${Math.round(it.confidence * 100)}%`, height: "100%", background: "var(--ok)" }} />
-        </span>
-        <span style={{ ...label, fontVariantNumeric: "tabular-nums" }}>{it.confidence.toFixed(2)}</span>
-      </div>
+      <Confidence value={it.confidence} />
     </div>
   );
 }
@@ -128,7 +122,7 @@ export function ReportModal() {
           </div>
           <h2>{run.report.headline}</h2>
           <div style={label}>
-            {run.personas.length} persona groups · {run.seed.observedSegments}/{run.seed.segmentCount} segments observed · run {run.runId}
+            {run.personas.length} persona groups · observed {run.seed.observedSegments} of {run.seed.segmentCount} segments, inferred the rest · run {run.runId}
           </div>
           {isWhatIf && <WhatIfDiff baseline={baseline} whatIf={run} />}
           <div className="predict-cards">
