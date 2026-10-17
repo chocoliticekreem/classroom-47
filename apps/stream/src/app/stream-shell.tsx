@@ -78,6 +78,9 @@ export function StreamShell() {
 
   function changeLocation(next: StreamLocation) {
     setLocation(next);
+    if (source.kind === "url") {
+      setSource({ kind: "url", url: next.camera.url, label: next.camera.label });
+    }
     setRevealedAt(null);
     publish({ type: "stream.location", location: next });
   }
@@ -157,7 +160,7 @@ export function StreamShell() {
               {live && <span className="animate-live absolute right-1 top-1 size-1.5 rounded-full bg-live" />}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block font-mono text-[9px] uppercase tracking-[0.16em] text-muted">
+              <span className="block font-mono text-[9px] tracking-normal text-muted">
                 Chat {live ? `· ${viewers.toLocaleString("en-GB")} watching` : ""}
               </span>
               <span className="block truncate text-[13px] text-text/85">

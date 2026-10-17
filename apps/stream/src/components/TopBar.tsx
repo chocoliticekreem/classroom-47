@@ -13,7 +13,7 @@ export function TopBar({ live }: { live: boolean }) {
         <span className="font-display text-[17px] font-semibold leading-none tracking-[-0.02em]">
           Classroom <span className="text-muted">47</span>
         </span>
-        <span className="hidden items-center gap-1.5 border-l border-line pl-3 font-mono text-[10px] uppercase tracking-[0.18em] text-dim lg:flex">
+        <span className="hidden items-center gap-1.5 border-l border-line pl-3 font-mono text-[10px] tracking-normal text-dim lg:flex">
           London
           <span className="size-0.5 rounded-full bg-dim" />
           IRL
@@ -32,7 +32,7 @@ export function TopBar({ live }: { live: boolean }) {
 
       <div className="ml-auto flex items-center gap-2">
         <span
-          className={`flex h-7 items-center gap-2 rounded-md border px-2.5 font-mono text-[10px] uppercase tracking-[0.16em] ${
+          className={`flex h-7 items-center gap-2 rounded-md border px-2.5 font-mono text-[10px] tracking-normal ${
             live ? "border-live/40 bg-live/10 text-live" : "border-line text-muted"
           }`}
         >
