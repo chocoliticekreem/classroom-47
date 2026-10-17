@@ -29,7 +29,8 @@
     "reality": "node --env-file-if-exists=.env.local --env-file-if-exists=apps/api/.env --env-file-if-exists=apps/api/.env.local apps/api/src/agent/reality.ts",
     "yolo": "cd services/yolo && uv venv -q -p 3.12 --allow-existing .venv && uv pip install -q -p .venv/bin/python ultralytics lap && .venv/bin/python server.py",
     "dev:stream": "npm run dev -w stream -- --port 3047",
-    "tunnel": "cloudflared tunnel --url http://localhost:${PORT:-3047}"
+    "tunnel": "cloudflared tunnel --url http://localhost:${PORT:-3047}",
+    "vast:guide": "git submodule update --init vast-builders-challenge"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
