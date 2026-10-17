@@ -2,8 +2,8 @@ import type { NextRequest } from "next/server";
 import type { AroundAir, AroundCam, AroundCrime, AroundDisruption, AroundStation, CamReading } from "@/platform/around/types";
 import type { AdviceLevel, AssessRequest, Assessment } from "@/platform/agent/types";
 import type { FieldResponse } from "@/twin/field/types";
+import { AGENT_URL } from "@/platform/agent/agentUrl";
 
-const AGENT_URL = process.env.AGENT_URL ?? "http://video-lab-team-47.cosmos.vastdata.com/app";
 const WANDB_BASE_URL = process.env.WANDB_BASE_URL ?? "https://api.inference.wandb.ai/v1";
 const WANDB_MODEL = process.env.WANDB_MODEL ?? "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B";
 const HOT_PEDS = 6;

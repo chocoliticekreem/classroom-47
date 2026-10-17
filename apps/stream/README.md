@@ -37,4 +37,10 @@ Camera and GPS need HTTPS on a phone, so the dev server is exposed through a Clo
 
 The phone posts its state to `POST /api/live/state` every 2 s; every other page listens on `GET /api/live/stream` (server-sent events). State is in memory, one session called `default`; add `?session=<name>` to the phone and laptop URLs to run several streamers on one server. Without GPS the location picker is the **Demo location**.
 
+### Phone video on the laptop (WebRTC)
+
+While the laptop is `Following phone`, its Live tab shows the phone's camera over WebRTC instead of the idle card (chip: `Live from phone · 0.4 s`, the one-way delay estimate from RTT/2 + jitter buffer), and the 3D mirror tab shows it picture-in-picture. Signalling goes through this server only: the laptop posts `join` to `POST /api/live/signal`, the phone (listening on `GET /api/live/signal/stream?role=phone`) opens one `RTCPeerConnection` per viewer and sends the offer; answers and ICE candidates go back the same way. Video only, capped at 720p / 24 fps / 1.5 Mbps. The laptop re-joins every 5 s until the phone answers and reconnects on drop; after 20 s without a connection it shows `Phone video unavailable (state only)` and keeps trying.
+
+ICE uses Google's public STUN (`stun:stun.l.google.com:19302`), no TURN. Phone and laptop on the same Wi-Fi, or a phone on 4G/5G with the laptop on an ordinary home/office network, usually connect directly. Symmetric NATs on both ends (some corporate or venue Wi-Fi, some carrier-grade NAT) need a TURN relay, which is not provided: the state relay (position, heading) still works, only the video falls back.
+
 Set `NEXT_PUBLIC_MIRROR_URL` in your local env file in `apps/stream` to change where **Mirror** opens the city (default `/twin`, the 3D twin in this app).

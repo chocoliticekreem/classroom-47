@@ -5,7 +5,7 @@ import { Label } from "./Label";
 import { useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 import type { AroundCam } from "@/platform/around/types";
-import { camFrame, viewConePoints } from "./project";
+import { camFrame, usePoseVersion, viewConePoints } from "./project";
 import { useCompare } from "../compare/store";
 import { useLive } from "./store";
 
@@ -87,7 +87,9 @@ function useScreenTexture(cam: AroundCam) {
 function Camera({ cam }: { cam: AroundCam }) {
   const clip = useLive((s) => s.clips[cam.id]);
   const { texture, mode } = useScreenTexture(cam);
-  const frame = useMemo(() => camFrame(cam), [cam]);
+  const poseVersion = usePoseVersion((s) => s.v);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const frame = useMemo(() => camFrame(cam), [cam, poseVersion]);
   const comparing = useCompare((s) => s.camId === cam.id);
   const open = useCompare((s) => s.open);
 

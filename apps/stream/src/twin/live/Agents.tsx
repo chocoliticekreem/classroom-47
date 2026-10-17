@@ -8,7 +8,7 @@ import { ATMOS } from "../scene/palette";
 import { BUS_L, getBusKit } from "./bus/busKit";
 import { personBody, personHead, personMaterial, SKIN } from "./models/people";
 import { bikeBody, CAR_LENGTH, carBody, lampMaterial, lamps, paintMaterial, VAN_LENGTH, vanBody } from "./models/vehicles";
-import { camFrame, projectInto, sampleInto, type CamFrame } from "./project";
+import { camFrame, projectInto, sampleInto, usePoseVersion, type CamFrame } from "./project";
 import { syncClock } from "../compare/store";
 import { useLive } from "./store";
 
@@ -232,6 +232,7 @@ function makeSlot(parts: [THREE.BufferGeometry, THREE.Material][], capacity: num
 export function Agents() {
   const cams = useLive((s) => s.cams);
   const clips = useLive((s) => s.clips);
+  const poseVersion = usePoseVersion((s) => s.v);
 
   const tracks = useMemo<FlatTrack[]>(() => {
     const out: FlatTrack[] = [];
@@ -259,7 +260,9 @@ export function Agents() {
       }
     }
     return out;
-  }, [cams, clips]);
+    // poseVersion: re-project when a camera's pose is adjusted in the compare view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cams, clips, poseVersion]);
 
   const trails = useRef<THREE.LineSegments>(null);
 

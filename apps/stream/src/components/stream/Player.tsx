@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Camera, Film, RotateCcw, Square, SwitchCamera, Upload } from "lucide-react";
 import type { StreamContext, StreamSource } from "@/lib/types";
 import { useFollowerWatch } from "@/platform/follow/useFollowerWatch";
+import { usePhonePublisher } from "@/platform/live/rtc/usePhonePublisher";
+import type { PhoneVideo } from "@/platform/live/rtc/usePhoneVideo";
+import { sessionFromUrl } from "@/platform/live/useRemoteLive";
 import { FollowerOverlay } from "./FollowerOverlay";
+import { PhoneFeed } from "./PhoneFeed";
 
 interface PlayerProps {
   source: StreamSource;
@@ -14,6 +18,8 @@ interface PlayerProps {
   positionBadge?: string;
   /** e.g. "Sync: connected" */
   sync?: string;
+  /** The phone's WebRTC video while this page follows a phone; shown in place of the idle card. */
+  remote?: PhoneVideo;
 }
 
 type Facing = "environment" | "user";
@@ -51,8 +57,11 @@ function Corners({ className = "border-white/70" }: { className?: string }) {
   );
 }
 
-export function Player({ source, onSourceChange, ctx, positionBadge, sync }: PlayerProps) {
+export function Player({ source, onSourceChange, ctx, positionBadge, sync, remote }: PlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [camStream, setCamStream] = useState<MediaStream | null>(null);
+  const session = useMemo(() => sessionFromUrl(), []);
+  usePhonePublisher(camStream, session);
   const [error, setError] = useState<string | null>(null);
   const [camError, setCamError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
@@ -73,6 +82,7 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync }: Pla
           return;
         }
         stream = s;
+        setCamStream(s);
         if (video) video.srcObject = s;
       })
       .catch((e: unknown) => {
@@ -83,6 +93,7 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync }: Pla
       });
     return () => {
       cancelled = true;
+      setCamStream(null);
       stream?.getTracks().forEach((t) => t.stop());
       if (video) video.srcObject = null;
     };
@@ -111,7 +122,11 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync }: Pla
       }`}
     >
       {source.kind === "idle" ? (
-        <IdleCard onPick={change} camError={camError} ctx={ctx} now={now} positionBadge={positionBadge} />
+        remote && remote.status !== "off" ? (
+          <PhoneFeed remote={remote} corners={<Corners />} positionBadge={positionBadge} sync={sync} />
+        ) : (
+          <IdleCard onPick={change} camError={camError} ctx={ctx} now={now} positionBadge={positionBadge} />
+        )
       ) : (
         <>
           <video
