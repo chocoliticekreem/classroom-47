@@ -144,6 +144,12 @@ or `lint`; they target an `api` workspace that isn't in this repo.
    | dense traffic on a multi-lane highway | 8 | 1 | 0.465 | yes |
    | someone filming the camera holder or following them | 2 | - | 0.218 | **no** |
 
+   **After re-ingesting one chunk with our streamer-safety prompt** (job `6e2627…`, `nyc_streets_cam-2`
+   `20261008_071148_IMG_0509_chunk_0002`, 5 of 6 segments re-described): the crowd query's top similarity rose
+   **0.566 → 0.592** and the re-ingested chunk now ranks first, described as a "dense crowd … moving toward and
+   away from the camera". hit@8 stays **7/8**: the filming/following miss needs more chunks re-ingested (or footage
+   that shows it). Re-run: `INGRESS_URL=… USERNAME=… PASSWORD=… python3 services/agent/eval_search.py --top-k 8`.
+
    **hit@8 = 7/8.** The miss is the gap the official guide predicts: the default ingest prompt never asked
    Cosmos whether anyone is filming or following the camera holder, so nothing was written down. The fix is a
    re-ingest with our prompt (`docs/COMPLIANCE.md`, "Do next" #1); re-run the same command afterwards and
