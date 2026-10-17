@@ -142,7 +142,7 @@ function wrapped(size: number, x: number, y: number, r: number, draw: (x: number
 const clamp255 = (n: number) => (n < 0 ? 0 : n > 255 ? 255 : n);
 
 /**
- * Warm-grey London pavement/concrete, large mottling + fine speckle + faint hairline joints. Default tile 64 m.
+ * Cool neutral-grey London concrete, large mottling + fine speckle + faint hairline joints. Default tile 64 m.
  * Mean ~sRGB 168, tint with `material.color`. Used by Ground.
  */
 export function concreteTexture(opts: TextureOptions = {}) {
@@ -152,9 +152,9 @@ export function concreteTexture(opts: TextureOptions = {}) {
       const m = n[y * size + x];
       const grain = (rnd() - 0.5) * 22;
       const l = 168 + (m - 0.5) * 120 + grain;
-      return [clamp255(l + 4), clamp255(l), clamp255(l - 5)];
+      return [clamp255(l - 2), clamp255(l), clamp255(l + 4)];
     });
-    ctx.strokeStyle = "rgba(40,36,32,0.16)";
+    ctx.strokeStyle = "rgba(32,36,44,0.16)";
     ctx.lineWidth = 1;
     const step = size / 4;
     for (let i = 0; i < 4; i++) {

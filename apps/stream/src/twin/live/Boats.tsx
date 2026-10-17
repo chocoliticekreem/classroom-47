@@ -23,6 +23,7 @@ interface Rig {
 
 const WAKE_Y = 0.2;
 const WAKE_FULL_SPEED = 6;
+const WAKE_SCALE = 0.55;
 
 /** V-shaped foam wake behind a stern at the origin, trailing toward -z: two arms plus a faint filled wedge and a centre trail. */
 function wakeGeometry() {
@@ -125,7 +126,7 @@ function drawFleet(fleet: Fleet, rig: Rig) {
   m.glass.color.setRGB(0.05 + glow * 1.85, 0.09 + glow * 1.4, 0.12 + glow * 0.73);
   m.lamps.color.setScalar(1.2 + glow * 2.2);
   m.strobe.color.setScalar(Math.floor(fleet.time * 5) % 2 ? 3.2 : 0.2);
-  m.wake.color.setScalar(0.5 + 0.5 * glow);
+  m.wake.color.setScalar(0.45 + 0.25 * glow);
 
   for (let i = 0; i < fleet.boats.length; i++) {
     const b = fleet.boats[i];
@@ -135,12 +136,12 @@ function drawFleet(fleet: Fleet, rig: Rig) {
     M.compose(POS, QUAT, SCL);
     rig.kinds.get(b.kind)?.hull.setMatrixAt(b.slot, M);
 
-    const length = b.spec.wake * b.fade * Math.min(1, Math.max(0, (b.speed - 0.4) / WAKE_FULL_SPEED));
+    const length = b.spec.wake * WAKE_SCALE * b.fade * Math.min(1, Math.max(0, (b.speed - 0.4) / WAKE_FULL_SPEED));
     const sx = Math.sin(b.yaw);
     const sz = Math.cos(b.yaw);
     POS.set(b.x - sx * b.half * 0.9, WAKE_Y, b.z - sz * b.half * 0.9);
     QUAT.setFromAxisAngle(UP, b.yaw);
-    SCL.set(length * 0.9, 1, length);
+    SCL.set(length * 0.7, 1, length);
     M.compose(POS, QUAT, SCL);
     rig.wake.setMatrixAt(i, M);
   }

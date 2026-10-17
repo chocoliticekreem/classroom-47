@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, MessageSquare } from "lucide-react";
 import { useChatCrowd } from "@/agents/chat-crowd/useChatCrowd";
+import { useSceneChat } from "@/agents/chat-crowd/useSceneChat";
 import { AroundMe } from "@/components/around/AroundMe";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { DevPanel } from "@/components/DevPanel";
 import { TopBar } from "@/components/TopBar";
+import { FollowerCard } from "@/components/stream/FollowerCard";
 import { AdvisorCard } from "@/components/stream/AdvisorCard";
 import { Player } from "@/components/stream/Player";
 import { StreamerBar } from "@/components/stream/StreamerBar";
@@ -58,7 +60,8 @@ export function StreamShell() {
     live,
     locationRevealedAt: revealedAt,
   };
-  const { messages, send } = useChatCrowd(ctx);
+  const { messages, send, inject } = useChatCrowd(ctx);
+  useSceneChat(ctx, source, messages, inject);
   useSurroundings(location, live);
 
   useEffect(() => {
@@ -144,6 +147,7 @@ export function StreamShell() {
               onReveal={reveal}
               onSimulate={mirror}
             />
+            <FollowerCard />
             <AdvisorCard location={location} live={live} />
             <SurroundingsCard />
           </div>

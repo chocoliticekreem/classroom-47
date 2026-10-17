@@ -28,6 +28,8 @@ export interface ChatMessage {
   fromStreamer?: boolean;
   /** Message leaks or reacts to the streamer's physical location. */
   locationSignal?: boolean;
+  /** Set when the line reacts to what the vision model saw on stream; holds that scene description. */
+  scene?: string;
   highlight?: "donation" | "first" | "pinned";
   amount?: number;
 }

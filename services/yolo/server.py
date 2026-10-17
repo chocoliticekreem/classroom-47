@@ -9,9 +9,16 @@ GET /tracks?ids=...  -> {"clips": [{"camId", "at", "duration", "tracks": [{"id",
 GET /frame?id=JamCams_00001.03500  -> annotated JPEG of the busiest analysed frame
 
 Each clip is ~10s and TfL refreshes it every few minutes, so readings are cached per camera.
+
+Follower detection for the streamer's own camera (see README "Follower detection"):
+POST /follow/frame?session=abc&t=<ms>[&lat=&lon=]  body: JPEG  -> same shape as /follow/state
+GET  /follow/state?session=abc -> {"people": [{id, visible_s, appearances, moved_m, follower, last_box}], "followers": n}
 """
 
+import base64
 import json
+import math
+import os
 import tempfile
 import threading
 import time
@@ -23,8 +30,11 @@ from urllib.parse import parse_qs, urlparse
 import cv2
 import numpy as np
 from ultralytics import YOLO
+from ultralytics.trackers import BYTETracker
+from ultralytics.utils import YAML, IterableSimpleNamespace
+from ultralytics.utils.checks import check_yaml
 
-PORT = 8047
+PORT = int(os.environ.get("PORT", "8047"))
 TTL_S = 120
 MAX_IDS = 12
 STRIDE = 2  # analyse every 2nd frame (~12fps): enough for ByteTrack, half the cost
@@ -43,6 +53,185 @@ track_cache: dict[str, dict] = {}
 inflight: set[str] = set()
 state_lock = threading.Lock()
 pool = ThreadPoolExecutor(max_workers=2)
+
+# --- Follower detection -------------------------------------------------------------------------
+# A follower is someone who stays in the streamer's own camera for a long time AND either keeps
+# coming back after dropping out of frame or is still there after the streamer has walked away.
+# 90 s: a bystander at a crossing or a shop front is gone well before that. Overridable via env so
+# a short test clip can trip the flag.
+FOLLOW_MIN_VISIBLE_S = float(os.environ.get("FOLLOW_MIN_S", "90"))
+# 3 re-entries: one re-entry is normal on a busy pavement; three means they keep catching up.
+FOLLOW_MIN_APPEARANCES = int(os.environ.get("FOLLOW_MIN_APPEARANCES", "3"))
+# 150 m: roughly two London blocks; a stranger who is still in frame after that is walking with you.
+FOLLOW_MIN_MOVED_M = float(os.environ.get("FOLLOW_MIN_MOVED_M", "150"))
+# A gap this long between sightings counts as a separate appearance (they left the frame and came back).
+REENTRY_GAP_S = 3.0
+# A dossier not seen for this long is forgotten: re-identifying across longer gaps on colour alone is guesswork.
+DOSSIER_TTL_S = 600
+SESSION_IDLE_S = 600
+# Bhattacharyya distance on the upper/lower HSV histograms; 0 is identical. Below this = same clothes.
+REID_MAX_DIST = 0.32
+HIST_EMA = 0.3  # weight of the newest crop when smoothing a dossier's appearance
+FOLLOW_CONF = 0.35
+FOLLOW_MIN_BOX_PX = 40  # tiny far-away boxes give noisy histograms
+# Own model instance: the clip pipeline holds model_lock for a whole clip (10-20 s), which would
+# stall live frames behind every "Around me" refresh. A second YOLO11n costs ~6 MB of weights.
+follow_model = YOLO("yolo11n.pt")
+follow_model_lock = threading.Lock()
+
+
+def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def appearance(frame: np.ndarray, box: list[float]) -> np.ndarray | None:
+    """Colour signature of one person: HSV histograms of the upper and lower body halves (clothes, not face)."""
+    h, w = frame.shape[:2]
+    x1, y1, x2, y2 = (max(0, int(box[0])), max(0, int(box[1])), min(w, int(box[2])), min(h, int(box[3])))
+    if x2 - x1 < FOLLOW_MIN_BOX_PX // 2 or y2 - y1 < FOLLOW_MIN_BOX_PX:
+        return None
+    crop = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_BGR2HSV)
+    mid = crop.shape[0] // 2
+    parts = []
+    for half in (crop[:mid], crop[mid:]):
+        hist = cv2.calcHist([half], [0, 1], None, [12, 4], [0, 180, 0, 256])
+        parts.append(cv2.normalize(hist, None, alpha=1, norm_type=cv2.NORM_L1).flatten())
+    return np.concatenate(parts).astype(np.float32)
+
+
+def hist_distance(a: np.ndarray, b: np.ndarray) -> float:
+    half = len(a) // 2
+    d_up = cv2.compareHist(a[:half], b[:half], cv2.HISTCMP_BHATTACHARYYA)
+    d_low = cv2.compareHist(a[half:], b[half:], cv2.HISTCMP_BHATTACHARYYA)
+    return float((d_up + d_low) / 2)
+
+
+class FollowSession:
+    def __init__(self) -> None:
+        cfg = IterableSimpleNamespace(**YAML.load(check_yaml("bytetrack.yaml")))
+        self.tracker = BYTETracker(cfg)
+        self.dossiers: dict[int, dict] = {}
+        self.track_to_dossier: dict[int, int] = {}
+        self.next_id = 1
+        self.touched = time.time()
+        self.lock = threading.Lock()
+
+    def _new_dossier(self, t: float, hist: np.ndarray | None, lat: float | None, lon: float | None) -> dict:
+        d = {
+            "id": self.next_id, "first_seen": t, "last_seen": t, "visible_s": 0.0, "appearances": 1,
+            "hist": hist, "origin": (lat, lon) if lat is not None and lon is not None else None,
+            "moved_m": 0.0, "last_box": None, "thumb": None,
+        }
+        self.next_id += 1
+        self.dossiers[d["id"]] = d
+        return d
+
+    def _reidentify(self, hist: np.ndarray | None, seen_now: set[int], t: float) -> dict | None:
+        if hist is None:
+            return None
+        best, best_d = None, REID_MAX_DIST
+        for d in self.dossiers.values():
+            if d["id"] in seen_now or d["hist"] is None or t - d["last_seen"] > DOSSIER_TTL_S:
+                continue
+            dist = hist_distance(hist, d["hist"])
+            if dist < best_d:
+                best, best_d = d, dist
+        return best
+
+    def ingest(self, frame: np.ndarray, t: float, lat: float | None, lon: float | None) -> dict:
+        with follow_model_lock:
+            boxes = follow_model.predict(frame, imgsz=640, conf=FOLLOW_CONF, classes=[0], verbose=False)[0].boxes.cpu().numpy()
+        with self.lock:
+            self.touched = time.time()
+            tracks = self.tracker.update(boxes, frame) if len(boxes) else np.empty((0, 8))
+            seen_now: set[int] = set()
+            for x1, y1, x2, y2, tid, _conf, _cls, _idx in tracks.tolist():
+                tid = int(tid)
+                box = [x1, y1, x2, y2]
+                hist = appearance(frame, box)
+                d = self.dossiers.get(self.track_to_dossier.get(tid, -1))
+                if d is None:
+                    d = self._reidentify(hist, seen_now, t)
+                    if d is None:
+                        d = self._new_dossier(t, hist, lat, lon)
+                        d["last_box"] = [round(v) for v in box]
+                        d["thumb"] = thumbnail(frame, box)
+                        seen_now.add(d["id"])
+                        self.track_to_dossier[tid] = d["id"]
+                        continue
+                    self.track_to_dossier[tid] = d["id"]
+                if d["id"] in seen_now:
+                    continue  # two tracks resolved to one person this frame; count time once
+                seen_now.add(d["id"])
+                gap = t - d["last_seen"]
+                if gap > REENTRY_GAP_S:
+                    d["appearances"] += 1
+                else:
+                    d["visible_s"] += max(0.0, gap)
+                d["last_seen"] = t
+                d["last_box"] = [round(v) for v in box]
+                if hist is not None:
+                    d["hist"] = hist if d["hist"] is None else (1 - HIST_EMA) * d["hist"] + HIST_EMA * hist
+                if d["origin"] and lat is not None and lon is not None:
+                    d["moved_m"] = max(d["moved_m"], haversine_m(d["origin"][0], d["origin"][1], lat, lon))
+                if d["thumb"] is None:
+                    d["thumb"] = thumbnail(frame, box)
+            # Forget people not seen for a long time (and the track ids that pointed at them).
+            stale = [i for i, d in self.dossiers.items() if t - d["last_seen"] > DOSSIER_TTL_S]
+            for i in stale:
+                del self.dossiers[i]
+            self.track_to_dossier = {k: v for k, v in self.track_to_dossier.items() if v in self.dossiers}
+            return self.state_locked(t)
+
+    def state(self) -> dict:
+        with self.lock:
+            return self.state_locked(None)
+
+    def state_locked(self, now: float | None) -> dict:
+        people = []
+        for d in self.dossiers.values():
+            visible = d["visible_s"]
+            follower = visible >= FOLLOW_MIN_VISIBLE_S and (
+                d["appearances"] >= FOLLOW_MIN_APPEARANCES or d["moved_m"] >= FOLLOW_MIN_MOVED_M
+            )
+            people.append({
+                "id": d["id"], "visible_s": round(visible, 1), "appearances": d["appearances"],
+                "moved_m": round(d["moved_m"]), "follower": follower, "last_box": d["last_box"],
+                "last_seen_s_ago": None if now is None else round(now - d["last_seen"], 1),
+                **({"thumb": d["thumb"]} if d["thumb"] else {}),
+            })
+        people.sort(key=lambda p: (-p["follower"], -p["visible_s"]))
+        return {"people": people, "followers": sum(p["follower"] for p in people)}
+
+
+def thumbnail(frame: np.ndarray, box: list[float]) -> str | None:
+    """Tiny, heavily downscaled torso crop (top third skipped) so the card can show "this outfit", never a face."""
+    h, w = frame.shape[:2]
+    x1, y1, x2, y2 = max(0, int(box[0])), max(0, int(box[1])), min(w, int(box[2])), min(h, int(box[3]))
+    y1 += (y2 - y1) // 3
+    if x2 - x1 < 8 or y2 - y1 < 8:
+        return None
+    crop = cv2.resize(frame[y1:y2, x1:x2], (24, 32), interpolation=cv2.INTER_AREA)
+    ok, jpg = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 60])
+    return "data:image/jpeg;base64," + base64.b64encode(jpg.tobytes()).decode() if ok else None
+
+
+sessions: dict[str, FollowSession] = {}
+sessions_lock = threading.Lock()
+
+
+def get_session(sid: str, create: bool) -> FollowSession | None:
+    now = time.time()
+    with sessions_lock:
+        for key in [k for k, s in sessions.items() if now - s.touched > SESSION_IDLE_S]:
+            del sessions[key]
+        s = sessions.get(sid)
+        if s is None and create:
+            s = sessions[sid] = FollowSession()
+        return s
 
 
 def clip_url(cam_id: str) -> str:
@@ -153,6 +342,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-store")
+        # Node's fetch pools sockets; without these it can reuse one this HTTP/1.0 server already closed
+        # and hang until its timeout, which showed up as 503s on ~5% of follower frames.
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
 
@@ -183,10 +376,35 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, jpg, "image/jpeg")
             else:
                 self._send(404, b'{"error":"no frame yet"}', "application/json")
+        elif url.path == "/follow/state":
+            s = get_session(q.get("session", [""])[0], create=False)
+            body = s.state() if s else {"people": [], "followers": 0}
+            self._send(200, json.dumps(body).encode(), "application/json")
         elif url.path == "/health":
             self._send(200, b'{"ok":true}', "application/json")
         else:
             self._send(404, b'{"error":"not found"}', "application/json")
+
+    def do_POST(self) -> None:  # noqa: N802 - stdlib name
+        url = urlparse(self.path)
+        q = parse_qs(url.query)
+        if url.path != "/follow/frame":
+            self._send(404, b'{"error":"not found"}', "application/json")
+            return
+        sid = q.get("session", [""])[0]
+        if not sid:
+            self._send(400, b'{"error":"session required"}', "application/json")
+            return
+        raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        frame = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+        if frame is None:
+            self._send(400, b'{"error":"body must be a JPEG"}', "application/json")
+            return
+        t = float(q.get("t", [str(int(time.time() * 1000))])[0]) / 1000
+        lat = float(q["lat"][0]) if "lat" in q else None
+        lon = float(q["lon"][0]) if "lon" in q else None
+        state = get_session(sid, create=True).ingest(frame, t, lat, lon)
+        self._send(200, json.dumps(state).encode(), "application/json")
 
     def log_message(self, *_args) -> None:
         pass

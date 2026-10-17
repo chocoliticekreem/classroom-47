@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Camera, Film, RotateCcw, Square, SwitchCamera, Upload } from "lucide-react";
 import type { StreamContext, StreamSource } from "@/lib/types";
+import { useFollowerWatch } from "@/platform/follow/useFollowerWatch";
+import { FollowerOverlay } from "./FollowerOverlay";
 
 interface PlayerProps {
   source: StreamSource;
@@ -56,6 +58,7 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync }: Pla
   const [retryKey, setRetryKey] = useState(0);
   const [facing, setFacing] = useState<Facing>("environment");
   const now = useClock();
+  useFollowerWatch(videoRef, source.kind === "webcam" || source.kind === "file", ctx.location);
 
   useEffect(() => {
     if (source.kind !== "webcam") return;
@@ -122,6 +125,7 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync }: Pla
             onError={() => setError("The stream stopped responding.")}
             className={`size-full object-cover ${walking && facing === "user" ? "-scale-x-100" : ""}`}
           />
+          <FollowerOverlay />
           <div className="grain scanlines pointer-events-none absolute inset-0" aria-hidden />
           <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/70 to-transparent" />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/70 to-transparent" />

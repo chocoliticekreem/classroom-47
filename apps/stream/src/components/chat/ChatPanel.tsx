@@ -5,6 +5,7 @@ import {
   ArrowDown,
   BadgeCheck,
   Crown,
+  Eye,
   Gem,
   MapPin,
   MessageSquareOff,
@@ -108,6 +109,11 @@ function MessageRow({ m }: { m: ChatMessage }) {
       </span>
       <span className="text-dim"> </span>
       <span className={m.fromStreamer ? "font-medium text-text" : "text-text/85"}>{m.text}</span>
+      {m.scene && (
+        <span title={`chat sees: ${m.scene}`} className="ml-1.5 inline-flex translate-y-[-1px] align-middle text-dim">
+          <Eye aria-label="Reacting to the stream" className="size-2.5" />
+        </span>
+      )}
       {m.locationSignal && (
         <span className="ml-1.5 inline-flex translate-y-[-1px] items-center gap-0.5 rounded-[3px] border border-warn/20 px-1 py-px align-middle font-mono text-[9px] tracking-normal text-warn/80">
           <MapPin className="size-2.5" />

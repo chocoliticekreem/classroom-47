@@ -1,4 +1,5 @@
 import type { RoadNetwork, XZ } from "../../network/types";
+import { emergency } from "./london";
 import { mulberry32, pickCumulative, wrapAngle } from "./rng";
 
 export const KIND_CAR = 0;
@@ -31,6 +32,10 @@ const RECYCLE_FOCUS_M = 380;
 const RECYCLE_CAMERA_M = 150;
 const SPAWN_CAMERA_M = 60;
 const RECYCLE_CHANCE = 0.35;
+const SIREN_RANGE_M = 40;
+const SIREN_MIN_SPEED = 5;
+const PULL_OVER_SPEED = 2.5;
+const PULL_OVER_M = 1.1;
 
 export const ROLE_NONE = 0;
 export const ROLE_QUARRY = 1;
@@ -49,6 +54,7 @@ export class Vehicle {
   turnOut = 0;
   stopAtEnd = false;
   wait = 0;
+  pull = 0;
   x = 0;
   z = 0;
   yaw = 0;
@@ -401,6 +407,19 @@ export class TrafficSim {
     v.fresh = true;
   }
 
+  /** True when a moving siren vehicle is within range and behind this vehicle's direction of travel. */
+  private sirenBehind(v: Vehicle): boolean {
+    const fx = Math.sin(v.yaw);
+    const fz = Math.cos(v.yaw);
+    for (const e of emergency.vehicles) {
+      if (e.speed < SIREN_MIN_SPEED) continue;
+      const dx = e.x - v.x;
+      const dz = e.z - v.z;
+      if (dx * dx + dz * dz < SIREN_RANGE_M * SIREN_RANGE_M && dx * fx + dz * fz < 0) return true;
+    }
+    return false;
+  }
+
   update(dtRaw: number, camX: number, camZ: number) {
     const vs = this.vehicles;
     const n = vs.length;
@@ -442,6 +461,7 @@ export class TrafficSim {
       const remaining = len - v.s;
       const free = laneFree[L] * v.pace;
       let target = free;
+      let siren = 0;
 
       if (v.wait > 0) {
         v.wait -= dt;
@@ -484,12 +504,17 @@ export class TrafficSim {
           const safe = -bt + Math.sqrt(bt * bt + lead.v * lead.v + 2 * BRAKE * Math.max(0, gap - MIN_GAP));
           if (safe < target) target = safe;
         }
+        if (emergency.active && this.sirenBehind(v)) {
+          siren = 1;
+          target = Math.min(target, PULL_OVER_SPEED);
+        }
         if (v.stopAtEnd && remaining < STOP_LINE_M + 0.8 && v.v < 0.25) {
           v.wait = 2 + this.rng() * 5;
           v.stopAtEnd = false;
         }
       }
 
+      v.pull += (siren - v.pull) * Math.min(1, 2 * dt);
       const dv = target - v.v;
       v.v = Math.max(0, dv > 0 ? v.v + Math.min(dv, ACCEL * dt) : v.v + Math.max(dv, -HARD_BRAKE * dt));
       v.s += v.v * dt;
@@ -519,6 +544,7 @@ export class TrafficSim {
       const toEnd = laneLength - v.s;
       if (toEnd < BLEND_M && v.turnOut > 0) lateral *= 1 - (1 - toEnd / BLEND_M) * v.turnOut;
       if (v.s < BLEND_M && v.turnIn > 0) lateral *= 1 - (1 - v.s / BLEND_M) * v.turnIn;
+      lateral += Math.sign(lateral) * v.pull * PULL_OVER_M;
       const forward = (lane & 1) === 0;
       const h = this.net.sample(this.edgeId[lane], forward ? v.s : laneLength - v.s, lateral, out);
       const yaw = forward ? h : h + Math.PI;

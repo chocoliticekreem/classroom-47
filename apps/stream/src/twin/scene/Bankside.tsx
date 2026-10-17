@@ -3,7 +3,6 @@
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
-import { toLocal } from "../config";
 import { Beam, SiteLabel } from "./bankside/Beacon";
 import { buildFalconPoint } from "./bankside/falconPoint";
 import { buildHalkin } from "./bankside/halkin";
@@ -11,18 +10,17 @@ import { LAYERS, type SiteModel } from "./bankside/kit";
 import { makeSignMaterial, makeSiteMaterials, updateSiteMaterials } from "./bankside/materials";
 
 /**
- * Two hero buildings ~2 km west of Tower Hill, outside the real-geometry box: Falcon Point (Bankside) and
- * Halkin (the hack venue). They are built larger than life so they read as skyline pieces, use a light
- * fog, carry a light shaft and an edge-clamped label, and each stands on its own little ground patch.
+ * Two hero buildings on the south bank, inside the loaded city: Falcon Point (Bankside) and Halkin (the
+ * hack venue). Plots were picked from the OSM data: on land, clear of building footprints, Falcon Point's
+ * river front facing the water to the north-north-east and Halkin one block back, to its south-west.
  */
-const SKYLINE_SCALE = 2.4;
-
 interface SiteConfig {
   id: string;
   name: string;
-  lat: number;
-  lon: number;
+  /** Local metres (origin Tower Hill). */
+  at: [number, number];
   yaw: number;
+  scale: number;
   color: string;
   build: () => SiteModel;
 }
@@ -31,42 +29,40 @@ const SITES: SiteConfig[] = [
   {
     id: "falcon",
     name: "Falcon Point - Bankside",
-    lat: 51.50818,
-    lon: -0.10157,
+    at: [-196, 510],
     yaw: -0.38,
+    scale: 1,
     color: "#ffb070",
     build: buildFalconPoint,
   },
   {
     id: "halkin",
     name: "Halkin, 1-2 Paris Garden (Hack venue)",
-    lat: 51.50683,
-    lon: -0.10636,
-    yaw: -1.2,
+    at: [-236, 548],
+    yaw: -0.8,
+    scale: 0.8,
     color: "#5fd4ff",
     build: buildHalkin,
   },
 ];
 
-const PLACED = SITES.map((s) => ({ ...s, at: toLocal(s.lat, s.lon) }));
-
 /** Local metres of Falcon Point and Halkin (origin Tower Hill). */
-export const BANKSIDE_SITES = Object.fromEntries(PLACED.map((s) => [s.id, s.at])) as Record<string, [number, number]>;
+export const BANKSIDE_SITES = Object.fromEntries(SITES.map((s) => [s.id, s.at])) as Record<string, [number, number]>;
 
-const falcon = PLACED[0];
+const falcon = SITES[0];
 const falconFront: [number, number] = [-Math.sin(falcon.yaw), -Math.cos(falcon.yaw)];
 
-/** Camera preset shape (see scene/cameraStore.ts PRESETS): frames Falcon Point from the river. */
+/** Camera preset shape (see scene/cameraStore.ts PRESETS): frames Falcon Point from the river, ~150 m off. */
 export const BANKSIDE_VIEW = {
-  pos: [falcon.at[0] + falconFront[0] * 240, 42, falcon.at[1] + falconFront[1] * 240] as [number, number, number],
-  target: [falcon.at[0], 26, falcon.at[1]] as [number, number, number],
+  pos: [falcon.at[0] + falconFront[0] * 150, 35, falcon.at[1] + falconFront[1] * 150] as [number, number, number],
+  target: [falcon.at[0], 12, falcon.at[1]] as [number, number, number],
   label: "Bankside",
 };
 
 export function Bankside() {
   const built = useMemo(() => {
     const materials = makeSiteMaterials();
-    const sites = PLACED.map((site) => {
+    const sites = SITES.map((site) => {
       const model = site.build();
       const signs = model.signs.map((spec) => ({ spec, material: makeSignMaterial(spec) }));
       return { site, model, signs };
@@ -94,7 +90,7 @@ export function Bankside() {
     <>
       {built.sites.map(({ site, model, signs }) => (
         <group key={site.id}>
-          <group position={[site.at[0], 0, site.at[1]]} rotation={[0, site.yaw, 0]} scale={SKYLINE_SCALE}>
+          <group position={[site.at[0], 0, site.at[1]]} rotation={[0, site.yaw, 0]} scale={site.scale}>
             {LAYERS.map((layer) => {
               const geometry = model.geometry[layer];
               return geometry ? <mesh key={layer} geometry={geometry} material={built.materials[layer]} /> : null;
@@ -111,7 +107,7 @@ export function Bankside() {
           <Beam x={site.at[0]} z={site.at[1]} color={site.color} />
           <SiteLabel
             x={site.at[0]}
-            y={model.topM * SKYLINE_SCALE + 16}
+            y={model.topM * site.scale + 8}
             z={site.at[1]}
             name={site.name}
             color={site.color}

@@ -11,6 +11,7 @@ const MAX_MESSAGES = 150;
 export function useChatCrowd(ctx: StreamContext): {
   messages: ChatMessage[];
   send: (text: string) => void;
+  inject: (batch: ChatMessage[]) => void;
 } {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const ctxRef = useRef(ctx);
@@ -60,5 +61,5 @@ export function useChatCrowd(ctx: StreamContext): {
     [append],
   );
 
-  return { messages, send };
+  return { messages, send, inject: append };
 }
