@@ -47,12 +47,26 @@ export const useLive = create<LiveState>(() => ({
 }));
 
 let gpsWatch: number | null = null;
+/** Auto-start happens once per page load; after that only the user turns GPS on or off. */
+let gpsArmed = false;
+/** A chosen demo position (?lat/lon, Dev "Jump to", the stream page's picker) wins until the user asks for GPS. */
+let demoPinned = false;
+
+function stopGpsWatch() {
+  if (gpsWatch !== null) navigator.geolocation.clearWatch(gpsWatch);
+  gpsWatch = null;
+}
+
+export function setDemoStreamer(lat: number, lon: number) {
+  demoPinned = true;
+  stopGpsWatch();
+  useLive.setState({ streamer: { lat, lon }, streamerSource: "demo", streamerTs: Date.now(), gps: "off" });
+}
 
 /** Browser geolocation drives the streamer position until stopped. */
 export function toggleGps() {
   if (gpsWatch !== null) {
-    navigator.geolocation.clearWatch(gpsWatch);
-    gpsWatch = null;
+    stopGpsWatch();
     useLive.setState({ gps: "off" });
     return;
   }
@@ -60,8 +74,10 @@ export function toggleGps() {
     useLive.setState({ gps: "error" });
     return;
   }
+  demoPinned = false;
   gpsWatch = navigator.geolocation.watchPosition(
-    (pos) =>
+    (pos) => {
+      if (demoPinned) return;
       useLive.setState({
         streamer: { lat: pos.coords.latitude, lon: pos.coords.longitude },
         streamerSource: "gps",
@@ -70,10 +86,10 @@ export function toggleGps() {
         streamerAccuracyM: Math.round(pos.coords.accuracy),
         streamerTs: pos.timestamp,
         gps: "on",
-      }),
+      });
+    },
     () => {
-      if (gpsWatch !== null) navigator.geolocation.clearWatch(gpsWatch);
-      gpsWatch = null;
+      stopGpsWatch();
       useLive.setState({ gps: "error" });
     },
     { enableHighAccuracy: true, maximumAge: 1000, timeout: 15_000 },
@@ -141,7 +157,7 @@ function followRelay() {
     } catch {
       return;
     }
-    if (!s.live || useLive.getState().gps === "on") return;
+    if (!s.live || demoPinned || useLive.getState().gps === "on") return;
     useLive.setState({
       streamer: { lat: s.lat, lon: s.lon },
       streamerSource: "phone",
@@ -197,33 +213,44 @@ function start() {
       },
     ).stop,
     subscribe((e) => {
-      if (e.type === "stream.location" && useLive.getState().gps !== "on") {
-        useLive.setState({
-          streamer: { lat: e.location.lat, lon: e.location.lon },
-          streamerSource: e.location.id === "gps" ? "phone" : "demo",
-          streamerTs: Date.now(),
-        });
+      if (e.type !== "stream.location") return;
+      if (e.location.id !== "gps") {
+        setDemoStreamer(e.location.lat, e.location.lon);
+        return;
       }
+      if (demoPinned || useLive.getState().gps === "on") return;
+      useLive.setState({
+        streamer: { lat: e.location.lat, lon: e.location.lon },
+        streamerSource: "phone",
+        streamerTs: Date.now(),
+      });
     }),
     followRelay(),
   ];
   useLive.setState({ now: Date.now() });
   const clock = setInterval(() => useLive.setState({ now: Date.now() }), 1000);
   stops.push(() => clearInterval(clock));
+  return () => stops.forEach((s) => s());
+}
+
+function pinFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const lat = Number(params.get("lat"));
   const lon = Number(params.get("lon"));
   if (params.has("lat") && params.has("lon") && Number.isFinite(lat) && Number.isFinite(lon)) {
-    useLive.setState({ streamer: { lat, lon } });
+    setDemoStreamer(lat, lon);
   }
-  return () => stops.forEach((s) => s());
 }
 
 /** Starts the polling loops once, shared by every component that mounts it. */
 export function useLiveFeeds() {
   useEffect(() => {
-    // Real GPS by default; demo locations and the phone relay still override when present.
-    if (useLive.getState().gps === "off") toggleGps();
+    if (!gpsArmed) {
+      gpsArmed = true;
+      pinFromUrl();
+      // Real GPS by default, unless a demo position was asked for; the user owns the toggle from here on.
+      if (!demoPinned && useLive.getState().gps === "off") toggleGps();
+    }
     if (refs++ === 0) stopAll = start();
     return () => {
       if (--refs === 0) {
