@@ -31,7 +31,12 @@ const TIME: { value: TimeOfDay | null; label: string }[] = [
 const CROWD: DemoSettings["crowd"][] = [1, 3, 10];
 
 /** First override the Mode switch jumps to, so flipping it visibly changes the twin. */
-const DEMO_DEFAULT: DemoSettings = { weather: "rain", time: "night", crowd: 1 };
+const DEMO_DEFAULT: DemoSettings = { weather: "rain", time: "night", crowd: 1, estimate: false, boats: false };
+
+const LAYERS: { key: "estimate" | "boats"; label: string }[] = [
+  { key: "estimate", label: "Estimated crowd (inferred)" },
+  { key: "boats", label: "Illustrative boats" },
+];
 
 function Segment<T>({
   label,
@@ -143,6 +148,27 @@ export function DevPanel() {
             value={settings.crowd}
             onChange={(crowd) => update({ crowd })}
           />
+          <div role="group" aria-label="Layers (demo only)" className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-medium text-muted">Layers (demo only)</span>
+            <div className="flex flex-wrap gap-1">
+              {LAYERS.map((o) => {
+                const active = settings[o.key];
+                return (
+                  <button
+                    key={o.key}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => update({ [o.key]: !active })}
+                    className={`rounded-md px-2.5 py-1 text-[12px] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-text ${
+                      active ? "bg-text text-bg" : "bg-surface-3 text-muted hover:text-text"
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <div role="group" aria-label="Scenario (demo only)" className="flex flex-col gap-1.5">
             <span className="text-[11px] font-medium text-muted">Scenario (demo only)</span>
             <div className="flex flex-wrap gap-1">
