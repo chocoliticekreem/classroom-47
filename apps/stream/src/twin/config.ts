@@ -26,12 +26,27 @@ export type Ring = [number, number][];
 
 /** Real OpenStreetMap geometry around the origin, already in local metres (from /api/twin/osm). */
 export interface TwinGeometry {
-  buildings: { ring: Ring; height: number; minHeight: number }[];
-  roads: { line: Ring; kind: "major" | "minor" | "path" | "rail" }[];
+  buildings: {
+    ring: Ring;
+    height: number;
+    minHeight: number;
+    /** OSM/OpenMapTiles building colour, if tagged (CSS colour string). */
+    colour?: string;
+  }[];
+  roads: {
+    line: Ring;
+    kind: "major" | "minor" | "path" | "rail";
+    name?: string;
+    bridge?: boolean;
+    tunnel?: boolean;
+    oneway?: boolean;
+  }[];
   water: Ring[];
   parks: Ring[];
   /** Footfall anchors from the OSM poi layer: stations, stops, attractions, shops, food. */
   pois: TwinPoi[];
+  /** Rail / tube / DLR / overground stations from the tiles' POI layer, in local metres. */
+  stations: { pos: [number, number]; name: string; kind: "rail" | "subway" | "light_rail" }[];
 }
 
 export interface TwinPoi {

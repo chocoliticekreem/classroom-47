@@ -6,6 +6,8 @@ import * as THREE from "three";
 import { ATMOS } from "./palette";
 
 const SUN_DISTANCE = 1000;
+const FILL_DUSK = new THREE.Color("#ffb070");
+const FILL_DAY = new THREE.Color("#ffe8cc");
 
 export function Lights() {
   const hemi = useRef<THREE.HemisphereLight>(null);
@@ -24,7 +26,11 @@ export function Lights() {
       sun.current.color.copy(ATMOS.sunColor);
       sun.current.intensity = ATMOS.sunIntensity;
     }
-    if (fill.current) fill.current.intensity = 0.35 * (1 - ATMOS.cloud * 0.6);
+    if (fill.current) {
+      // The low sun is in front of the default cameras, so the faces they see are backlit; a daylight fill from behind lights them.
+      fill.current.color.copy(FILL_DUSK).lerp(FILL_DAY, Math.min(ATMOS.sunIntensity / 4.2, 1));
+      fill.current.intensity = 0.35 * (1 - ATMOS.cloud * 0.6) + 0.3 * ATMOS.sunIntensity * ATMOS.sunDisc;
+    }
   });
 
   return (

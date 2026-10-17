@@ -2,8 +2,9 @@
 
 import { useThree } from "@react-three/fiber";
 import { useEffect } from "react";
+import { perf } from "./perf";
 
-/** `window.__twin.bench()` for draw-call/triangle counts; `window.__twin.camera` for the live camera. */
+/** `window.__twin.bench()` for draw-call/triangle counts (msPerFrame is CPU submit time only); `window.__twin.camera` for the live camera. */
 export function Probe() {
   const { gl, scene, camera } = useThree();
   useEffect(() => {
@@ -12,6 +13,7 @@ export function Probe() {
       gl,
       scene,
       camera,
+      perf,
       bench(n = 20) {
         gl.info.autoReset = false;
         gl.info.reset();
@@ -26,6 +28,9 @@ export function Probe() {
           geometries: gl.info.memory.geometries,
           textures: gl.info.memory.textures,
           programs: gl.info.programs?.length,
+          dpr: gl.getPixelRatio(),
+          tier: perf.tier,
+          renderer: perf.renderer,
         };
         gl.info.autoReset = true;
         return out;
