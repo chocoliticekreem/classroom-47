@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Camera, Film, RotateCcw, Square, Upload } from "lucide-react";
+import { Camera, Film, RotateCcw, Square, SwitchCamera, Upload } from "lucide-react";
 import type { StreamContext, StreamSource } from "@/lib/types";
 import { useFollowerWatch } from "@/platform/follow/useFollowerWatch";
 import { FollowerOverlay } from "./FollowerOverlay";
@@ -10,7 +10,13 @@ interface PlayerProps {
   source: StreamSource;
   onSourceChange: (s: StreamSource) => void;
   ctx: StreamContext;
+  /** e.g. "Phone GPS · ±8 m · 2 s ago" */
+  positionBadge?: string;
+  /** e.g. "Sync: connected" */
+  sync?: string;
 }
+
+type Facing = "environment" | "user";
 
 function useClock() {
   const [now, setNow] = useState<Date | null>(null);
@@ -45,11 +51,12 @@ function Corners({ className = "border-white/70" }: { className?: string }) {
   );
 }
 
-export function Player({ source, onSourceChange, ctx }: PlayerProps) {
+export function Player({ source, onSourceChange, ctx, positionBadge, sync }: PlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [camError, setCamError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [facing, setFacing] = useState<Facing>("environment");
   const now = useClock();
   useFollowerWatch(videoRef, source.kind === "webcam" || source.kind === "file", ctx.location);
 
@@ -59,7 +66,7 @@ export function Player({ source, onSourceChange, ctx }: PlayerProps) {
     let stream: MediaStream | null = null;
     let cancelled = false;
     navigator.mediaDevices
-      .getUserMedia({ video: { width: 1280, height: 720 }, audio: false })
+      .getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
       .then((s) => {
         if (cancelled) {
           s.getTracks().forEach((t) => t.stop());
@@ -79,7 +86,7 @@ export function Player({ source, onSourceChange, ctx }: PlayerProps) {
       stream?.getTracks().forEach((t) => t.stop());
       if (video) video.srcObject = null;
     };
-  }, [source.kind, retryKey, onSourceChange]);
+  }, [source.kind, retryKey, facing, onSourceChange]);
 
   useEffect(() => {
     if (source.kind !== "file") return;
@@ -94,16 +101,21 @@ export function Player({ source, onSourceChange, ctx }: PlayerProps) {
   };
 
   const sourceLabel =
-    source.kind === "webcam" ? "Webcam" : source.kind === "idle" ? "" : source.label;
+    source.kind === "webcam" ? (facing === "user" ? "Selfie camera" : "Rear camera") : source.kind === "idle" ? "" : source.label;
+  const walking = source.kind === "webcam";
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-line bg-black">
+    <div
+      className={`relative w-full overflow-hidden rounded-lg border border-line bg-black ${
+        walking ? "aspect-[3/4] sm:aspect-video" : "aspect-video"
+      }`}
+    >
       {source.kind === "idle" ? (
-        <IdleCard onPick={change} camError={camError} ctx={ctx} now={now} />
+        <IdleCard onPick={change} camError={camError} ctx={ctx} now={now} positionBadge={positionBadge} />
       ) : (
         <>
           <video
-            key={`${source.kind === "webcam" ? "cam" : source.url}-${retryKey}`}
+            key={`${source.kind === "webcam" ? `cam-${facing}` : source.url}-${retryKey}`}
             ref={videoRef}
             src={source.kind === "webcam" ? undefined : source.url}
             autoPlay
@@ -111,7 +123,7 @@ export function Player({ source, onSourceChange, ctx }: PlayerProps) {
             loop
             playsInline
             onError={() => setError("The stream stopped responding.")}
-            className="size-full object-cover"
+            className={`size-full object-cover ${walking && facing === "user" ? "-scale-x-100" : ""}`}
           />
           <FollowerOverlay />
           <div className="grain scanlines pointer-events-none absolute inset-0" aria-hidden />
@@ -119,12 +131,12 @@ export function Player({ source, onSourceChange, ctx }: PlayerProps) {
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/70 to-transparent" />
           <Corners />
 
-          <div className="absolute left-4 top-4 flex items-center gap-2 font-mono text-[11px] sm:left-6 sm:top-6">
-            <span className="flex h-6 items-center gap-1.5 rounded-[4px] bg-live px-2 font-semibold tracking-normal text-white">
+          <div className="absolute left-4 top-4 flex items-center gap-2 font-mono text-[13px] sm:left-6 sm:top-6 sm:text-[11px]">
+            <span className="flex h-7 items-center gap-1.5 rounded-[4px] bg-live px-2 font-semibold tracking-normal text-white sm:h-6">
               <span className="animate-live size-1.5 rounded-full bg-white" />
               Live
             </span>
-            <span className="flex h-6 items-center gap-1.5 rounded-[4px] border border-white/15 bg-black/50 px-2 text-white backdrop-blur-sm">
+            <span className="flex h-7 items-center gap-1.5 rounded-[4px] border border-white/15 bg-black/50 px-2 text-white backdrop-blur-sm sm:h-6">
               <span className="size-1.5 rounded-full bg-ember" />
               {formatViewers(ctx.viewers)}
               <span className="hidden text-white/50 sm:inline">watching</span>
@@ -138,14 +150,35 @@ export function Player({ source, onSourceChange, ctx }: PlayerProps) {
                 <span className="ml-1.5 hidden text-white/45 sm:inline">BST</span>
               </span>
             )}
+            {positionBadge && (
+              <span className="rounded-[4px] border border-white/15 bg-black/50 px-2 py-1 text-[10px] tracking-normal text-white/80 backdrop-blur-sm">
+                {positionBadge}
+              </span>
+            )}
+            {sync && (
+              <span className="flex items-center gap-1.5 rounded-[4px] border border-white/15 bg-black/50 px-2 py-1 text-[10px] tracking-normal text-white/80 backdrop-blur-sm">
+                <span className={`size-1.5 rounded-full ${sync.includes("connected") || sync.includes("following") ? "bg-emerald-400" : "bg-amber-400"}`} />
+                {sync}
+              </span>
+            )}
+            {walking && (
+              <button
+                type="button"
+                aria-label="Flip camera"
+                onClick={() => setFacing((f) => (f === "user" ? "environment" : "user"))}
+                className="mt-1 grid size-11 place-items-center rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm active:bg-white/20 sm:size-8"
+              >
+                <SwitchCamera className="size-5 sm:size-4" aria-hidden />
+              </button>
+            )}
           </div>
 
           <div className="absolute inset-x-4 bottom-4 flex items-end justify-between gap-3 sm:inset-x-6 sm:bottom-6">
             <div className="min-w-0">
-              <p className="font-display text-[20px] font-semibold leading-none tracking-[-0.02em] text-white sm:text-[24px]">
+              <p className="font-display text-[22px] font-semibold leading-none tracking-[-0.02em] text-white sm:text-[24px]">
                 {ctx.location.name}
               </p>
-              <p className="mt-1.5 flex items-center gap-2 font-mono text-[10px] tracking-normal text-white/60">
+              <p className="mt-1.5 flex items-center gap-2 font-mono text-[11px] tracking-normal text-white/60 sm:text-[10px]">
                 <span className="text-ember">{ctx.location.area}</span>
                 <span className="hidden sm:inline">{coords(ctx.location.lat, ctx.location.lon)}</span>
                 <span className="hidden text-white/40 md:inline">· {sourceLabel}</span>
@@ -154,7 +187,7 @@ export function Player({ source, onSourceChange, ctx }: PlayerProps) {
             <button
               type="button"
               onClick={() => change({ kind: "idle" })}
-              className="flex h-8 shrink-0 items-center gap-1.5 rounded-[4px] border border-white/15 bg-black/50 px-2.5 font-mono text-[11px] tracking-normal text-white backdrop-blur-sm transition-colors hover:border-live hover:bg-live"
+              className="flex h-11 shrink-0 items-center gap-1.5 rounded-[6px] border border-white/15 bg-black/50 px-3.5 font-mono text-[12px] tracking-normal text-white backdrop-blur-sm transition-colors hover:border-live hover:bg-live sm:h-8 sm:px-2.5 sm:text-[11px]"
             >
               <Square className="size-2.5 fill-current" aria-hidden />
               End
@@ -191,11 +224,13 @@ function IdleCard({
   camError,
   ctx,
   now,
+  positionBadge,
 }: {
   onPick: (s: StreamSource) => void;
   camError: string | null;
   ctx: StreamContext;
   now: Date | null;
+  positionBadge?: string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -211,6 +246,7 @@ function IdleCard({
       </div>
       <div className="absolute right-6 top-6 hidden font-mono text-[10px] tracking-normal text-muted sm:block">
         {ctx.location.area} · {coords(ctx.location.lat, ctx.location.lon)}
+        {positionBadge ? ` · ${positionBadge}` : ""}
       </div>
       {now && (
         <div className="absolute bottom-6 right-6 hidden font-mono text-[10px] tracking-normal text-dim sm:block">
@@ -232,8 +268,8 @@ function IdleCard({
             <SourceButton
               index="01"
               icon={<Camera className="size-4" />}
-              title="Webcam"
-              hint="This device"
+              title="Go live"
+              hint="Rear camera + GPS"
               onClick={() => onPick({ kind: "webcam" })}
             />
             <SourceButton
