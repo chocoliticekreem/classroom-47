@@ -11,12 +11,12 @@ import {
   type WeatherKind,
 } from "@/platform/demo";
 import { triggerScenario, useScenario } from "@/twin/live/scenario";
-import { useLive } from "@/twin/live/store";
+import { setDemoStreamer } from "@/twin/live/store";
 import { PLACES, useOrigin } from "@/twin/origin";
 
 const WEATHER: { value: WeatherKind | null; label: string }[] = [
   { value: null, label: "Live" },
-  { value: "clear", label: "Clear" },
+  { value: "clear", label: "Stop scenario" },
   { value: "cloudy", label: "Cloudy" },
   { value: "rain", label: "Rain" },
   { value: "fog", label: "Fog" },
@@ -180,7 +180,7 @@ export function DevPanel() {
                 [
                   { value: "chase", label: "Police chase" },
                   { value: "ambulance", label: "Ambulance call-out" },
-                  { value: "clear", label: "Clear" },
+                  { value: "clear", label: "Stop scenario" },
                 ] as const
               ).map((o) => {
                 const active = o.value === "clear" ? scenario === null : scenario?.source === "demo" && scenario.kind === o.value;
@@ -210,9 +210,7 @@ export function DevPanel() {
                     key={p.id}
                     type="button"
                     aria-pressed={active}
-                    onClick={() =>
-                      useLive.setState({ streamer: { lat: p.lat, lon: p.lon }, streamerSource: "demo", streamerTs: Date.now() })
-                    }
+                    onClick={() => setDemoStreamer(p.lat, p.lon)}
                     className={`rounded-md px-2.5 py-1 text-[12px] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-text ${
                       active ? "bg-text text-bg" : "bg-surface-3 text-muted hover:text-text"
                     }`}
