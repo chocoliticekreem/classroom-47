@@ -38,7 +38,7 @@ road network so what you see on the right is what the camera saw on the left.
   bad venue wifi.
 
 Built on **17 October 2026** at the **VAST Builders Challenge: Real-Time Video Agents Hack, London**
-([tokens&](https://tokensand.com/vastlondon)). Team 47. Public repo: `chocoliticekreem/classroom-47`.
+([tokens&](https://tokensand.com/vastlondon)). Team 47. Public repo: `chocoliticekreem/mirrorverse`.
 
 - Compliance with the official guide, gaps and what to do next: [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md)
 - 2-minute and 3-minute demo scripts: [`docs/DEMO.md`](docs/DEMO.md)
@@ -237,7 +237,7 @@ or `lint`; they target an `api` workspace that isn't in this repo.
 
 ## Submission checklist (16:30 BST)
 
-- [ ] Public repo `chocoliticekreem/classroom-47` on `main`, README current (this file)
+- [ ] Public repo `chocoliticekreem/mirrorverse` on `main`, README current (this file)
 - [ ] Demo video recorded (backup by 15:30) and uploaded as a shareable link
 - [ ] Submission form at https://tokensand.com/vastlondon → *Submit your project*: what we built, the sponsor
       tools above, the repo link, the video link, a screenshot, **every team member listed**
