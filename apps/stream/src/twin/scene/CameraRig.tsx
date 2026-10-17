@@ -81,11 +81,14 @@ export function CameraRig() {
   }, [cctv, firstPerson, size.width, size.height]);
 
   useEffect(() => {
-    const apply = (s: { streamer: { lat: number; lon: number } }) => {
+    const apply = (s: { streamer: { lat: number; lon: number }; streamerHeading: number | null }) => {
       const [x, z] = toLocal(s.streamer.lat, s.streamer.lon);
       const dx = x - streamerGoal.x;
       const dz = z - streamerGoal.z;
-      if (streamerGoal.lengthSq() > 0 && dx * dx + dz * dz > TRAVEL_MIN_M * TRAVEL_MIN_M) {
+      if (s.streamerHeading !== null) {
+        fp.current.travelYaw = (s.streamerHeading * Math.PI) / 180;
+        fp.current.hasTravel = true;
+      } else if (streamerGoal.lengthSq() > 0 && dx * dx + dz * dz > TRAVEL_MIN_M * TRAVEL_MIN_M) {
         fp.current.travelYaw = bearingRad(streamerGoal.x, streamerGoal.z, x, z);
         fp.current.hasTravel = true;
       }

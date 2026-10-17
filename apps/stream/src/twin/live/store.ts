@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { useEffect } from "react";
 import type { AroundBusStop, AroundCam, AroundDisruption, CamClipTracks } from "@/platform/around/types";
 import { subscribe } from "@/platform/bus";
+import type { LiveState as LiveRelayState } from "@/platform/live/types";
 import { ORIGIN, type TwinGeometry } from "../config";
 
 export interface LiveState {
@@ -13,6 +14,12 @@ export interface LiveState {
   disruptions: AroundDisruption[];
   roads: TwinGeometry["roads"];
   streamer: { lat: number; lon: number };
+  /** Where the streamer position came from; "phone" is the cross-device relay (/api/live). */
+  streamerSource: "demo" | "gps" | "phone";
+  streamerHeading: number | null;
+  streamerSpeed: number | null;
+  streamerAccuracyM: number | null;
+  streamerTs: number;
   updatedAt: number;
   /** Wall clock, ticked once a second for render-time countdowns; 0 before the feeds start. */
   now: number;
@@ -27,6 +34,11 @@ export const useLive = create<LiveState>(() => ({
   disruptions: [],
   roads: [],
   streamer: { ...ORIGIN },
+  streamerSource: "demo",
+  streamerHeading: null,
+  streamerSpeed: null,
+  streamerAccuracyM: null,
+  streamerTs: 0,
   updatedAt: 0,
   now: 0,
   screenMode: null,
@@ -48,7 +60,16 @@ export function toggleGps() {
     return;
   }
   gpsWatch = navigator.geolocation.watchPosition(
-    (pos) => useLive.setState({ streamer: { lat: pos.coords.latitude, lon: pos.coords.longitude }, gps: "on" }),
+    (pos) =>
+      useLive.setState({
+        streamer: { lat: pos.coords.latitude, lon: pos.coords.longitude },
+        streamerSource: "gps",
+        streamerHeading: pos.coords.heading,
+        streamerSpeed: pos.coords.speed,
+        streamerAccuracyM: Math.round(pos.coords.accuracy),
+        streamerTs: pos.timestamp,
+        gps: "on",
+      }),
     () => {
       if (gpsWatch !== null) navigator.geolocation.clearWatch(gpsWatch);
       gpsWatch = null;
@@ -95,6 +116,31 @@ function poll<T>(url: () => string | null, everyMs: number, apply: (data: T) => 
 
 const q = (radius: number) => `lat=${ORIGIN.lat}&lon=${ORIGIN.lon}&radius=${radius}`;
 
+/** The phone's relayed GPS (another device) drives the streamer unless this tab's own GPS is on. */
+function followRelay() {
+  if (typeof EventSource === "undefined") return () => {};
+  const session = new URLSearchParams(window.location.search).get("session") ?? "default";
+  const es = new EventSource(`/api/live/stream?session=${encodeURIComponent(session)}`);
+  es.onmessage = (m) => {
+    let s: LiveRelayState;
+    try {
+      s = JSON.parse(m.data) as LiveRelayState;
+    } catch {
+      return;
+    }
+    if (!s.live || useLive.getState().gps === "on") return;
+    useLive.setState({
+      streamer: { lat: s.lat, lon: s.lon },
+      streamerSource: "phone",
+      streamerHeading: s.heading,
+      streamerSpeed: s.speed,
+      streamerAccuracyM: s.accuracyM,
+      streamerTs: s.ts,
+    });
+  };
+  return () => es.close();
+}
+
 let refs = 0;
 let stopAll: (() => void) | null = null;
 
@@ -125,10 +171,15 @@ function start() {
       useLive.setState({ roads: (d.roads ?? []).filter((r) => r.kind === "major" || r.kind === "minor") }),
     ),
     subscribe((e) => {
-      if (e.type === "stream.location") {
-        useLive.setState({ streamer: { lat: e.location.lat, lon: e.location.lon } });
+      if (e.type === "stream.location" && useLive.getState().gps !== "on") {
+        useLive.setState({
+          streamer: { lat: e.location.lat, lon: e.location.lon },
+          streamerSource: e.location.id === "gps" ? "phone" : "demo",
+          streamerTs: Date.now(),
+        });
       }
     }),
+    followRelay(),
   ];
   useLive.setState({ now: Date.now() });
   const clock = setInterval(() => useLive.setState({ now: Date.now() }), 1000);
