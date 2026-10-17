@@ -39,6 +39,12 @@ void main() {
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 const _p = new THREE.Vector3();
 const _n = new THREE.Vector3();
+/** Left screen margin that keeps clamped labels clear of the HUD panel. */
+const LEFT_PANEL_PX = 360;
+const LABEL_W = 270;
+const LABEL_H = 62;
+/** Final screen position (px from centre, y up) of each site label this frame. */
+const placed: ({ x: number; y: number } | null)[] = [];
 
 function distanceText(dx: number, dz: number) {
   const m = Math.hypot(dx, dz);
@@ -48,13 +54,13 @@ function distanceText(dx: number, dz: number) {
 }
 
 /** A short additive light shaft marking the site. */
-export function Beam({ x, z, color }: { x: number; z: number; color: string }) {
+export function Beam({ x, z, color, height = BEAM_H }: { x: number; z: number; color: string; height?: number }) {
   const mesh = useRef<THREE.Mesh>(null);
   const { geometry, material } = useMemo(() => {
-    const geometry = new THREE.CylinderGeometry(BEAM_R * 0.6, BEAM_R, BEAM_H, 24, 1, true);
+    const geometry = new THREE.CylinderGeometry(BEAM_R * 0.6, BEAM_R, height, 24, 1, true);
     const material = new THREE.ShaderMaterial({
       uniforms: {
-        uH: { value: BEAM_H },
+        uH: { value: height },
         uColor: { value: new THREE.Color(color) },
         uAlpha: { value: 0.6 },
         uTime: { value: 0 },
@@ -68,7 +74,7 @@ export function Beam({ x, z, color }: { x: number; z: number; color: string }) {
       toneMapped: false,
     });
     return { geometry, material };
-  }, [color]);
+  }, [color, height]);
 
   useFrame(({ clock }) => {
     const live = mesh.current?.material as THREE.ShaderMaterial | undefined;
@@ -85,7 +91,47 @@ export function Beam({ x, z, color }: { x: number; z: number; color: string }) {
     [geometry, material],
   );
 
-  return <mesh ref={mesh} geometry={geometry} material={material} position={[x, BEAM_H / 2, z]} frustumCulled={false} />;
+  return <mesh ref={mesh} geometry={geometry} material={material} position={[x, height / 2, z]} frustumCulled={false} />;
+}
+
+/** A pulsing flat ring on the ground that marks the venue from a distance; one transparent mesh, no lights. */
+export function GroundRing({ x, z, color, radius }: { x: number; z: number; color: string; radius: number }) {
+  const mesh = useRef<THREE.Mesh>(null);
+  const { geometry, material } = useMemo(
+    () => ({
+      geometry: new THREE.RingGeometry(radius * 0.9, radius, 64).rotateX(-Math.PI / 2),
+      material: new THREE.MeshBasicMaterial({
+        color: new THREE.Color(color).multiplyScalar(1.6),
+        transparent: true,
+        opacity: 0.7,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -4,
+        polygonOffsetUnits: -4,
+      }),
+    }),
+    [color, radius],
+  );
+
+  useFrame(({ clock }) => {
+    const m = mesh.current;
+    if (!m) return;
+    const t = clock.elapsedTime;
+    m.scale.setScalar(1 + 0.04 * Math.sin(t * 1.6));
+    (m.material as THREE.MeshBasicMaterial).opacity = 0.45 + 0.3 * Math.sin(t * 1.6);
+  });
+
+  useEffect(
+    () => () => {
+      geometry.dispose();
+      material.dispose();
+    },
+    [geometry, material],
+  );
+
+  return <mesh ref={mesh} geometry={geometry} material={material} position={[x, 0.6, z]} renderOrder={5} />;
 }
 
 /**
@@ -96,12 +142,15 @@ export function SiteLabel({
   x,
   y,
   z,
+  slot,
   name,
   color,
 }: {
   x: number;
   y: number;
   z: number;
+  /** Index among the site labels; later slots step aside when they would cover an earlier one. */
+  slot: number;
   name: string;
   color: string;
 }) {
@@ -158,14 +207,27 @@ export function SiteLabel({
     }
     const halfW = size.width / 2;
     const halfH = size.height / 2;
-    const mx = Math.max(0.3, 1 - 140 / halfW);
+    const mx = Math.max(0.3, 1 - (_p.x < 0 ? LEFT_PANEL_PX : 140) / halfW);
     const top = Math.max(0.3, 1 - 80 / halfH);
     const bottom = Math.max(0.3, 1 - 100 / halfH);
     const k = Math.max(Math.abs(_p.x) / mx, _p.y > 0 ? _p.y / top : -_p.y / bottom);
     const clamped = behind || k > 1;
-    if (clamped) {
-      const s = Math.max(k, 1e-6);
-      _n.set(_p.x / s, _p.y / s, 0.5).unproject(camera);
+    const s = Math.max(k, 1e-6);
+    const nx = clamped ? _p.x / s : _p.x;
+    let ny = clamped ? _p.y / s : _p.y;
+    let py = ny * halfH;
+    for (let j = 0; j < slot; j++) {
+      const o = placed[j];
+      if (o && Math.abs(nx * halfW - o.x) < LABEL_W && Math.abs(py - o.y) < LABEL_H) {
+        py = o.y + LABEL_H;
+        if (py / halfH > top) py = o.y - LABEL_H;
+      }
+    }
+    placed[slot] = { x: nx * halfW, y: py };
+    const shifted = py !== ny * halfH;
+    ny = py / halfH;
+    if (clamped || shifted) {
+      _n.set(nx, ny, 0.5).unproject(camera);
       anchor.position.copy(_n);
     } else {
       anchor.position.copy(target);
@@ -180,6 +242,13 @@ export function SiteLabel({
       readout.current.textContent = text;
     }
   }, -1);
+
+  useEffect(
+    () => () => {
+      placed[slot] = null;
+    },
+    [slot],
+  );
 
   return (
     <group ref={follow}>

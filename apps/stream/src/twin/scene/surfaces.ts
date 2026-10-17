@@ -1,5 +1,8 @@
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
+import { offsetPolyline } from "../network/layout";
+
+export { KERB_Y, MARK_Y, PATH_Y, PAVEMENT_Y, ROAD_Y } from "../network/layout";
 import type { XZ } from "../network/types";
 import { ATMOS } from "./palette";
 
@@ -55,14 +58,25 @@ export class MeshBuilder {
     for (let i = 0; i < left.length - 1; i++) this.flatQuad(left[i], left[i + 1], right[i], right[i + 1], y, color, paving);
   }
 
-  /** Vertical wall under `line` from y0 up to y1, facing away from the matching points of `ref`. */
-  wall(line: XZ[], ref: XZ[], y0: number, y1: number, color: THREE.Color) {
-    for (let i = 0; i < line.length - 1; i++) {
-      const [ax, az] = line[i];
-      const [bx, bz] = line[i + 1];
-      const hint: [number, number, number] = [ax + bx - ref[i][0] - ref[i + 1][0], 0, az + bz - ref[i][1] - ref[i + 1][1]];
-      this.tri([ax, y0, az], [bx, y0, bz], [ax, y1, az], hint, color);
-      this.tri([bx, y0, bz], [bx, y1, bz], [ax, y1, az], hint, color);
+  /** Flat ribbon along `pts`, `half` metres either side, mitred at the bends. */
+  ribbon(pts: XZ[], half: number, y: number, color: THREE.Color, paving = 0) {
+    if (pts.length < 2) return;
+    this.flatStrip(offsetPolyline(pts, half), offsetPolyline(pts, -half), y, color, paving);
+  }
+
+  /** Flat disc, used to round off junctions and bends where ribbons meet. */
+  disc(x: number, z: number, r: number, y: number, color: THREE.Color, paving = 0, segments = 16) {
+    for (let i = 0; i < segments; i++) {
+      const a0 = (i / segments) * Math.PI * 2;
+      const a1 = ((i + 1) / segments) * Math.PI * 2;
+      this.tri(
+        [x, y, z],
+        [x + Math.cos(a0) * r, y, z + Math.sin(a0) * r],
+        [x + Math.cos(a1) * r, y, z + Math.sin(a1) * r],
+        UP,
+        color,
+        paving,
+      );
     }
   }
 
@@ -104,6 +118,8 @@ float twinHash(vec2 p) {
 
 interface SurfaceOptions {
   roughness: number;
+  /** Stacking order of flat layers: higher wins the depth test over lower ones at the same spot. */
+  layer: number;
   /** Flagstone grid on faces with aPave = 1. */
   paving?: boolean;
   /** Strength of the fine asphalt grain (0 = none). */
@@ -111,15 +127,15 @@ interface SurfaceOptions {
 }
 
 /** Vertex-coloured standard material with wet-road reflections and an optional procedural paving or asphalt look. */
-export function makeSurfaceMaterial({ roughness, paving = false, grain = 0 }: SurfaceOptions) {
+export function makeSurfaceMaterial({ roughness, layer, paving = false, grain = 0 }: SurfaceOptions) {
   const mat = new THREE.MeshStandardMaterial({
     color: "#ffffff",
     roughness,
     metalness: 0.05,
     vertexColors: true,
     polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
+    polygonOffsetFactor: -layer,
+    polygonOffsetUnits: -layer,
   });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTwinWet = wetUniform;

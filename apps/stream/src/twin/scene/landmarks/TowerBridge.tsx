@@ -58,10 +58,6 @@ function tower(kit: Kit, z: number, seed: number) {
       kit.box("stone", 5.8, 1.1, 5.8, cx, 52, cz);
       kit.add("roof", new THREE.ConeGeometry(4, 12, 4, 1), cx, 62, cz, Math.PI / 4);
       kit.add("gold", new THREE.SphereGeometry(0.6, 6, 4), cx, 68.4, cz);
-      for (const k of [-1, 1]) {
-        kit.box("lamp", 0.9, 4, 0.3, cx + k * 1.2, 44, cz + sz * 2.5);
-        kit.box("lamp", 0.3, 4, 0.9, cx + sx * 2.5, 44, cz + k * 1.2);
-      }
     }
   }
   kit.add("beacon", new THREE.SphereGeometry(1, 8, 6), 0, 77.5, z);

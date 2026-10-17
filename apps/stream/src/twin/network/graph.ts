@@ -11,6 +11,7 @@ import {
 } from "./layout";
 import type { Footway, RoadEdge, RoadNetwork, RoadNode, XZ } from "./types";
 
+/** Two-way carriageway widths; one-way roads (often one half of a dual carriageway) get 70% of this. */
 export const ROAD_WIDTH = { major: 10, minor: 6 } as const;
 
 /** Vertices closer than this (from different ways) become one shared node. */
@@ -381,6 +382,23 @@ function compact(planar: Planar, minLen: number, largestOnly = false): { nodes: 
   return { nodes, edges };
 }
 
+/** Chaikin corner cutting that keeps both end points, so OSM's angular bends become smooth curves. */
+function smoothPolyline(pts: XZ[]): XZ[] {
+  let cur = pts;
+  for (let pass = 0; pass < 2 && cur.length >= 3; pass++) {
+    const out: XZ[] = [cur[0]];
+    for (let i = 0; i < cur.length - 1; i++) {
+      const [ax, az] = cur[i];
+      const [bx, bz] = cur[i + 1];
+      if (i > 0) out.push([ax * 0.75 + bx * 0.25, az * 0.75 + bz * 0.25]);
+      if (i < cur.length - 2) out.push([ax * 0.25 + bx * 0.75, az * 0.25 + bz * 0.75]);
+    }
+    out.push(cur[cur.length - 1]);
+    cur = out;
+  }
+  return cur;
+}
+
 function isNearRoad(path: XZ[], reach: SegGrid, segs: RoadEdge[], flat: { e: number; i: number }[]): boolean {
   let near = 0;
   let total = 0;
@@ -429,7 +447,8 @@ export function buildNetwork(geometry: TwinGeometry): RoadNetwork {
   const edges: RoadEdge[] = planar.edges.map((e, id) => {
     const road = sources[e.src];
     const kind = road.kind === "major" ? "major" : "minor";
-    const cum = polyCum(e.pts);
+    const pts = smoothPolyline(e.pts);
+    const cum = polyCum(pts);
     nodes[e.from].edges.push(id);
     nodes[e.to].edges.push(id);
     return {
@@ -437,10 +456,10 @@ export function buildNetwork(geometry: TwinGeometry): RoadNetwork {
       from: e.from,
       to: e.to,
       kind,
-      width: ROAD_WIDTH[kind],
+      width: road.oneway ? ROAD_WIDTH[kind] * 0.7 : ROAD_WIDTH[kind],
       oneway: !!road.oneway,
       bridge: !!road.bridge,
-      pts: e.pts,
+      pts,
       cum,
       length: cum[cum.length - 1],
     };

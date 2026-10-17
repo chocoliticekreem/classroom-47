@@ -1,0 +1,31 @@
+{
+  "id": "default-incident",
+  "name": "Default Incident",
+  "nodes": [
+    { "id": "ingest", "type": "ingest", "label": "Ingest" },
+    { "id": "history", "type": "history_lookup", "label": "History" },
+    { "id": "triage", "type": "triage", "label": "Triage" },
+    { "id": "perspectives", "type": "perspectives", "label": "Perspectives" },
+    { "id": "clash", "type": "clash_check", "label": "Clash Check" },
+    { "id": "planner", "type": "planner", "label": "Planner" },
+    { "id": "gate", "type": "safety_gate", "label": "Safety Gate", "config": { "allow_below": 0.3, "block_above": 0.8 } },
+    { "id": "human", "type": "human_review", "label": "Human Review" },
+    { "id": "action", "type": "action", "label": "Action" },
+    { "id": "verify", "type": "verify", "label": "Verify" },
+    { "id": "log", "type": "case_log", "label": "Case Log" }
+  ],
+  "edges": [
+    { "from": "ingest", "to": "history" },
+    { "from": "history", "to": "triage" },
+    { "from": "triage", "to": "perspectives" },
+    { "from": "perspectives", "to": "clash" },
+    { "from": "clash", "to": "planner" },
+    { "from": "planner", "to": "gate" },
+    { "from": "gate", "to": "action", "when": "allow" },
+    { "from": "gate", "to": "human", "when": "ask" },
+    { "from": "gate", "to": "log", "when": "block" },
+    { "from": "human", "to": "action" },
+    { "from": "action", "to": "verify" },
+    { "from": "verify", "to": "log" }
+  ]
+}

@@ -1,6 +1,7 @@
 import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 import { cached, TTL } from "@/lib/server/cache";
+import { coveredByHeroLandmark } from "@/twin/landmarks";
 import { GEOMETRY_BOUNDS as B, insideGeometryBounds, ORIGIN, toLatLon, toLocal, type Ring, type TwinGeometry, type TwinPoi } from "@/twin/config";
 
 /** Server-side loader for the real OSM geometry around the origin (OpenFreeMap z14 vector tiles). */
@@ -22,7 +23,7 @@ const OSM_COLOURS: Record<string, string> = {
 };
 
 /** Bump when the extraction changes shape so a stale `.cache/` file is not served. */
-const GEOMETRY_VERSION = 2;
+const GEOMETRY_VERSION = 3;
 const CACHE_KEY = `twin-osm-v${GEOMETRY_VERSION}-z${ZOOM}-${ORIGIN.lat}_${ORIGIN.lon}-b${B.xMin}_${B.xMax}_${B.zMin}_${B.zMax}`;
 /** Polygons whose courtyard hole we dropped: they must not be used to hide buildings inside them. */
 const holed = new WeakSet<Ring>();
@@ -365,7 +366,7 @@ async function fetchGeometry(): Promise<TwinGeometry> {
   const out: Collected = { buildings: [], roads: [], water: [], parks: [], pois: [], stations: [], waterways: [] };
   const lightRail: Ring[] = [];
   await Promise.all(tilesCovering().map(({ x, y }) => loadTile(tiles[0], x, y, out, lightRail)));
-  out.buildings = dropHiddenBuildings(out.buildings);
+  out.buildings = dropHiddenBuildings(out.buildings).filter((b) => !coveredByHeroLandmark(b.ring));
   out.water.push(...uncoveredWaterways(out.waterways, out.water));
   for (const s of out.stations) {
     if (s.kind === "rail" && lightRail.some((l) => l.some(([x, z]) => Math.hypot(x - s.pos[0], z - s.pos[1]) < 60))) s.kind = "light_rail";

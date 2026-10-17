@@ -128,6 +128,7 @@ export function World() {
         dpr={dpr}
         camera={camera}
         performance={{ min: 0.5 }}
+        shadows="percentage"
         gl={{
           // Why: Post renders the scene into its own offscreen targets, so native MSAA on the canvas buys nothing.
           antialias: false,

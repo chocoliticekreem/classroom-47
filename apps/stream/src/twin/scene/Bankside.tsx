@@ -3,7 +3,7 @@
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
-import { Beam, SiteLabel } from "./bankside/Beacon";
+import { Beam, GroundRing, SiteLabel } from "./bankside/Beacon";
 import { buildFalconPoint } from "./bankside/falconPoint";
 import { buildHalkin } from "./bankside/halkin";
 import { LAYERS, type SiteModel } from "./bankside/kit";
@@ -11,8 +11,8 @@ import { makeSignMaterial, makeSiteMaterials, updateSiteMaterials } from "./bank
 
 /**
  * Two hero buildings on the south bank, inside the loaded city: Falcon Point (Bankside) and Halkin (the
- * hack venue). Plots were picked from the OSM data: on land, clear of building footprints, Falcon Point's
- * river front facing the water to the north-north-east and Halkin one block back, to its south-west.
+ * hack venue). Plots were picked from the OSM data: on land, footprints clear (2 m margin) of every real
+ * building, Falcon Point's river front facing the water to the north-north-east and Halkin ~45 m to its west.
  */
 interface SiteConfig {
   id: string;
@@ -22,6 +22,8 @@ interface SiteConfig {
   yaw: number;
   scale: number;
   color: string;
+  /** The hack venue: taller light shaft and a ground ring so it can be spotted from Aerial. */
+  venue?: boolean;
   build: () => SiteModel;
 }
 
@@ -29,19 +31,20 @@ const SITES: SiteConfig[] = [
   {
     id: "falcon",
     name: "Falcon Point - Bankside",
-    at: [-196, 510],
-    yaw: -0.38,
+    at: [-196, 508],
+    yaw: -0.5,
     scale: 1,
     color: "#ffb070",
     build: buildFalconPoint,
   },
   {
     id: "halkin",
-    name: "Halkin, 1-2 Paris Garden (Hack venue)",
-    at: [-236, 548],
+    name: "Halkin - Hack venue",
+    at: [-240, 543],
     yaw: -0.8,
     scale: 0.8,
     color: "#5fd4ff",
+    venue: true,
     build: buildHalkin,
   },
 ];
@@ -50,12 +53,14 @@ const SITES: SiteConfig[] = [
 export const BANKSIDE_SITES = Object.fromEntries(SITES.map((s) => [s.id, s.at])) as Record<string, [number, number]>;
 
 const falcon = SITES[0];
-const falconFront: [number, number] = [-Math.sin(falcon.yaw), -Math.cos(falcon.yaw)];
 
-/** Camera preset shape (see scene/cameraStore.ts PRESETS): frames Falcon Point from the river, ~150 m off. */
+/**
+ * Camera preset shape (see scene/cameraStore.ts PRESETS): a high oblique from the south-west, over the real
+ * blocks, so Falcon Point (river front, behind) and Halkin (in front) both read.
+ */
 export const BANKSIDE_VIEW = {
-  pos: [falcon.at[0] + falconFront[0] * 150, 35, falcon.at[1] + falconFront[1] * 150] as [number, number, number],
-  target: [falcon.at[0], 12, falcon.at[1]] as [number, number, number],
+  pos: [falcon.at[0] - 100, 130, falcon.at[1] + 112] as [number, number, number],
+  target: [falcon.at[0] - 22, 10, falcon.at[1] + 17] as [number, number, number],
   label: "Bankside",
 };
 
@@ -88,7 +93,7 @@ export function Bankside() {
 
   return (
     <>
-      {built.sites.map(({ site, model, signs }) => (
+      {built.sites.map(({ site, model, signs }, slot) => (
         <group key={site.id}>
           <group position={[site.at[0], 0, site.at[1]]} rotation={[0, site.yaw, 0]} scale={site.scale}>
             {LAYERS.map((layer) => {
@@ -104,11 +109,13 @@ export function Bankside() {
               </group>
             ))}
           </group>
-          <Beam x={site.at[0]} z={site.at[1]} color={site.color} />
+          <Beam x={site.at[0]} z={site.at[1]} color={site.color} height={site.venue ? 260 : undefined} />
+          {site.venue && <GroundRing x={site.at[0]} z={site.at[1]} color={site.color} radius={48} />}
           <SiteLabel
             x={site.at[0]}
             y={model.topM * site.scale + 8}
             z={site.at[1]}
+            slot={slot}
             name={site.name}
             color={site.color}
           />

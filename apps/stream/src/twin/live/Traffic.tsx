@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useDemoSettings } from "@/platform/demo";
 import { toLocal } from "../config";
+import { ROAD_Y } from "../network/layout";
 import { useNetwork } from "../network/useNetwork";
 import { ATMOS } from "../scene/palette";
 import { getLastField, useCoveredFrames, useFieldStore } from "../sim/useField";
@@ -26,7 +27,7 @@ const POLICE_PAINT = new THREE.Color("#f2f4f6");
 const AMBULANCE_PAINT = new THREE.Color("#f5e31a");
 const QUARRY_PAINT = new THREE.Color("#8a1c1c");
 const SEED = 4717;
-const GROUND_Y = 0.05;
+const GROUND_Y = ROAD_Y;
 /** Small pool kept on the road in responders-only mode: enough cars and vans to cast a chase or an ambulance. */
 const RESPONDER_POOL = 12;
 

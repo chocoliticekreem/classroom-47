@@ -2,18 +2,65 @@
 
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
-import { ROAD_Y, layoutOf, offsetPolyline, subPolyline } from "../network/layout";
+import { MARK_Y, ROAD_Y, layoutOf, offsetPolyline, subPolyline } from "../network/layout";
 import type { RoadNetwork, XZ } from "../network/types";
 import { useNetwork } from "../network/useNetwork";
 import { MeshBuilder, makeSurfaceMaterial, useSurfaceUniforms } from "./surfaces";
 
-const ASPHALT = { major: new THREE.Color("#343842"), minor: new THREE.Color("#2e323c") };
+const ASPHALT = new THREE.Color("#32363f");
 const PAINT = new THREE.Color("#d6dae2");
-const MARKING_Y = ROAD_Y + 0.02;
 
 const DASH = { major: { on: 3.5, off: 7 }, minor: { on: 2, off: 5 } };
+const CELL = 20;
+const EDGE_LINE_PIECE = 2.5;
 
-function paintDashes(b: MeshBuilder, pts: XZ[], cum: number[], from: number, to: number, on: number, off: number) {
+/** True where a point lies on another road's carriageway, so paint there would run across foreign asphalt. */
+function makeCoverTest(net: RoadNetwork) {
+  const cells = new Map<number, [number, number, number, number, number, number][]>();
+  const key = (cx: number, cz: number) => (cx + 1024) * 4096 + (cz + 1024);
+  for (const edge of net.edges) {
+    for (let i = 0; i < edge.pts.length - 1; i++) {
+      const [ax, az] = edge.pts[i];
+      const [bx, bz] = edge.pts[i + 1];
+      const seg: [number, number, number, number, number, number] = [ax, az, bx, bz, edge.width / 2 + 0.4, edge.id];
+      for (let cx = Math.floor((Math.min(ax, bx) - 6) / CELL); cx <= Math.floor((Math.max(ax, bx) + 6) / CELL); cx++) {
+        for (let cz = Math.floor((Math.min(az, bz) - 6) / CELL); cz <= Math.floor((Math.max(az, bz) + 6) / CELL); cz++) {
+          const list = cells.get(key(cx, cz));
+          if (list) list.push(seg);
+          else cells.set(key(cx, cz), [seg]);
+        }
+      }
+    }
+  }
+  return (x: number, z: number, self: number): boolean => {
+    for (const [ax, az, bx, bz, reach, id] of cells.get(key(Math.floor(x / CELL), Math.floor(z / CELL))) ?? []) {
+      if (id === self) continue;
+      const ex = bx - ax;
+      const ez = bz - az;
+      const u = Math.min(1, Math.max(0, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1)));
+      if (Math.hypot(x - ax - ex * u, z - az - ez * u) < reach) return true;
+    }
+    return false;
+  };
+}
+
+function paintPiece(b: MeshBuilder, line: XZ[], half: number, covered: (x: number, z: number) => boolean) {
+  const mid = line[line.length >> 1];
+  const [first, last] = [line[0], line[line.length - 1]];
+  if (covered(mid[0], mid[1]) || covered(first[0], first[1]) || covered(last[0], last[1])) return;
+  b.ribbon(line, half, MARK_Y, PAINT);
+}
+
+function paintDashes(
+  b: MeshBuilder,
+  pts: XZ[],
+  cum: number[],
+  from: number,
+  to: number,
+  on: number,
+  off: number,
+  covered: (x: number, z: number) => boolean,
+) {
   const span = to - from;
   if (span < on) return;
   const count = Math.max(1, Math.floor((span + off) / (on + off)));
@@ -21,26 +68,18 @@ function paintDashes(b: MeshBuilder, pts: XZ[], cum: number[], from: number, to:
   const start = count > 1 ? from : from + (span - on) / 2;
   for (let i = 0; i < count; i++) {
     const s0 = start + pitch * i;
-    const line = subPolyline(pts, cum, s0, s0 + on);
-    b.flatStrip(offsetPolyline(line, 0.08), offsetPolyline(line, -0.08), MARKING_Y, PAINT);
+    paintPiece(b, subPolyline(pts, cum, s0, s0 + on), 0.08, covered);
   }
 }
 
+/** One flat layer: a ribbon per edge, with a disc at every junction and bend so the joins are round and gap-free. */
 function buildAsphalt(net: RoadNetwork): THREE.BufferGeometry {
   const layout = layoutOf(net);
   const b = new MeshBuilder();
-  net.edges.forEach((edge) => {
-    const strip = layout.strips[edge.id];
-    if (strip) b.flatStrip(strip.leftIn, strip.rightIn, ROAD_Y, ASPHALT[edge.kind]);
-  });
-  for (const { node, poly } of layout.patches) {
-    const n = net.nodes[node];
-    const color = n.edges.some((e) => net.edges[e].kind === "major") ? ASPHALT.major : ASPHALT.minor;
-    for (let i = 0; i < poly.length; i++) {
-      const p = poly[i];
-      const q = poly[(i + 1) % poly.length];
-      b.tri([n.x, ROAD_Y, n.z], [p[0], ROAD_Y, p[1]], [q[0], ROAD_Y, q[1]], [0, 1, 0], color);
-    }
+  for (const edge of net.edges) if (!layout.hidden[edge.id]) b.ribbon(edge.pts, edge.width / 2, ROAD_Y, ASPHALT);
+  for (const node of net.nodes) {
+    const r = layout.nodeRadius[node.id];
+    if (r > 0 && !node.edges.every((e) => layout.hidden[e])) b.disc(node.x, node.z, r, ROAD_Y, ASPHALT);
   }
   return b.build();
 }
@@ -48,25 +87,26 @@ function buildAsphalt(net: RoadNetwork): THREE.BufferGeometry {
 function buildMarkings(net: RoadNetwork): THREE.BufferGeometry {
   const layout = layoutOf(net);
   const b = new MeshBuilder();
+  const covered = makeCoverTest(net);
   net.edges.forEach((edge) => {
     const strip = layout.strips[edge.id];
-    if (!strip || strip.length < 8) return;
+    if (!strip || strip.length < 8 || layout.hidden[edge.id]) return;
+    const here = (x: number, z: number) => covered(x, z, edge.id);
     const margin = (atStart: boolean) => (net.nodes[atStart ? edge.from : edge.to].junction ? 2.5 : 0.5);
     if (!edge.oneway) {
       const { on, off } = DASH[edge.kind];
-      paintDashes(b, strip.pts, strip.cum, margin(true), strip.length - margin(false), on, off);
+      paintDashes(b, strip.pts, strip.cum, margin(true), strip.length - margin(false), on, off, here);
     }
-    if (edge.kind === "major") {
-      for (const side of [1, -1]) {
-        const d = side * (edge.width / 2 - 0.5);
-        b.flatStrip(offsetPolyline(strip.pts, d + 0.06), offsetPolyline(strip.pts, d - 0.06), MARKING_Y, PAINT);
-      }
+    if (edge.kind !== "major") return;
+    for (let s = 0; s < strip.length - 0.5; s += EDGE_LINE_PIECE) {
+      const piece = subPolyline(strip.pts, strip.cum, s, Math.min(strip.length, s + EDGE_LINE_PIECE));
+      for (const side of [1, -1]) paintPiece(b, offsetPolyline(piece, side * (edge.width / 2 - 0.5)), 0.06, here);
     }
   });
 
   for (const items of layout.items) {
     for (const it of items) {
-      if (!it.crossing) continue;
+      if (!it.crossing || layout.hidden[it.edge]) continue;
       const edge = net.edges[it.edge];
       const strip = layout.strips[it.edge];
       if (!strip) continue;
@@ -82,7 +122,7 @@ function buildMarkings(net: RoadNetwork): THREE.BufferGeometry {
         const z0 = c[1] + dx * (lat - 0.25) - dz * 1.5;
         const x1 = c[0] - dz * (lat + 0.25) - dx * 1.5;
         const z1 = c[1] + dx * (lat + 0.25) - dz * 1.5;
-        b.flatQuad([x0, z0], [x1, z1], [x0 + dx * 3, z0 + dz * 3], [x1 + dx * 3, z1 + dz * 3], MARKING_Y, PAINT);
+        b.flatQuad([x0, z0], [x1, z1], [x0 + dx * 3, z0 + dz * 3], [x1 + dx * 3, z1 + dz * 3], MARK_Y, PAINT);
       }
     }
   }
@@ -148,12 +188,10 @@ export function Roads() {
     [net],
   );
   const materials = useMemo(() => {
-    const paint = makeSurfaceMaterial({ roughness: 0.55 });
-    paint.polygonOffsetFactor = -3;
-    paint.polygonOffsetUnits = -3;
+    const paint = makeSurfaceMaterial({ roughness: 0.55, layer: 5 });
     paint.emissive.set("#ffffff");
     paint.emissiveIntensity = 0.12;
-    return { asphalt: makeSurfaceMaterial({ roughness: 0.92, grain: 0.35 }), paint };
+    return { asphalt: makeSurfaceMaterial({ roughness: 0.92, layer: 3, grain: 0.35 }), paint };
   }, []);
   const showNodes = useMemo(() => new URLSearchParams(window.location.search).get("nodes") === "1", []);
 

@@ -1,5 +1,6 @@
 import { mulberry32, wrapAngle } from "../sim/rng";
 import { LANES_M, river, sampleRiver, type RiverSample } from "../river";
+import { waveHeight, waveSlope } from "../../scene/Water";
 import { SPECS, type BoatKind, type BoatSpec } from "./models";
 
 const STOP_M = 60;
@@ -15,18 +16,9 @@ const COMMITTED_M = 8;
 const ENTRY_M = 30;
 const WATER_Y = 0.14;
 
-/**
- * The same plane waves as the water shader (scene/Water.tsx waveSlope): direction, wavenumber, angular speed and
- * slope amplitude. Heights follow from slope / k, so hulls rise and tilt with the surface the camera sees.
- */
-const WAVES = [
-  { dx: 0.96, dz: 0.28, k: 0.28, w: 0.8, slope: 0.098 },
-  { dx: -0.5, dz: 0.87, k: 0.51, w: 1.1, slope: 0.102 },
-  { dx: 0.2, dz: -0.98, k: 1.1, w: 1.6, slope: 0.11 },
-  { dx: -0.85, dz: -0.53, k: 2.3, w: 2.2, slope: 0.115 },
-];
-const HEAVE_GAIN = 0.5;
-const TILT_GAIN = 0.7;
+/** The swell from scene/Water is small (about +-0.2 m), so hulls answer it with extra gain to read from the aerial camera. */
+const HEAVE_GAIN = 1.2;
+const TILT_GAIN = 0.5;
 /** Bow lift per m/s of speed, radians. */
 const BOW_LIFT = 0.0035;
 
@@ -83,6 +75,7 @@ export interface Fleet {
 }
 
 const P0: RiverSample = { x: 0, z: 0, tx: 0, tz: 0, hw: 0 };
+const SLOPE = { x: 0, z: 0 };
 const P1: RiverSample = { x: 0, z: 0, tx: 0, tz: 0, hw: 0 };
 
 function makeBoat(f: Fleet, kind: BoatKind, slot: number, dir: 1 | -1): Boat {
@@ -282,24 +275,13 @@ function pose(f: Fleet, b: Boat, dt: number) {
   }
   const fx = Math.sin(b.yaw);
   const fz = Math.cos(b.yaw);
-  let heave = 0;
-  let slopeFwd = 0;
-  let slopePort = 0;
-  for (let i = 0; i < WAVES.length; i++) {
-    const w = WAVES[i];
-    const phase = (w.dx * P0.x + w.dz * P0.z) * w.k + f.seaTime * w.w;
-    // Waves shorter than the hull average out along it, so long hulls only answer the swell.
-    const reach = w.k * b.spec.length * 0.25;
-    const along = 1 / (1 + reach * reach);
-    heave += (w.slope / w.k) * Math.sin(phase) * along;
-    const slope = w.slope * Math.cos(phase) * along;
-    slopeFwd += slope * (w.dx * fx + w.dz * fz);
-    slopePort += slope * (w.dx * fz - w.dz * fx);
-  }
-  const lean = Math.max(-0.12, Math.min(0.12, b.turn * b.speed * 0.012 * b.spec.lean));
+  waveSlope(P0.x, P0.z, f.seaTime, SLOPE);
+  const slopeFwd = SLOPE.x * fx + SLOPE.z * fz;
+  const slopePort = SLOPE.x * fz - SLOPE.z * fx;
+  const lean = Math.max(-0.12, Math.min(0.12, b.turn * b.speed * 0.005 * b.spec.lean));
   b.x = P0.x;
   b.z = P0.z;
-  b.y = WATER_Y + heave * HEAVE_GAIN * b.spec.bob;
+  b.y = WATER_Y + waveHeight(P0.x, P0.z, f.seaTime) * HEAVE_GAIN * b.spec.bob;
   b.roll = slopePort * TILT_GAIN * b.spec.bob - lean;
   b.pitch = -slopeFwd * TILT_GAIN * b.spec.bob - Math.min(b.speed, 12) * BOW_LIFT;
   const edge = Math.min(b.s, L - b.s);

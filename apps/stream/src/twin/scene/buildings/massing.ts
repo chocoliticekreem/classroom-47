@@ -316,6 +316,9 @@ function addBuilding(b: MeshBuilder, placed: PlacedBuilding) {
     mast: surface(MAST, seed, 0, 0),
   };
   const slope = surface(roofTone, seed, 0, 0, 1.1);
+  // Roof-top plant rooms and lift cores arrive as tiny floating parts: plain grey boxes, no windows or trim.
+  const solid = part && minH >= 15 && height - minH < 20 && fp.area < 400;
+  if (solid) look.wall = look.plant;
 
   const base = offsetRing(fp.pts, 0.01 + Math.floor(seed * 6) * 0.025);
   const tiers = part ? [{ ring: base, from: 0, to: floors }] : planTiers(fp, base, floors, height, rnd);
@@ -339,6 +342,10 @@ function addBuilding(b: MeshBuilder, placed: PlacedBuilding) {
       addLedge(b, tier.ring, lipRing, yWall - 0.05, yWall + 0.12, look.trim, false);
     }
     addWalls(b, tier.ring, yWall, yTop, look, look.wall, false, rnd);
+    if (solid) {
+      b.cap(tier.ring, yTop, look.roof);
+      continue;
+    }
 
     const ledgeRing = offsetRing(tier.ring, glass ? 0.12 : 0.15);
     for (let f = tier.from + 1; f < tier.to; f++) {
