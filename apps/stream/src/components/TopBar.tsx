@@ -4,41 +4,50 @@ import { Bell, Search } from "lucide-react";
 
 export function TopBar({ live }: { live: boolean }) {
   return (
-    <header className="flex h-14 shrink-0 items-center gap-6 border-b border-line bg-surface px-5">
-      <div className="flex items-center gap-2.5">
-        <span className="grid size-7 place-items-center rounded-lg bg-ember text-[13px] font-black text-bg">
+    <header className="flex h-13 shrink-0 items-center gap-5 border-b border-line bg-surface px-4 lg:px-5">
+      <div className="flex items-center gap-3">
+        <span className="relative grid size-7 place-items-center rounded-[6px] bg-ember font-mono text-[11px] font-bold leading-none text-bg">
           47
+          <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-text" />
         </span>
-        <span className="text-[15px] font-semibold tracking-tight">Classroom 47</span>
+        <span className="font-display text-[17px] font-semibold leading-none tracking-[-0.02em]">
+          Classroom <span className="text-muted">47</span>
+        </span>
+        <span className="hidden items-center gap-1.5 border-l border-line pl-3 font-mono text-[10px] uppercase tracking-[0.18em] text-dim lg:flex">
+          London
+          <span className="size-0.5 rounded-full bg-dim" />
+          IRL
+        </span>
       </div>
 
-      <div className="mx-auto hidden w-full max-w-md items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 py-1.5 md:flex">
-        <Search className="size-4 text-muted" aria-hidden />
+      <div className="mx-auto hidden w-full max-w-sm items-center gap-2 rounded-md border border-line bg-bg px-2.5 py-1.5 transition-colors focus-within:border-line-strong md:flex">
+        <Search className="size-3.5 text-dim" aria-hidden />
         <input
           type="search"
           placeholder="Search streams, places, people"
-          className="w-full bg-transparent text-sm text-text placeholder:text-muted focus:outline-none"
+          className="w-full bg-transparent text-[13px] text-text placeholder:text-dim focus:outline-none"
         />
+        <kbd className="rounded border border-line px-1 font-mono text-[10px] text-dim">/</kbd>
       </div>
 
-      <div className="ml-auto flex items-center gap-3">
+      <div className="ml-auto flex items-center gap-2">
         <span
-          className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${
+          className={`flex h-7 items-center gap-2 rounded-md border px-2.5 font-mono text-[10px] uppercase tracking-[0.16em] ${
             live ? "border-live/40 bg-live/10 text-live" : "border-line text-muted"
           }`}
         >
-          <span className={`size-1.5 rounded-full ${live ? "animate-live bg-live" : "bg-muted"}`} />
-          {live ? "You're live" : "Offline"}
+          <span className={`size-1.5 rounded-full ${live ? "animate-live bg-live" : "bg-dim"}`} />
+          {live ? "On air" : "Standby"}
         </span>
         <button
           type="button"
           aria-label="Notifications"
-          className="grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-text"
+          className="grid size-8 place-items-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-text"
         >
           <Bell className="size-4" />
         </button>
-        <span className="grid size-8 place-items-center rounded-full bg-surface-2 text-xs font-semibold ring-1 ring-line">
-          C4
+        <span className="grid size-8 place-items-center rounded-md bg-surface-2 font-mono text-[11px] font-semibold ring-1 ring-line">
+          SN
         </span>
       </div>
     </header>

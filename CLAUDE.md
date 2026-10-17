@@ -116,7 +116,7 @@ The goal is something that **looks crazy** on stage and **never breaks** during 
 
 ### Demo arc (3 min)
 1. **Hook:** Union Square plus Oxford Street. "Both started with one message."
-2. **Live stream:** walking through the West End, with chat flowing and the surroundings card showing crowd, incidents and a reroute.
+2. **Live stream:** walking from Tower Hill to Tower Bridge, with chat flowing and the surroundings card showing crowd, incidents and a reroute.
 3. **"Should I tell chat?" → Simulate first.** The camera flies into the twin, personas flood in, and a red crush warning fires.
 4. **The agent suggests a safer spot.** The re-run stays green, and the tagline closes.
 
@@ -129,7 +129,7 @@ The goal is something that **looks crazy** on stage and **never breaks** during 
 
 ### Structure and integration
 - **Layout:** CAMP-layered (VAST's stack: Coding agents, Agent runtimes, Model services, Platform). Code lives in `apps/stream/src/agents`, `apps/stream/src/platform`, `apps/stream/src/components` and `apps/stream/src/lib`. See `docs/ARCHITECTURE.md`.
-- **Integration:** the stream page and the city talk over the `classroom-47` BroadcastChannel (`apps/stream/src/platform/bus.ts`). The city listens for `location.reveal` and `sim.request`, and publishes `surroundings.update`.
+- **Integration:** the stream page and the city talk over the `classroom-47` BroadcastChannel (`apps/stream/src/platform/bus.ts`). Event names follow Arvin's city contract (`apps/web/src/world/streamerContract.ts`): the stream publishes `reality:fork` (scenario `leak_location_50` on "Simulate first") and `streamer:location_leaked`; the city publishes `surroundings.update`. The city is being rebuilt around **Tower Hill**; mapping stream locations to city x/z comes after that.
 - **To-dos:** `TODO.md`.
 - **Run:** `npm install && npm run dev -w stream`.
 - **No unit tests:** it's a hackathon. Gate is typecheck, lint and build.

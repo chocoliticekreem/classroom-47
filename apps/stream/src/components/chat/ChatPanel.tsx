@@ -10,9 +10,8 @@ import {
   MessageSquareOff,
   Send,
   Shield,
-  Sparkles,
   Star,
-  Users,
+  Zap,
 } from "lucide-react";
 import type { Badge, ChatMessage } from "@/lib/types";
 
@@ -37,55 +36,82 @@ function formatViewers(n: number) {
   return n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n);
 }
 
+function hhmm(ts: number) {
+  return new Date(ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
 function Badges({ badges }: { badges: Badge[] }) {
   if (badges.length === 0) return null;
   return (
     <span className="mr-1 inline-flex translate-y-[2px] gap-0.5">
       {badges.map((b) => {
         const { Icon, className, label } = BADGE_ICON[b];
-        return <Icon key={b} aria-label={label} className={`size-3.5 ${className}`} />;
+        return <Icon key={b} aria-label={label} className={`size-3 ${className}`} />;
       })}
     </span>
+  );
+}
+
+function Stamp({ ts }: { ts: number }) {
+  return (
+    <span className="mr-1.5 hidden font-mono text-[9px] text-dim group-hover:inline">{hhmm(ts)}</span>
   );
 }
 
 function MessageRow({ m }: { m: ChatMessage }) {
   if (m.highlight === "donation") {
     return (
-      <div className="animate-chat-in my-1 rounded-lg border border-ember/40 bg-ember-soft px-3 py-2">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-ember">
-          <Sparkles className="size-3.5" />
-          {m.username} tipped £{m.amount}
+      <div className="animate-chat-in my-1 overflow-hidden rounded-[6px] border border-ember/40 bg-ember-soft">
+        <div className="flex items-center justify-between border-b border-ember/20 px-2.5 py-1">
+          <span className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-ember">
+            <Zap className="size-3 fill-current" />
+            Tip
+          </span>
+          <span className="font-mono text-[12px] font-semibold text-ember">£{m.amount}</span>
         </div>
-        <p className="mt-0.5 text-sm text-text">{m.text}</p>
+        <p className="px-2.5 py-1.5 text-[13px] leading-5">
+          <span className="font-semibold" style={{ color: m.color }}>
+            {m.username}
+          </span>
+          <span className="text-muted"> · </span>
+          <span className="text-text">{m.text}</span>
+        </p>
       </div>
     );
   }
 
-  const base = "animate-chat-in rounded-md px-2 py-1 text-[13px] leading-5 break-words";
+  const base = "group animate-chat-in rounded-[4px] px-2 py-[3px] text-[13px] leading-[18px] break-words";
   const tone = m.fromStreamer
-    ? "border-l-2 border-ember bg-ember-soft"
-    : m.highlight === "first"
-      ? "border-l-2 border-[#5aa9ff] bg-[#5aa9ff12]"
-      : "hover:bg-surface-2";
+    ? "my-0.5 border-l-2 border-ember bg-ember-soft"
+    : m.locationSignal
+      ? "border-l-2 border-warn/70 bg-warn/[0.06]"
+      : m.highlight === "first"
+        ? "border-l-2 border-[#5aa9ff] bg-[#5aa9ff10]"
+        : "hover:bg-surface-2";
 
   return (
     <div className={`${base} ${tone}`}>
       {m.highlight === "first" && (
-        <div className="mb-0.5 text-[10px] font-semibold tracking-wide text-[#5aa9ff] uppercase">
+        <div className="mb-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-[#5aa9ff]">
           First message
         </div>
       )}
+      {m.fromStreamer && (
+        <div className="mb-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-ember">
+          Streamer
+        </div>
+      )}
+      <Stamp ts={m.timestamp} />
       <Badges badges={m.badges} />
       <span className="font-semibold" style={{ color: m.color }}>
         {m.username}
       </span>
-      <span className="text-muted">: </span>
-      <span className={m.fromStreamer ? "font-medium text-text" : "text-text/90"}>{m.text}</span>
+      <span className="text-dim"> </span>
+      <span className={m.fromStreamer ? "font-medium text-text" : "text-text/85"}>{m.text}</span>
       {m.locationSignal && (
-        <span className="ml-1.5 inline-flex translate-y-[-1px] items-center gap-0.5 rounded border border-warn/30 bg-warn/10 px-1 py-px align-middle text-[10px] font-medium text-warn">
+        <span className="ml-1.5 inline-flex translate-y-[-1px] items-center gap-0.5 rounded-[3px] border border-warn/20 px-1 py-px align-middle font-mono text-[9px] uppercase tracking-[0.1em] text-warn/80">
           <MapPin className="size-2.5" />
-          location signal
+          Location
         </span>
       )}
     </div>
@@ -137,29 +163,41 @@ export function ChatPanel({ messages, onSend, viewers, live }: ChatPanelProps) {
     }
   }
 
+  const signals = messages.reduce((n, m) => n + (m.locationSignal ? 1 : 0), 0);
+
   return (
-    <section className="flex h-full min-h-0 flex-col border-l border-line bg-surface">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-line px-4">
-        <h2 className="text-xs font-semibold tracking-[0.14em] text-text uppercase">Live chat</h2>
-        <span className="inline-flex items-center gap-1.5 font-mono text-xs text-muted">
-          <Users className="size-3.5" />
-          {live ? formatViewers(viewers) : "—"}
-        </span>
+    <section className="flex h-full min-h-0 flex-col bg-surface">
+      <header className="flex h-11 shrink-0 items-center justify-between border-b border-line px-3.5">
+        <h2 className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-text">
+          <span className={`size-1.5 rounded-full ${live ? "animate-live bg-live" : "bg-dim"}`} />
+          Chat
+        </h2>
+        <div className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.12em]">
+          {signals > 0 && (
+            <span className="flex items-center gap-1 text-warn">
+              <MapPin className="size-3" />
+              {signals}
+            </span>
+          )}
+          <span className="text-muted">
+            <span className="text-text">{live ? formatViewers(viewers) : "—"}</span> watching
+          </span>
+        </div>
       </header>
 
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className="scrollbar-thin h-full overflow-y-auto px-2 py-2"
+          className="scrollbar-thin h-full overflow-y-auto px-1.5 py-2"
         >
           {!live && messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-muted">
-              <MessageSquareOff className="size-6" />
-              <p className="text-sm">Chat opens when you go live</p>
+              <MessageSquareOff className="size-5 text-dim" />
+              <p className="text-[13px]">Chat opens when you go live</p>
             </div>
           ) : (
-            <div className="flex flex-col gap-0.5">
+            <div className="flex flex-col gap-px">
               {messages.map((m) => (
                 <MessageRow key={m.id} m={m} />
               ))}
@@ -171,31 +209,32 @@ export function ChatPanel({ messages, onSend, viewers, live }: ChatPanelProps) {
           <button
             type="button"
             onClick={resume}
-            className="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-surface-2/95 px-3 py-1.5 text-xs font-medium text-text shadow-lg backdrop-blur hover:border-ember/60"
+            className="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-md border border-line-strong bg-surface-2/95 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-text shadow-lg backdrop-blur hover:border-ember/60"
           >
-            <ArrowDown className="size-3.5" />
-            Chat paused{unseen > 0 ? ` — ${unseen} new` : ""}
+            <ArrowDown className="size-3" />
+            Paused{unseen > 0 ? ` · ${unseen} new` : ""}
           </button>
         )}
       </div>
 
-      <div className="shrink-0 border-t border-line p-3">
-        <div className="flex items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 focus-within:border-ember/60">
+      <div className="shrink-0 border-t border-line p-2.5">
+        <div className="flex items-center gap-2 rounded-md border border-line bg-bg pl-3 pr-1.5 transition-colors focus-within:border-ember/60">
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ember">You</span>
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Send a message as streamer"
-            className="h-10 min-w-0 flex-1 bg-transparent text-sm text-text outline-none placeholder:text-muted"
+            placeholder="Say something to chat"
+            className="h-10 min-w-0 flex-1 bg-transparent text-[13px] text-text outline-none placeholder:text-dim"
           />
           <button
             type="button"
             onClick={submit}
             disabled={!draft.trim()}
             aria-label="Send"
-            className="rounded-md p-1.5 text-ember transition-opacity disabled:opacity-30"
+            className="grid size-7 place-items-center rounded-[4px] bg-ember text-bg transition-opacity disabled:bg-transparent disabled:text-dim"
           >
-            <Send className="size-4" />
+            <Send className="size-3.5" />
           </button>
         </div>
       </div>
