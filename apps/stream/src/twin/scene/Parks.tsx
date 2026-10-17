@@ -17,7 +17,7 @@ const M2_PER_TREE = 120;
 const PARK_Y = 0.12;
 
 const GRASS_DAY = new THREE.Color("#8fa879");
-const GRASS_NIGHT = new THREE.Color("#6a9a98");
+const GRASS_NIGHT = new THREE.Color("#80b4b0");
 const GRASS_GLOW = new THREE.Color("#0c3a30");
 const CANOPY_DAY = new THREE.Color("#ffffff");
 const CANOPY_NIGHT = new THREE.Color("#6f9aa6");
@@ -173,7 +173,7 @@ export function Parks() {
     const day = 1 - ATMOS.windowGlow;
     if (grass) {
       grass.material.color.copy(GRASS_NIGHT).lerp(GRASS_DAY, day);
-      grass.material.emissive.copy(GRASS_GLOW).multiplyScalar(0.3 * ATMOS.windowGlow);
+      grass.material.emissive.copy(GRASS_GLOW).multiplyScalar(0.55 * ATMOS.windowGlow);
     }
     if (trees) {
       trees.canopyMat.color.copy(CANOPY_NIGHT).lerp(CANOPY_DAY, day);

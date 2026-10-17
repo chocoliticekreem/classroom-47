@@ -185,10 +185,15 @@ export function Buses() {
     if (!now) return [];
     const out: { place: StopPlace; arrival: BusArrival; key: string }[] = [];
     for (const place of places) {
+      // A stop can list the same line and destination twice (back-to-back buses), so the key counts repeats.
+      const seen = new Map<string, number>();
       for (const a of place.stop.arrivals) {
         const rem = remainingSeconds(place.stop, a, now);
         if (rem < APPROACH_S && rem > -DWELL_S) {
-          out.push({ place, arrival: a, key: `${place.stop.id}:${a.line}:${a.destination}` });
+          const base = `${place.stop.id}:${a.line}:${a.destination}`;
+          const n = seen.get(base) ?? 0;
+          seen.set(base, n + 1);
+          out.push({ place, arrival: a, key: `${base}:${n}` });
         }
       }
     }

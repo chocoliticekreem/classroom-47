@@ -1,4 +1,4 @@
-import { Kit, lamp, rng, windowRow, type SignSpec, type SiteModel } from "./kit";
+import { Kit, rng, windowRow, type SignSpec, type SiteModel } from "./kit";
 
 /**
  * Falcon Point, Hopton Street (Wates, 1976-79): a nine-storey stepped brutalist riverside slab of pale
@@ -135,18 +135,6 @@ function roof(k: Kit) {
   k.box("strip", -34, y + 9, 6, 0.4, 0.4, 0.4, "#ff5a4a");
 }
 
-function groundPatch(k: Kit) {
-  k.box("body", 0, -0.03, 19, 170, 0.1, 106, "#2b2e36");
-  k.box("body", 0, -1.2, -34, 170, 1.4, 0.8, "#3a3d44");
-  k.box("water", 0, -0.5, -92, 360, 0.52, 116, "#0e1d33");
-  for (let x = -75; x <= 75; x += 15) {
-    lamp(k, x, -26);
-    k.box("lit", x - 0.6, 0.03, -42, 0.5, 0.02, 8, "#ffb35c");
-    k.box("lit", x + 0.7, 0.03, -56, 0.35, 0.02, 5, "#ffb35c");
-  }
-  for (let z = 14; z <= 62; z += 16) lamp(k, 62, z);
-}
-
 export function buildFalconPoint(): SiteModel {
   const k = new Kit();
   const rand = rng(1976);
@@ -156,6 +144,5 @@ export function buildFalconPoint(): SiteModel {
   eastWing(k, rand);
   groundFloor(k, signs);
   roof(k);
-  groundPatch(k);
   return { geometry: k.build(), signs, topM: FLOORS * FH + 3.5 };
 }

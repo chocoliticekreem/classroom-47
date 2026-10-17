@@ -2,33 +2,18 @@ import * as THREE from "three";
 import { ATMOS } from "../palette";
 import type { Layer, SignSpec } from "./kit";
 
-/** Fog depth is scaled down so the sites stay readable skyline silhouettes ~2 km out instead of fogging away. */
-const FOG_DEPTH_SCALE = 0.5;
-
-function lightFog(material: THREE.Material) {
-  material.customProgramCacheKey = () => `bankside-fog-${material.type}`;
-  material.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader.replace(
-      "#include <fog_vertex>",
-      `#include <fog_vertex>\n#ifdef USE_FOG\nvFogDepth *= ${FOG_DEPTH_SCALE.toFixed(2)};\n#endif`,
-    );
-  };
-  return material;
-}
-
 function glowing() {
-  return lightFog(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
+  return new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
 }
 
 export type SiteMaterials = Record<Layer, THREE.Material>;
 
 export function makeSiteMaterials(): SiteMaterials {
   return {
-    body: lightFog(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 })),
-    glass: lightFog(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.2, metalness: 0.6 })),
+    body: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 }),
+    glass: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.2, metalness: 0.6 }),
     lit: glowing(),
     strip: glowing(),
-    water: lightFog(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, metalness: 0.5 })),
   };
 }
 
@@ -71,5 +56,5 @@ export function makeSignMaterial(spec: SignSpec) {
   const map = new THREE.CanvasTexture(canvas);
   map.colorSpace = THREE.SRGBColorSpace;
   map.anisotropy = 4;
-  return lightFog(new THREE.MeshBasicMaterial({ map, toneMapped: false })) as THREE.MeshBasicMaterial;
+  return new THREE.MeshBasicMaterial({ map, toneMapped: false });
 }
