@@ -1,5 +1,6 @@
 import type { TwinGeometry } from "../../config";
 import { ringRoadDepth, type RoadIndex } from "./clearance";
+import { onHeroPlot } from "./overlaps";
 import { pointInRing, prepareFootprint, type Footprint } from "./footprint";
 
 type Building = TwinGeometry["buildings"][number];
@@ -19,6 +20,8 @@ export interface AuditReport {
   /** Buildings with a footprint inside a carriageway by more than 1.5 m. */
   roadIntrusions: number;
   worstRoadMetres: number;
+  /** Buildings with a vertex or centre inside a Bankside hero-model plot. */
+  heroPlotOverlaps: number;
 }
 
 const GRID = 60;
@@ -91,7 +94,8 @@ export function auditItems(items: AuditItem[], roads: RoadIndex | null): AuditRe
       worstRoadMetres = Math.max(worstRoadMetres, depth);
     }
   }
-  return { buildings: items.length, overlappingPairs, containedPairs, roadIntrusions, worstRoadMetres: +worstRoadMetres.toFixed(1) };
+  const heroPlotOverlaps = items.filter((it) => it.fp.pts.some(([x, z]) => onHeroPlot(x, z)) || onHeroPlot(it.fp.cx, it.fp.cz)).length;
+  return { buildings: items.length, overlappingPairs, containedPairs, roadIntrusions, worstRoadMetres: +worstRoadMetres.toFixed(1), heroPlotOverlaps };
 }
 
 /** Audit of raw OSM footprints, exactly as they arrive (no dedupe, no clearance). */

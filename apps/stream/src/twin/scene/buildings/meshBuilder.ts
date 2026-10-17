@@ -3,7 +3,7 @@ import type { P2 } from "./footprint";
 
 export type V3 = [number, number, number];
 
-/** What the facade shader needs to know about a surface. `style`: 0 solid, 1 masonry, 2 glass, 4 roof light, 5 beacon; +0.5 = shopfront. */
+/** What the facade shader needs to know about a surface. `style`: 0 solid, 1 brick, 2 glass, 3 roof, 4 roof light, 5 beacon, 6 stone, 7 awning, 8 concrete, 9 render; +0.5 = shopfront. */
 export interface Surface {
   r: number;
   g: number;
@@ -54,16 +54,17 @@ export class MeshBuilder {
     }
   }
 
-  vertex(p: V3, n: V3, u: number, v: number, s: Surface): number {
+  /** `ao` is baked ambient occlusion, a multiplier on the surface colour (1 = open, lower = darker). */
+  vertex(p: V3, n: V3, u: number, v: number, s: Surface, ao = 1): number {
     this.grow(1, 0);
     const i = this.vertexCount++;
     this.position.set(p, i * 3);
     this.normal.set(n, i * 3);
     this.uv[i * 2] = u;
     this.uv[i * 2 + 1] = v;
-    this.color[i * 3] = s.r;
-    this.color[i * 3 + 1] = s.g;
-    this.color[i * 3 + 2] = s.b;
+    this.color[i * 3] = s.r * ao;
+    this.color[i * 3 + 1] = s.g * ao;
+    this.color[i * 3 + 2] = s.b * ao;
     this.twin[i * 3] = s.seed;
     this.twin[i * 3 + 1] = s.lit;
     this.twin[i * 3 + 2] = s.style;
@@ -71,7 +72,7 @@ export class MeshBuilder {
   }
 
   /** Quad whose winding is flipped as needed so its face normal agrees with `hint`. */
-  quad(a: V3, b: V3, c: V3, d: V3, s: Surface, hint: V3, uvs?: [number, number][]) {
+  quad(a: V3, b: V3, c: V3, d: V3, s: Surface, hint: V3, uvs?: [number, number][], ao: [number, number, number, number] = [1, 1, 1, 1]) {
     const e1x = b[0] - a[0];
     const e1y = b[1] - a[1];
     const e1z = b[2] - a[2];
@@ -108,10 +109,10 @@ export class MeshBuilder {
       [c[0], c[2]],
       [d[0], d[2]],
     ];
-    const i0 = this.vertex(a, n, t[0][0], t[0][1], s);
-    const i1 = this.vertex(b, n, t[1][0], t[1][1], s);
-    const i2 = this.vertex(c, n, t[2][0], t[2][1], s);
-    const i3 = this.vertex(d, n, t[3][0], t[3][1], s);
+    const i0 = this.vertex(a, n, t[0][0], t[0][1], s, ao[0]);
+    const i1 = this.vertex(b, n, t[1][0], t[1][1], s, ao[1]);
+    const i2 = this.vertex(c, n, t[2][0], t[2][1], s, ao[2]);
+    const i3 = this.vertex(d, n, t[3][0], t[3][1], s, ao[3]);
     this.grow(0, 6);
     const idx = this.index;
     let k = this.indexCount;

@@ -48,8 +48,25 @@ const MODELLED = Object.values(LANDMARKS as Record<string, Landmark>)
   .filter((l) => l.kind === "tower" || l.kind === "dome")
   .map((l) => ({ l, pos: landmarkPos(l), yaw: bearingToYaw(l.headingDeg) }));
 
-/** True when a hand-built skyline model already draws this OSM building. */
+/** Bankside hero models (scene/Bankside.tsx): plot centre, yaw, and half extents of the model box in its own frame, metres. */
+const HERO_PLOTS = [
+  { at: [-196, 508], yaw: -0.5, cx: 0, cz: 22, hx: 44, hz: 26 },
+  { at: [-240, 543], yaw: -0.8, cx: 0, cz: 0, hx: 26, hz: 15 },
+];
+
+export function onHeroPlot(x: number, z: number): boolean {
+  return HERO_PLOTS.some((p) => {
+    const dx = x - p.at[0];
+    const dz = z - p.at[1];
+    const lx = dx * Math.cos(p.yaw) - dz * Math.sin(p.yaw);
+    const lz = dx * Math.sin(p.yaw) + dz * Math.cos(p.yaw);
+    return Math.abs(lx - p.cx) < p.hx && Math.abs(lz - p.cz) < p.hz;
+  });
+}
+
+/** True when a hand-built model already draws this OSM building, or stands where a hero model does. */
 function replacedByLandmark(fp: Footprint, height: number): boolean {
+  if (fp.pts.some(([x, z]) => onHeroPlot(x, z)) || onHeroPlot(fp.cx, fp.cz)) return true;
   if (height < LANDMARK_MIN_HEIGHT_M) return false;
   return MODELLED.some(({ l, pos, yaw }) => {
     const dx = fp.cx - pos[0];

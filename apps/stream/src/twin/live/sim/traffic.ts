@@ -23,7 +23,7 @@ const LOOKAHEAD_M = 45;
 const MIN_SPAWN_LANE_M = 12;
 const SPAWN_CLEARANCE_M = 12;
 const JUNCTION_SPEED = 6.5;
-const STOP_LINE_M = 1.2;
+const STOP_LINE_M = 4.5;
 const APPROACH_M = 40;
 const CLAIM_M = 10;
 const FIFO_M = 20;
@@ -840,7 +840,10 @@ export class TrafficSim {
 
       // Junction: only the head of a queue decides; others follow it.
       let waiting = false;
-      if (!lead1 && !fresh && v.next >= 0 && laneGive[L] === 1 && v.box < 0 && remaining < APPROACH_M) {
+      if (lead1 && !fresh && v.next >= 0 && laneGive[L] === 1 && v.box < 0 && remaining < CLAIM_M && lead1.box >= 0) {
+        // Platoon: ride the leader's grant, but still show up in the box for crossing traffic.
+        this.claim(v);
+      } else if (!lead1 && !fresh && v.next >= 0 && laneGive[L] === 1 && v.box < 0 && remaining < APPROACH_M) {
         const g = remaining - half - STOP_LINE_M;
         if (this.canGo(v)) {
           if (remaining < CLAIM_M) this.claim(v);
@@ -909,7 +912,9 @@ export class TrafficSim {
               const gap = ahead - half - (o.len * 0.5 * Math.abs(co) + o.hw * si);
               if (v.ovt > 0.6 && co < -0.7 && gap > 1) continue;
               // Two bodies that each see the other ahead (diverging lanes at a node): the lower id goes first.
-              if (v.idx < o.idx && -(dx * Math.sin(o.yaw) + dz * Math.cos(o.yaw)) > 0) continue;
+              if (v.idx < o.idx && (o.v > 0.5 || gap > 2.5 || (v.stuck > 4 && gap > 1)) && -(dx * Math.sin(o.yaw) + dz * Math.cos(o.yaw)) > 0) continue;
+              // A car already in the box has the right of way over one waiting at its stop line for it.
+              if (v.box >= 0 && o.box < 0 && o.gridWait > 0 && co < 0.7) continue;
               this.follow(v, gap, o.v * co, true);
             }
           }

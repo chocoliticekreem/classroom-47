@@ -4,7 +4,7 @@ import { useFrame } from "@react-three/fiber";
 import { useRef } from "react";
 import * as THREE from "three";
 import { ATMOS } from "./palette";
-import { perf } from "./perf";
+import { fxOff, perf } from "./perf";
 
 const SUN_DISTANCE = 1500;
 const FILL_DUSK = new THREE.Color("#ffb070");
@@ -77,7 +77,7 @@ export function Lights() {
         _center.copy(camera.position).addScaledVector(_ray, _ray.y < -0.05 ? -camera.position.y / _ray.y : 300);
       }
       _center.y = 0;
-      const size = perf.shadowSize;
+      const size = fxOff("noshadow") ? 0 : perf.shadowSize;
       const texelsToMetres = size * EXTENT_PER_TEXEL;
       const reach = Math.min(Math.max(Math.round((camera.position.distanceTo(_center) * 1.1) / 20) * 20, MIN_EXTENT), texelsToMetres);
 
