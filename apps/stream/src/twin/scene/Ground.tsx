@@ -10,7 +10,7 @@ const RADIUS = CAMERA_FAR;
 const TILE_M = 64;
 const BLOCK_M = 46;
 
-const DAY = new THREE.Color("#8a847c");
+const DAY = new THREE.Color("#868e9a");
 const NIGHT = new THREE.Color("#4a5470");
 
 const wetUniform = { value: 0 };
@@ -26,9 +26,9 @@ float gMacro = dot(texture2D(map, vMapUv * 0.0371 + vec2(0.27, 0.61)).rgb, vec3(
 float gMid = dot(texture2D(map, vMapUv * 0.5 + vec2(0.3, 0.1)).rgb, vec3(0.3333));
 vec2 gBlock = floor(vMapUv * uGroundTile / ${BLOCK_M.toFixed(1)});
 float gHash = fract(sin(dot(gBlock, vec2(127.1, 311.7))) * 43758.5453);
-vec3 gPave = (0.93 + 0.14 * gHash) * mix(vec3(0.97, 0.99, 1.04), vec3(1.04, 1.01, 0.96), fract(gHash * 7.3));
+vec3 gPave = (0.95 + 0.1 * gHash) * mix(vec3(0.98, 0.99, 1.03), vec3(1.02, 1.01, 1.0), fract(gHash * 7.3));
 float gPuddle = 1.0 - smoothstep(0.3, 0.38, gMid);
-diffuseColor.rgb *= gDetail.rgb * mix(1.0, gMacro / 0.4, 0.5) * gPave;
+diffuseColor.rgb *= gDetail.rgb * mix(1.0, gMacro / 0.4, 0.3) * gPave;
 diffuseColor.rgb *= mix(1.0, 0.72 - 0.22 * gPuddle, uGroundWet);
 `;
 

@@ -1,4 +1,5 @@
 import type { RoadNetwork, XZ } from "../../network/types";
+import { emergency } from "./london";
 import { mulberry32, pickCumulative, wrapAngle } from "./rng";
 
 export const KIND_CAR = 0;
@@ -22,11 +23,24 @@ const MAJOR_SPEED = 10.5;
 const MINOR_SPEED = 7;
 const YAW_RATE = 9;
 const LANE_KEY = 1e5;
+const PARKED_KEY = -1e12;
+const COUNT_RATE = 0.25;
+const COUNT_MIN_RATE = 1.5;
+const RESPONDER_PACE = 2.1;
 const FOCUS_SIGMA_M = 260;
 const RECYCLE_FOCUS_M = 380;
 const RECYCLE_CAMERA_M = 150;
 const SPAWN_CAMERA_M = 60;
 const RECYCLE_CHANCE = 0.35;
+const SIREN_RANGE_M = 40;
+const SIREN_MIN_SPEED = 5;
+const PULL_OVER_SPEED = 2.5;
+const PULL_OVER_M = 1.1;
+
+export const ROLE_NONE = 0;
+export const ROLE_QUARRY = 1;
+export const ROLE_POLICE = 2;
+export const ROLE_AMBULANCE = 3;
 
 export class Vehicle {
   slot = 0;
@@ -40,10 +54,14 @@ export class Vehicle {
   turnOut = 0;
   stopAtEnd = false;
   wait = 0;
+  pull = 0;
   x = 0;
   z = 0;
   yaw = 0;
   fresh = true;
+  /** Parked vehicles are off the road (lane -1) and drawn at zero scale until the field asks for them. */
+  parked = true;
+  role = ROLE_NONE;
 
   constructor(
     readonly kind: number,
@@ -74,18 +92,29 @@ export class TrafficSim {
   private readonly laneHead: Int32Array;
   private readonly laneExits: Int32Array[];
   private readonly laneExitCum: Float64Array[];
-  private readonly laneMid: Float32Array;
+  private readonly laneExitBase: Float64Array[];
+  private readonly laneBase: Float32Array;
+  private readonly spawnable: Uint8Array;
+  /** Edge midpoints as x, z pairs (local metres), for snapping onto the field and spawn-distance checks. */
+  readonly edgeMid: Float32Array;
+  private edgeWeight: Float32Array;
+  private edgeSpeed: Float32Array;
   private focus: XZ | null;
   private spawnLanes: Int32Array = new Int32Array(0);
   private spawnCum: Float64Array = new Float64Array(0);
   private order: Int32Array;
   private key: Float64Array;
+  private readonly enableOrder: Int32Array;
+  /** Vehicles currently on the road. */
+  active = 0;
+  private target = 0;
+  private countAcc = 0;
 
   constructor(
     private readonly net: RoadNetwork,
     counts: number[],
     seed: number,
-    focus: XZ | null,
+    focus: XZ | null = null,
   ) {
     this.rng = mulberry32(seed);
     this.focus = focus;
@@ -98,10 +127,15 @@ export class TrafficSim {
     this.laneYawStart = new Float32Array(lanes);
     this.laneYawEnd = new Float32Array(lanes);
     this.laneJunction = new Uint8Array(lanes);
-    this.laneMid = new Float32Array(lanes * 2);
     this.laneHead = new Int32Array(lanes).fill(-1);
     this.laneExits = new Array<Int32Array>(lanes);
     this.laneExitCum = new Array<Float64Array>(lanes);
+    this.laneExitBase = new Array<Float64Array>(lanes);
+    this.laneBase = new Float32Array(lanes);
+    this.spawnable = new Uint8Array(lanes);
+    this.edgeMid = new Float32Array(edges.length * 2);
+    this.edgeWeight = new Float32Array(edges.length).fill(1);
+    this.edgeSpeed = new Float32Array(edges.length).fill(1);
     const valid = new Uint8Array(lanes);
     const nodeById = new Map(net.nodes.map((n, i) => [n.id, i] as const));
     const departing = new Map<number, number[]>();
@@ -117,12 +151,13 @@ export class TrafficSim {
       this.laneLat[fwd] = Math.min(2, Math.max(1.1, e.width * 0.25));
       this.laneLat[rev] = -this.laneLat[fwd];
       this.laneFree[fwd] = this.laneFree[rev] = e.kind === "major" ? MAJOR_SPEED : MINOR_SPEED;
+      this.laneBase[fwd] = this.laneBase[rev] = this.laneFree[fwd];
+      net.sample(e.id, e.length * 0.5, 0, out);
+      this.edgeMid[i * 2] = out[0];
+      this.edgeMid[i * 2 + 1] = out[1];
       const eps = Math.min(0.05, e.length * 0.4);
       const h0 = net.sample(e.id, eps, 0, out);
       const h1 = net.sample(e.id, Math.max(e.length - eps, eps), 0, out);
-      net.sample(e.id, e.length * 0.5, 0, out);
-      this.laneMid[fwd * 2] = this.laneMid[rev * 2] = out[0];
-      this.laneMid[fwd * 2 + 1] = this.laneMid[rev * 2 + 1] = out[1];
       this.laneYawStart[fwd] = h0;
       this.laneYawEnd[fwd] = h1;
       this.laneYawStart[rev] = wrapAngle(h1 + Math.PI);
@@ -153,38 +188,150 @@ export class TrafficSim {
     for (let L = 0; L < lanes; L++) {
       this.laneExits[L] = empty;
       this.laneExitCum[L] = new Float64Array(0);
+      this.laneExitBase[L] = new Float64Array(0);
       if (!valid[L]) continue;
       const cands = (departing.get(arrival[L]) ?? []).filter((c) => c !== (L ^ 1));
       if (!cands.length && valid[L ^ 1]) cands.push(L ^ 1);
-      const cum = new Float64Array(cands.length);
-      let total = 0;
+      const base = new Float64Array(cands.length);
       for (let k = 0; k < cands.length; k++) {
         const c = cands[k];
         const turn = Math.abs(wrapAngle(this.laneYawStart[c] - this.laneYawEnd[L]));
         const major = edges[c >> 1].kind === "major" ? 1.5 : 1;
-        total += (Math.exp(-((turn / 0.9) ** 2)) + 0.04) * major;
-        cum[k] = total;
+        base[k] = (Math.exp(-((turn / 0.9) ** 2)) + 0.04) * major;
       }
       this.laneExits[L] = Int32Array.from(cands);
-      this.laneExitCum[L] = cum;
+      this.laneExitBase[L] = base;
+      this.laneExitCum[L] = new Float64Array(cands.length);
     }
 
     this.buildSpawnTable(valid, nodeById);
+    this.setField(this.edgeWeight, this.edgeSpeed, 0);
 
     if (this.spawnLanes.length) {
       for (let kind = 0; kind < counts.length; kind++) {
         for (let i = 0; i < counts[kind]; i++) {
           const v = new Vehicle(kind, 0.82 + this.rng() * 0.33);
           v.slot = i;
+          v.lane = -1;
           this.vehicles.push(v);
-          this.place(v);
-          v.v = this.laneFree[v.lane] * v.pace * 0.6;
         }
       }
     }
-    this.order = new Int32Array(this.vehicles.length);
-    for (let i = 0; i < this.order.length; i++) this.order[i] = i;
-    this.key = new Float64Array(this.vehicles.length);
+    const n = this.vehicles.length;
+    this.order = new Int32Array(n);
+    for (let i = 0; i < n; i++) this.order[i] = i;
+    this.key = new Float64Array(n);
+    this.enableOrder = Int32Array.from(
+      this.vehicles.map((v, i) => i).sort((a, b) => {
+        const va = this.vehicles[a];
+        const vb = this.vehicles[b];
+        return (va.slot + 0.5) / counts[va.kind] - (vb.slot + 0.5) / counts[vb.kind];
+      }),
+    );
+  }
+
+  /**
+   * Vehicles per edge (any non-negative scale; 0 = no spawning and routing avoids it), a speed factor
+   * per edge (1 = free flow, 0 = closed: nothing enters, anything still on it crawls out) and the
+   * total vehicle count to ease toward. Called whenever the live field or TfL disruptions refresh.
+   */
+  setField(edgeWeight: Float32Array, edgeSpeed: Float32Array, target: number) {
+    this.edgeWeight = edgeWeight;
+    this.edgeSpeed = edgeSpeed;
+    this.target = Math.min(this.vehicles.length, Math.max(0, Math.round(target)));
+    for (let L = 0; L < this.laneFree.length; L++) this.laneFree[L] = this.laneBase[L] * Math.max(0.3, edgeSpeed[L >> 1]);
+    this.rebuildSpawnTable();
+    for (let L = 0; L < this.laneExits.length; L++) {
+      const exits = this.laneExits[L];
+      const base = this.laneExitBase[L];
+      const out = this.laneExitCum[L];
+      let acc = 0;
+      for (let k = 0; k < exits.length; k++) {
+        const e = exits[k] >> 1;
+        acc += base[k] * (edgeSpeed[e] <= 0 ? 0.02 : 0.1 + edgeWeight[e]);
+        out[k] = acc;
+      }
+    }
+  }
+
+  /** Biases where vehicles (re)spawn towards a point of interest (local metres), e.g. the streamer. */
+  setFocus(focus: XZ | null) {
+    this.focus = focus;
+    this.rebuildSpawnTable();
+  }
+
+  /** Spawn odds per lane = field volume × focus bias; closed or empty streets never spawn. */
+  private rebuildSpawnTable() {
+    const { edgeWeight, edgeSpeed, focus } = this;
+    const lanes: number[] = [];
+    const cum: number[] = [];
+    let total = 0;
+    for (let L = 0; L < this.spawnable.length; L++) {
+      const e = L >> 1;
+      if (!this.spawnable[L] || edgeWeight[e] <= 0 || edgeSpeed[e] <= 0) continue;
+      let density = edgeWeight[e];
+      if (focus) {
+        const d2 = (this.edgeMid[e * 2] - focus[0]) ** 2 + (this.edgeMid[e * 2 + 1] - focus[1]) ** 2;
+        density *= 0.15 + 2 * Math.exp(-d2 / (2 * FOCUS_SIGMA_M ** 2));
+      }
+      total += this.laneLen[L] * density;
+      lanes.push(L);
+      cum.push(total);
+    }
+    if (lanes.length) {
+      this.spawnLanes = Int32Array.from(lanes);
+      this.spawnCum = Float64Array.from(cum);
+    }
+  }
+
+  /** Puts a few active vehicles under blue lights: a fleeing car with two pursuers, or one ambulance. */
+  dispatch(kind: "chase" | "ambulance") {
+    this.clearDispatch();
+    const want = kind === "chase" ? [ROLE_QUARRY, ROLE_POLICE, ROLE_POLICE] : [ROLE_AMBULANCE];
+    const needKind = kind === "chase" ? KIND_CAR : KIND_VAN;
+    let k = 0;
+    for (let i = 0; i < this.active && k < want.length; i++) {
+      const v = this.vehicles[this.enableOrder[i]];
+      if (v.kind !== needKind) continue;
+      v.role = want[k++];
+      v.pace = RESPONDER_PACE;
+      v.stopAtEnd = false;
+      v.wait = 0;
+    }
+  }
+
+  clearDispatch() {
+    for (const v of this.vehicles) {
+      if (v.role === ROLE_NONE) continue;
+      v.role = ROLE_NONE;
+      v.pace = 0.82 + this.rng() * 0.33;
+    }
+  }
+
+  private easeCount(dt: number) {
+    const gap = this.target - this.active;
+    if (gap === 0) return;
+    this.countAcc += Math.max(COUNT_MIN_RATE, Math.abs(gap) * COUNT_RATE) * dt;
+    const n = Math.min(Math.abs(gap), Math.floor(this.countAcc));
+    if (n === 0) return;
+    this.countAcc -= n;
+    if (gap > 0) {
+      for (let k = 0; k < n; k++) {
+        const v = this.vehicles[this.enableOrder[this.active + k]];
+        v.parked = false;
+        this.place(v);
+        v.v = this.laneFree[v.lane] * v.pace * 0.6;
+      }
+      this.active += n;
+    } else {
+      for (let k = 1; k <= n; k++) {
+        const v = this.vehicles[this.enableOrder[this.active - k]];
+        v.parked = true;
+        v.lane = -1;
+        v.role = ROLE_NONE;
+      }
+      this.active -= n;
+    }
   }
 
   /** Only lanes in the largest connected piece of the network are used for spawning, so cars never get stuck in tiny islands. */
@@ -208,32 +355,12 @@ export class TrafficSim {
     }
     let best = 0;
     for (let i = 1; i < compLen.length; i++) if (compLen[i] > compLen[best]) best = i;
-    const lanes: number[] = [];
     for (let L = 0; L < valid.length; L++) {
       if (!valid[L] || this.laneLen[L] < MIN_SPAWN_LANE_M || !this.laneExits[L].length) continue;
       const a = nodeById.get(edges[L >> 1].from);
-      if (a !== undefined && find(a) === best) lanes.push(L);
+      if (a === undefined || find(a) !== best) continue;
+      this.spawnable[L] = 1;
     }
-    this.spawnLanes = Int32Array.from(lanes);
-    this.setFocus(this.focus);
-  }
-
-  /** Biases where vehicles (re)spawn towards a point of interest (local metres), e.g. the streamer. */
-  setFocus(focus: XZ | null) {
-    this.focus = focus;
-    const cum = new Float64Array(this.spawnLanes.length);
-    let total = 0;
-    for (let i = 0; i < cum.length; i++) {
-      const L = this.spawnLanes[i];
-      let density = 1;
-      if (focus) {
-        const d2 = (this.laneMid[L * 2] - focus[0]) ** 2 + (this.laneMid[L * 2 + 1] - focus[1]) ** 2;
-        density = 0.15 + 2 * Math.exp(-d2 / (2 * FOCUS_SIGMA_M ** 2));
-      }
-      total += this.laneLen[L] * density;
-      cum[i] = total;
-    }
-    this.spawnCum = cum;
   }
 
   private pickNext(lane: number): number {
@@ -252,7 +379,7 @@ export class TrafficSim {
       v.next < 0
         ? 0
         : Math.min(1, Math.abs(wrapAngle(this.laneYawStart[v.next] - this.laneYawEnd[lane])) / 0.7);
-    v.stopAtEnd = v.next >= 0 && this.laneJunction[lane] === 1 && this.rng() < STOP_CHANCE;
+    v.stopAtEnd = v.role === ROLE_NONE && v.next >= 0 && this.laneJunction[lane] === 1 && this.rng() < STOP_CHANCE;
   }
 
   private place(v: Vehicle, camX = NaN, camZ = NaN) {
@@ -262,9 +389,10 @@ export class TrafficSim {
     for (let attempt = 0; attempt < 24; attempt++) {
       lane = this.spawnLanes[pickCumulative(this.spawnCum, rng())];
       s = rng() * this.laneLen[lane];
-      let clear = !((this.laneMid[lane * 2] - camX) ** 2 + (this.laneMid[lane * 2 + 1] - camZ) ** 2 < SPAWN_CAMERA_M ** 2);
+      const e = lane >> 1;
+      let clear = !((this.edgeMid[e * 2] - camX) ** 2 + (this.edgeMid[e * 2 + 1] - camZ) ** 2 < SPAWN_CAMERA_M ** 2);
       for (const o of this.vehicles) {
-        if (o !== v && o.lane === lane && Math.abs(o.s - s) < SPAWN_CLEARANCE_M) {
+        if (o !== v && !o.parked && o.lane === lane && Math.abs(o.s - s) < SPAWN_CLEARANCE_M) {
           clear = false;
           break;
         }
@@ -279,14 +407,32 @@ export class TrafficSim {
     v.fresh = true;
   }
 
+  /** True when a moving siren vehicle is within range and behind this vehicle's direction of travel. */
+  private sirenBehind(v: Vehicle): boolean {
+    const fx = Math.sin(v.yaw);
+    const fz = Math.cos(v.yaw);
+    for (const e of emergency.vehicles) {
+      if (e.speed < SIREN_MIN_SPEED) continue;
+      const dx = e.x - v.x;
+      const dz = e.z - v.z;
+      if (dx * dx + dz * dz < SIREN_RANGE_M * SIREN_RANGE_M && dx * fx + dz * fz < 0) return true;
+    }
+    return false;
+  }
+
   update(dtRaw: number, camX: number, camZ: number) {
     const vs = this.vehicles;
     const n = vs.length;
     if (!n) return;
     const dt = Math.min(dtRaw, 0.05);
+    this.easeCount(dt);
     const { order, key, laneHead, laneLen, laneFree } = this;
     for (let i = 0; i < n; i++) {
       const v = vs[i];
+      if (v.parked) {
+        key[i] = PARKED_KEY;
+        continue;
+      }
       key[i] = v.lane * LANE_KEY + v.s;
       laneHead[v.lane] = -1;
     }
@@ -300,17 +446,22 @@ export class TrafficSim {
       }
       order[j + 1] = o;
     }
-    for (let k = n - 1; k >= 0; k--) laneHead[vs[order[k]].lane] = k;
+    for (let k = n - 1; k >= 0; k--) {
+      const v = vs[order[k]];
+      if (!v.parked) laneHead[v.lane] = k;
+    }
 
     const yawBlend = 1 - Math.exp(-YAW_RATE * dt);
     const out = this.out;
     for (let k = 0; k < n; k++) {
       const v = vs[order[k]];
+      if (v.parked) continue;
       const L = v.lane;
       const len = laneLen[L];
       const remaining = len - v.s;
       const free = laneFree[L] * v.pace;
       let target = free;
+      let siren = 0;
 
       if (v.wait > 0) {
         v.wait -= dt;
@@ -332,7 +483,7 @@ export class TrafficSim {
         let gap = 0;
         if (k + 1 < n) {
           const o = vs[order[k + 1]];
-          if (o.lane === L) {
+          if (!o.parked && o.lane === L) {
             lead = o;
             gap = o.s - v.s;
           }
@@ -353,12 +504,17 @@ export class TrafficSim {
           const safe = -bt + Math.sqrt(bt * bt + lead.v * lead.v + 2 * BRAKE * Math.max(0, gap - MIN_GAP));
           if (safe < target) target = safe;
         }
+        if (emergency.active && this.sirenBehind(v)) {
+          siren = 1;
+          target = Math.min(target, PULL_OVER_SPEED);
+        }
         if (v.stopAtEnd && remaining < STOP_LINE_M + 0.8 && v.v < 0.25) {
           v.wait = 2 + this.rng() * 5;
           v.stopAtEnd = false;
         }
       }
 
+      v.pull += (siren - v.pull) * Math.min(1, 2 * dt);
       const dv = target - v.v;
       v.v = Math.max(0, dv > 0 ? v.v + Math.min(dv, ACCEL * dt) : v.v + Math.max(dv, -HARD_BRAKE * dt));
       v.s += v.v * dt;
@@ -372,6 +528,7 @@ export class TrafficSim {
         const f = this.focus;
         if (
           f &&
+          v.role === ROLE_NONE &&
           this.rng() < RECYCLE_CHANCE &&
           (v.x - f[0]) ** 2 + (v.z - f[1]) ** 2 > RECYCLE_FOCUS_M ** 2 &&
           (v.x - camX) ** 2 + (v.z - camZ) ** 2 > RECYCLE_CAMERA_M ** 2
@@ -387,6 +544,7 @@ export class TrafficSim {
       const toEnd = laneLength - v.s;
       if (toEnd < BLEND_M && v.turnOut > 0) lateral *= 1 - (1 - toEnd / BLEND_M) * v.turnOut;
       if (v.s < BLEND_M && v.turnIn > 0) lateral *= 1 - (1 - v.s / BLEND_M) * v.turnIn;
+      lateral += Math.sign(lateral) * v.pull * PULL_OVER_M;
       const forward = (lane & 1) === 0;
       const h = this.net.sample(this.edgeId[lane], forward ? v.s : laneLength - v.s, lateral, out);
       const yaw = forward ? h : h + Math.PI;

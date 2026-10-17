@@ -6,8 +6,8 @@ import * as THREE from "three";
 import { Label } from "../../live/Label";
 import { ATMOS } from "../palette";
 
-const BEAM_H = 700;
-const BEAM_R = 9;
+const BEAM_H = 120;
+const BEAM_R = 3;
 
 const BEAM_VERT = /* glsl */ `
 uniform float uH;
@@ -44,10 +44,10 @@ function distanceText(dx: number, dz: number) {
   const m = Math.hypot(dx, dz);
   const bearing = Math.atan2(dx, -dz);
   const dir = COMPASS[(Math.round(bearing / (Math.PI / 4)) + 8) % 8];
-  return `${m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`} ${dir}`;
+  return `${Math.round(m)} m ${dir}`;
 }
 
-/** A tall additive light shaft that stays visible above the fog. */
+/** A short additive light shaft marking the site. */
 export function Beam({ x, z, color }: { x: number; z: number; color: string }) {
   const mesh = useRef<THREE.Mesh>(null);
   const { geometry, material } = useMemo(() => {

@@ -2,9 +2,9 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 /** One merged mesh per layer; each layer gets its own material (see materials.ts). */
-export type Layer = "body" | "glass" | "lit" | "strip" | "water";
+export type Layer = "body" | "glass" | "lit" | "strip";
 
-export const LAYERS: Layer[] = ["body", "glass", "lit", "strip", "water"];
+export const LAYERS: Layer[] = ["body", "glass", "lit", "strip"];
 
 export interface SignSpec {
   /** Lines separated by "\n". */
@@ -57,7 +57,7 @@ export function rng(seed: number) {
 
 /** Collects coloured boxes and cylinders per layer, then merges each layer into a single geometry. */
 export class Kit {
-  private parts: Record<Layer, THREE.BufferGeometry[]> = { body: [], glass: [], lit: [], strip: [], water: [] };
+  private parts: Record<Layer, THREE.BufferGeometry[]> = { body: [], glass: [], lit: [], strip: [] };
 
   /** Axis-aligned box: centre (x, z), bottom y. */
   box(layer: Layer, x: number, y: number, z: number, w: number, h: number, d: number, color: THREE.ColorRepresentation) {

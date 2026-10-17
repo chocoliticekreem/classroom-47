@@ -10,6 +10,7 @@ import {
   type TimeOfDay,
   type WeatherKind,
 } from "@/platform/demo";
+import { triggerScenario, useScenario } from "@/twin/live/scenario";
 
 const WEATHER: { value: WeatherKind | null; label: string }[] = [
   { value: null, label: "Live" },
@@ -80,6 +81,7 @@ export function DevPanel() {
   const panelId = useId();
   const root = useRef<HTMLDivElement>(null);
   const live = isLive(settings);
+  const scenario = useScenario((s) => s.scenario);
 
   useEffect(() => {
     if (!open) return;
@@ -141,6 +143,33 @@ export function DevPanel() {
             value={settings.crowd}
             onChange={(crowd) => update({ crowd })}
           />
+          <div role="group" aria-label="Scenario (demo only)" className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-medium text-muted">Scenario (demo only)</span>
+            <div className="flex flex-wrap gap-1">
+              {(
+                [
+                  { value: "chase", label: "Police chase" },
+                  { value: "ambulance", label: "Ambulance call-out" },
+                  { value: "clear", label: "Clear" },
+                ] as const
+              ).map((o) => {
+                const active = o.value === "clear" ? scenario === null : scenario?.source === "demo" && scenario.kind === o.value;
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => triggerScenario(o.value)}
+                    className={`rounded-md px-2.5 py-1 text-[12px] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-text ${
+                      active ? "bg-text text-bg" : "bg-surface-3 text-muted hover:text-text"
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <button
             type="button"
             disabled={live}
