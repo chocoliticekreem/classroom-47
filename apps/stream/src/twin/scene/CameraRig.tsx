@@ -49,7 +49,8 @@ export function CameraRig() {
   const flight = useCameraStore((s) => s.flight);
   const preset = useCameraStore((s) => s.preset);
   const cctv = useCameraStore((s) => s.cctv);
-  const { gl, size } = useThree();
+  const snap = useCameraStore((s) => s.snap);
+  const { gl, size, camera: sceneCamera } = useThree();
   const firstPerson = !cctv && preset === "streamer";
 
   const fp = useRef({ yaw: 0, travelYaw: 0, hasTravel: false, dragYaw: 0, dragPitch: 0, dragging: false, lastX: 0, lastY: 0 });
@@ -60,6 +61,14 @@ export function CameraRig() {
       const d = 30;
       goalPos.set(cctv.x, cctv.heightM, cctv.z);
       goalTarget.set(cctv.x + d * fx, cctv.heightM + d * fy, cctv.z + d * fz);
+      const c = controls.current;
+      if (snap && c) {
+        sceneCamera.position.copy(goalPos);
+        c.target.copy(goalTarget);
+        c.update();
+        flying.current = false;
+        return;
+      }
       flying.current = true;
       return;
     }
@@ -72,7 +81,7 @@ export function CameraRig() {
     goalPos.set(...PRESETS[preset].pos);
     goalTarget.set(...PRESETS[preset].target);
     flying.current = true;
-  }, [flight, preset, cctv, size.width, size.height]);
+  }, [flight, preset, cctv, snap, sceneCamera, size.width, size.height]);
 
   const projectionDirty = useRef(true);
   useEffect(() => {

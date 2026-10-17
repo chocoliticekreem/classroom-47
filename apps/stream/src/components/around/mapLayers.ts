@@ -40,6 +40,13 @@ export function disruptionCollection(items: AroundDisruption[]): GeoJSON.Feature
   };
 }
 
+export function crimeCollection(points: [number, number][]): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: points.map((p) => ({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: p } })),
+  };
+}
+
 export function lineFeature(polyline: [number, number][]): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
@@ -102,6 +109,29 @@ export function addAroundLayers(map: MapLibreMap, point: Point) {
     },
   });
 
+
+  map.addSource("around-crime", { type: "geojson", data: crimeCollection([]) });
+  map.addLayer({
+    id: "around-crime-heat",
+    type: "heatmap",
+    source: "around-crime",
+    paint: {
+      "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 14, 14, 18, 40],
+      "heatmap-intensity": 0.6,
+      "heatmap-opacity": 0.45,
+      "heatmap-color": [
+        "interpolate",
+        ["linear"],
+        ["heatmap-density"],
+        0,
+        "rgba(255,45,85,0)",
+        0.3,
+        "rgba(255,45,85,0.25)",
+        1,
+        "rgba(255,120,60,0.8)",
+      ],
+    },
+  });
 
   map.addSource("around-disruptions", { type: "geojson", data: disruptionCollection([]) });
   map.addLayer({

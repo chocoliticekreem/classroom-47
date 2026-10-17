@@ -1,4 +1,4 @@
-import type { AroundBusStop, AroundCam, CamReading } from "@/platform/around/types";
+import type { AroundBusStop, AroundCam, AroundLiveCam, AroundStation, CamReading } from "@/platform/around/types";
 
 const SVG_OPEN =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">';
@@ -51,6 +51,53 @@ export function camPinHtml(cam: AroundCam, active: boolean, reading: CamReading 
     );
   }
   return `<span class="relative grid place-items-center" aria-label="${escapeAttr(cam.name)}">${parts.join("")}</span>`;
+}
+
+export type StationCrowd = "quiet" | "normal" | "crowded";
+
+/** TfL's figure is a share of a normal day's footfall for this time slot. */
+export function stationCrowd(share: number | null): StationCrowd | null {
+  if (share === null) return null;
+  if (share >= 1.2) return "crowded";
+  if (share < 0.6) return "quiet";
+  return "normal";
+}
+
+const STATION_TONE: Record<StationCrowd, string> = {
+  quiet: "border-ok/70 text-ok",
+  normal: "border-line-strong text-text",
+  crowded: "border-live text-live",
+};
+
+export function lineTrouble(station: AroundStation) {
+  return station.lines.filter((l) => l.status !== "Good Service");
+}
+
+export function stationPinHtml(station: AroundStation, selected: boolean) {
+  const crowd = stationCrowd(station.crowding);
+  const tone = crowd ? STATION_TONE[crowd] : "border-line-strong text-muted";
+  const trouble = lineTrouble(station).length > 0;
+  const label =
+    station.crowding !== null
+      ? `${Math.round(station.crowding * 100)}%`
+      : trouble
+        ? "!"
+        : "";
+  return `<span class="relative block" aria-label="${escapeAttr(station.name)}"><span class="grid size-6 place-items-center rounded-full border-2 bg-bg ${tone} ${
+    selected ? "ring-2 ring-text/70" : ""
+  } shadow-[0_4px_12px_rgba(0,0,0,0.6)]"><span class="block h-[3px] w-4 rounded-sm bg-current"></span></span>${
+    label
+      ? `<span class="pointer-events-none absolute left-1/2 top-full mt-0.5 -translate-x-1/2 whitespace-nowrap rounded bg-bg/85 px-1 py-px font-mono text-[9px] font-semibold ${
+          trouble && !crowd ? "text-warn" : "text-text/85"
+        }">${label}</span>`
+      : ""
+  }</span>`;
+}
+
+export function liveCamPinHtml(cam: AroundLiveCam, selected: boolean) {
+  return `<span class="relative grid place-items-center" aria-label="${escapeAttr(cam.name)}"><span class="grid size-7 place-items-center rounded-full border-2 border-[#b388ff] bg-[#2a1f45] text-[#d9c8ff] shadow-[0_6px_18px_rgba(0,0,0,0.6)] ${
+    selected ? "scale-125 ring-2 ring-text/70" : ""
+  }"><span class="block size-3.5 [&>svg]:size-3.5">${VIDEO_ICON}</span></span><span class="pointer-events-none absolute left-1/2 top-full mt-1 -translate-x-1/2 whitespace-nowrap rounded bg-bg/85 px-1 py-px font-mono text-[9px] font-semibold text-[#d9c8ff]">HD live</span></span>`;
 }
 
 export function formatCountdown(seconds: number) {

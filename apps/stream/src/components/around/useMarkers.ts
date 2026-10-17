@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, type RefObject } from "react";
 import type { Map as MapLibreMap, Marker } from "maplibre-gl";
-import type { AroundBusStop, AroundCam, CamReading } from "@/platform/around/types";
-import { busStopHtml, camPinClass, camPinHtml } from "./markers";
+import type { AroundBusStop, AroundCam, AroundLiveCam, AroundStation, CamReading } from "@/platform/around/types";
+import { busStopHtml, camPinClass, camPinHtml, liveCamPinHtml, stationPinHtml } from "./markers";
 import { liveSeconds } from "./cards";
 
 type MapLib = typeof import("maplibre-gl");
@@ -49,6 +49,50 @@ export function useCamMarkers({ mapRef, libRef, ready }: Refs, input: CamMarkerI
       markers.clear();
     };
   }, [mapRef, libRef, ready, cams, readings, activeCamId, selectedCamId, onSelect]);
+}
+
+interface PinMarkerInput<T extends { id: string; lat: number; lon: number }> {
+  items: T[];
+  selectedId: string | null;
+  html: (item: T, selected: boolean) => string;
+  onSelect: (id: string) => void;
+}
+
+/** One clickable DOM marker per item; rebuilt when the items or selection change. */
+function usePinMarkers<T extends { id: string; lat: number; lon: number }>(
+  { mapRef, libRef, ready }: Refs,
+  { items, selectedId, html, onSelect }: PinMarkerInput<T>,
+) {
+  const markersRef = useRef<Map<string, Marker>>(new Map());
+  useEffect(() => {
+    const map = mapRef.current;
+    const lib = libRef.current;
+    if (!ready || !map || !lib) return;
+    const markers = markersRef.current;
+    for (const item of items) {
+      const el = document.createElement("button");
+      el.type = "button";
+      el.className = "cursor-pointer transition-transform hover:scale-110";
+      el.innerHTML = html(item, selectedId === item.id);
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onSelect(item.id);
+      });
+      markers.set(item.id, new lib.Marker({ element: el }).setLngLat([item.lon, item.lat]).addTo(map));
+    }
+    return () => {
+      markers.forEach((m) => m.remove());
+      markers.clear();
+    };
+  }, [mapRef, libRef, ready, items, selectedId, html, onSelect]);
+}
+
+export function useStationMarkers(refs: Refs, input: Omit<PinMarkerInput<AroundStation>, "html">) {
+  usePinMarkers(refs, { ...input, html: stationPinHtml });
+}
+
+export function useLiveCamMarkers(refs: Refs, input: Omit<PinMarkerInput<AroundLiveCam>, "html">) {
+  usePinMarkers(refs, { ...input, html: liveCamPinHtml });
 }
 
 interface StopMarkerInput {

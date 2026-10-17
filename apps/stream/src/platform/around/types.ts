@@ -76,3 +76,78 @@ export interface CamClipTracks {
   duration: number;
   tracks: TrackedObject[];
 }
+
+export interface StationLine {
+  id: string;
+  name: string;
+  /** TfL status, e.g. "Good Service", "Minor Delays", "Part Closure". */
+  status: string;
+}
+
+/** A tube/DLR/rail station with TfL's live crowding (share of a normal day's footfall) and line status. */
+export interface AroundStation {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  distanceM: number;
+  modes: string[];
+  lines: StationLine[];
+  /** 1.0 = a normal day's footfall for this time; null when TfL has no live data for the station. */
+  crowding: number | null;
+  crowdingAt: number | null;
+}
+
+export interface CrimeStreet {
+  name: string;
+  lat: number;
+  lon: number;
+  count: number;
+}
+
+/** data.police.uk street-level crime within the radius for the latest published month. */
+export interface AroundCrime {
+  /** "2026-08" — police.uk publishes about two months behind. */
+  month: string;
+  total: number;
+  byCategory: { category: string; count: number }[];
+  streets: CrimeStreet[];
+  /** [lon, lat] per incident, for the heat layer. */
+  points: [number, number][];
+}
+
+/** Environment Agency tide gauge nearest the point (Tower Pier for the City). */
+export interface AroundTide {
+  station: string;
+  lat: number;
+  lon: number;
+  /** Metres above Ordnance Datum. */
+  levelM: number;
+  trend: "rising" | "falling" | "steady";
+  at: number;
+}
+
+export interface AroundAir {
+  /** European AQI, 0–100+ (Open-Meteo). */
+  eaqi: number;
+  band: "good" | "fair" | "moderate" | "poor" | "very poor";
+  pm25: number;
+  pm10: number;
+  no2: number;
+  at: number;
+}
+
+/** An HD public live stream of London (services/vision/cameras/london_live.json), embed-only. */
+export interface AroundLiveCam {
+  id: string;
+  name: string;
+  area: string;
+  lat: number;
+  lon: number;
+  precision: "exact" | "approx";
+  subjects: string[];
+  /** YouTube embed URL; the stream is viewed in an iframe, never downloaded. */
+  embedUrl: string;
+  page: string;
+  distanceM: number;
+}

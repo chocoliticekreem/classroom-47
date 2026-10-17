@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { useDemoSettings, type TimeOfDay } from "@/platform/demo";
+import { ROAD_Y } from "../network/layout";
 import { useNetwork } from "../network/useNetwork";
 import { ATMOS } from "../scene/palette";
 import { useLive } from "./store";
@@ -13,7 +14,7 @@ import type { Helicopter } from "./sim/chase";
 import { CAP, K, KIND_COUNT, LondonDirector, londonHour, parseLife, type Actor, type DirectorContext } from "./sim/london";
 
 const SEED = 20261017;
-const GROUND_Y = 0.05;
+const GROUND_Y = ROAD_Y;
 const HALO_CAP = 260;
 const SPILL_CAP = 40;
 const ARMS_CAP = 16;

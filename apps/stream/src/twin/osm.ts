@@ -1,6 +1,7 @@
 import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 import { cached, TTL } from "@/lib/server/cache";
+import { coveredByHeroLandmark } from "@/twin/landmarks";
 import { GEOMETRY_BOUNDS as B, insideGeometryBounds, originKey, projection, snapOrigin, TOWER_HILL, type LatLon, type Projection, type Ring, type TwinGeometry, type TwinPoi } from "@/twin/config";
 
 /** Server-side loader for the real OSM geometry around the origin (OpenFreeMap z14 vector tiles). */
@@ -22,7 +23,7 @@ const OSM_COLOURS: Record<string, string> = {
 };
 
 /** Bump when the extraction changes shape so a stale `.cache/` file is not served. */
-const GEOMETRY_VERSION = 2;
+const GEOMETRY_VERSION = 3;
 const cacheKey = (origin: LatLon) => `twin-osm-v${GEOMETRY_VERSION}-z${ZOOM}-${originKey(origin)}-b${B.xMin}_${B.xMax}_${B.zMin}_${B.zMax}`;
 /** Polygons whose courtyard hole we dropped: they must not be used to hide buildings inside them. */
 const holed = new WeakSet<Ring>();
@@ -367,7 +368,14 @@ async function fetchGeometry(origin: LatLon): Promise<TwinGeometry> {
   const out: Collected = { buildings: [], roads: [], water: [], parks: [], pois: [], stations: [], waterways: [] };
   const lightRail: Ring[] = [];
   await Promise.all(tilesCovering(P).map(({ x, y }) => loadTile(tiles[0], x, y, out, lightRail, P)));
-  out.buildings = dropHiddenBuildings(out.buildings);
+  // Hero landmarks are placed in Tower Hill metres; compare each footprint in that frame.
+  const TH = projection(TOWER_HILL);
+  const inTowerHillFrame = (ring: Ring): Ring =>
+    ring.map(([x, z]) => {
+      const ll = P.toLatLon(x, z);
+      return TH.toLocal(ll.lat, ll.lon);
+    });
+  out.buildings = dropHiddenBuildings(out.buildings).filter((b) => !coveredByHeroLandmark(inTowerHillFrame(b.ring)));
   out.water.push(...uncoveredWaterways(out.waterways, out.water));
   for (const s of out.stations) {
     if (s.kind === "rail" && lightRail.some((l) => l.some(([x, z]) => Math.hypot(x - s.pos[0], z - s.pos[1]) < 60))) s.kind = "light_rail";
