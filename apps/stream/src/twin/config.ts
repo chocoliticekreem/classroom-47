@@ -30,4 +30,13 @@ export interface TwinGeometry {
   roads: { line: Ring; kind: "major" | "minor" | "path" | "rail" }[];
   water: Ring[];
   parks: Ring[];
+  /** Footfall anchors from the OSM poi layer: stations, stops, attractions, shops, food. */
+  pois: TwinPoi[];
+}
+
+export interface TwinPoi {
+  name: string;
+  x: number;
+  z: number;
+  kind: "station" | "bus_stop" | "attraction" | "shop" | "food";
 }

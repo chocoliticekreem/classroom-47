@@ -1,6 +1,7 @@
 "use client";
 
 import { useCompare } from "../compare/store";
+import { useFieldStore } from "../sim/useField";
 import { useLive, useLiveFeeds, useNow } from "./store";
 
 const DUE_SOON_S = 300;
@@ -31,6 +32,7 @@ export function Hud() {
   const screenMode = useLive((s) => s.screenMode);
   const now = useNow();
   const comparing = useCompare((s) => s.camId !== null);
+  const field = useFieldStore();
   if (comparing) return null;
 
   let people = 0;
@@ -58,6 +60,12 @@ export function Hud() {
     { label: "Buses due < 5 min", value: String(busesDue), color: "#c8102e" },
     { label: "Disruptions", value: String(uniqueDisruptions), color: "var(--warn)" },
   ];
+  const estimate = field
+    ? `${Math.round(field.people * field.crowd)} people · ${Math.round(field.vehicles * field.crowd)} vehicles`
+    : "estimating…";
+  const basis = field
+    ? `${field.observed} observed segments, ${field.inferred} inferred${field.crowd !== 1 ? ` · ×${field.crowd} demo` : ""}`
+    : "";
 
   return (
     <div
@@ -96,6 +104,14 @@ export function Hud() {
             <span style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{r.value}</span>
           </div>
         ))}
+      </div>
+      <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--border)", fontSize: 12 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Swatch color="#e8d6c2" />
+          <span style={{ color: "var(--muted)" }}>City estimate</span>
+        </div>
+        <div style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums", paddingLeft: 17 }}>{estimate}</div>
+        {basis && <div style={{ color: "var(--muted)", fontSize: 11, paddingLeft: 17 }}>{basis}</div>}
       </div>
       <div
         style={{
