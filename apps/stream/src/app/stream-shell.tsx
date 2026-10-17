@@ -14,6 +14,8 @@ import { LOCATIONS } from "@/lib/locations";
 import type { StreamContext, StreamLocation, StreamSource } from "@/lib/types";
 import { useSurroundings } from "@/platform/around/useSurroundings";
 import { publish } from "@/platform/bus";
+import { useLiveLink } from "@/platform/live/useLiveLink";
+import { useWakeLock } from "@/platform/live/useWakeLock";
 
 const BASE_VIEWERS = 1840;
 // The 3D twin of the streamer's surroundings (/twin).
@@ -35,7 +37,7 @@ function useIsDesktop() {
 
 export function StreamShell() {
   const [source, setSource] = useState<StreamSource>({ kind: "idle" });
-  const [location, setLocation] = useState<StreamLocation>(LOCATIONS[0]);
+  const [demoLocation, setDemoLocation] = useState<StreamLocation>(LOCATIONS[0]);
   const [viewers, setViewers] = useState(0);
   const [revealedAt, setRevealedAt] = useState<number | null>(null);
   const [tab, setTab] = useState<View>("live");
@@ -43,12 +45,15 @@ export function StreamShell() {
   const [chatOpen, setChatOpen] = useState(false);
   const desktop = useIsDesktop();
   const live = source.kind !== "idle";
+  const link = useLiveLink({ live, viewers, demo: demoLocation });
+  const location = link.location;
+  useWakeLock(live);
 
   const ctx: StreamContext = {
     streamer: "sonion",
     title: "IRL London walk — Tower Hill to Tower Bridge, pull up?",
     location,
-    viewers,
+    viewers: link.viewers,
     live,
     locationRevealedAt: revealedAt,
   };
@@ -83,7 +88,7 @@ export function StreamShell() {
   }, []);
 
   function changeLocation(next: StreamLocation) {
-    setLocation(next);
+    setDemoLocation(next);
     if (source.kind === "url") {
       setSource({ kind: "url", url: next.camera.url, label: next.camera.label });
     }
@@ -105,6 +110,8 @@ export function StreamShell() {
     url.searchParams.set("scenario", "leak_location_50");
     url.searchParams.set("location", location.id);
     url.searchParams.set("viewers", String(viewers));
+    const session = new URLSearchParams(window.location.search).get("session");
+    if (session) url.searchParams.set("session", session);
     setMirrorUrl(url.pathname + url.search);
     setTab("3d");
     publish({
@@ -128,9 +135,10 @@ export function StreamShell() {
           <ViewTabs tab={tab} onChange={setTab} />
           {/* The player stays mounted across tabs so the stream never drops. */}
           <div className={tab === "live" ? "flex flex-col gap-4 lg:gap-5" : "hidden"}>
-            <Player source={source} onSourceChange={changeSource} ctx={ctx} />
+            <Player source={source} onSourceChange={changeSource} ctx={ctx} positionBadge={link.badge} sync={link.sync} />
             <StreamerBar
               ctx={ctx}
+              positionSource={link.source}
               onLocationChange={changeLocation}
               onReveal={reveal}
               onSimulate={mirror}
