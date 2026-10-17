@@ -87,7 +87,6 @@ export class Vehicle {
   next2 = -1;
   /** Lane just left (-1 when freshly placed), so the turn arc through the junction can be drawn from both sides. */
   prev = -1;
-  why = 0;
   turnIn = 0;
   turnOut = 0;
   /** Junction node this vehicle has claimed (-1 = none), with the lanes it will use through it. */
@@ -215,7 +214,6 @@ export class TrafficSim {
   private tick = 0;
   private v0cur = 1;
   private inter = 0;
-  cause = 0;
   private hardGap = 0;
   /** Counters for the headless check and `?stats=1`: stuck vehicles recycled, overtakes begun, siren yields begun. */
   deadlocks = 0;
@@ -678,16 +676,17 @@ export class TrafficSim {
     const out = v.next;
     if (v.gridWait < RELAX_ROOM_S) {
       // Room to clear the box: free road along the route, through a short exit lane into the one after it.
-      let room = 0;
+      let room = Infinity;
+      let free = 0;
       let lane = out;
       for (let hop = 0; hop < 2 && lane >= 0; hop++) {
         const h = this.laneHead[lane];
         const o = h >= 0 ? vs[this.order[h]] : null;
         if (o && o.lane === lane) {
-          room += o.s - o.len * 0.5;
+          room = free + o.s - o.len * 0.5;
           break;
         }
-        room += this.laneLen[lane];
+        free += this.laneLen[lane];
         lane = hop === 0 ? v.next2 : -1;
       }
       if (room < v.len + 3) return false;
@@ -736,10 +735,7 @@ export class TrafficSim {
     const sStar = IDM_MIN_GAP + Math.max(0, v.v * IDM_HEADWAY_S + (v.v * dv) / (2 * Math.sqrt(IDM_ACCEL * IDM_COMFORT)));
     const r = sStar / Math.max(gap, 0.05);
     const inter = IDM_ACCEL * r * r;
-    if (inter > this.inter) {
-      this.inter = inter;
-      v.why = this.cause;
-    }
+    if (inter > this.inter) this.inter = inter;
     if (body && gap < this.hardGap) this.hardGap = gap;
   }
 
@@ -939,7 +935,6 @@ export class TrafficSim {
       v0 = Math.max(v0, 0.5);
       this.v0cur = v0;
       this.inter = 0;
-      v.why = 0;
       this.hardGap = 1e9;
 
       // Leaders in this lane (nearest two, skipping a vehicle we are already alongside) and along the route.
@@ -950,7 +945,7 @@ export class TrafficSim {
         const o = vs[order[kk]];
         if (o.parked || o.lane !== L) break;
         if (o.idx === v.passing && v.ovt > 0.8) continue;
-        this.cause = 1; this.follow(v, o.s - v.s - (v.len + o.len) * 0.5, o.v, true);
+        this.follow(v, o.s - v.s - (v.len + o.len) * 0.5, o.v, true);
         if (found === 0) lead1 = o;
         else lead2 = o;
         found++;
@@ -959,12 +954,12 @@ export class TrafficSim {
         const h = laneHead[v.next];
         const o = h >= 0 ? vs[order[h]] : null;
         if (o && o !== v && o.lane === v.next) {
-          this.cause = 2; this.follow(v, remaining + o.s - (v.len + o.len) * 0.5, o.v, true);
+          this.follow(v, remaining + o.s - (v.len + o.len) * 0.5, o.v, true);
         } else if (v.next2 >= 0 && remaining + laneLen[v.next] < LOOKAHEAD_M) {
           const h2 = laneHead[v.next2];
           const o2 = h2 >= 0 ? vs[order[h2]] : null;
           if (o2 && o2 !== v && o2.lane === v.next2) {
-            this.cause = 3; this.follow(v, remaining + laneLen[v.next] + o2.s - (v.len + o2.len) * 0.5, o2.v, true);
+            this.follow(v, remaining + laneLen[v.next] + o2.s - (v.len + o2.len) * 0.5, o2.v, true);
           }
         }
       }
@@ -990,7 +985,7 @@ export class TrafficSim {
         } else frozen = true;
       } else if (v.holdAt > 0) {
         const g = v.holdAt - v.s;
-        this.cause = 6; this.follow(v, g, 0, false);
+        this.follow(v, g, 0, false);
         if (g < 4 && v.v < 0.3) v.hold = 10 + this.rng() * 18;
       }
 
@@ -1071,9 +1066,7 @@ export class TrafficSim {
               if (v.idx < o.idx && (o.v > 0.5 || gap > 2.5 || (v.stuck > 4 && gap > 1)) && -(dx * Math.sin(o.yaw) + dz * Math.cos(o.yaw)) > 0) continue;
               // A car already in the box has the right of way over one waiting at its stop line for it.
               if (v.box >= 0 && o.box < 0 && o.gridWait > 0 && co < 0.7) continue;
-              // Two cars inside one box have reserved crossing-free arcs; the move guard stands in for the cone.
-              if (v.box >= 0 && o.box === v.box && o.lane !== L) continue;
-              this.cause = 5; this.follow(v, gap, o.v * co, true);
+              this.follow(v, gap, o.v * co, true);
             }
           }
         }

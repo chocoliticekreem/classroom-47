@@ -116,7 +116,12 @@ function step(
   for (const m of meshes.bodies) m.instanceMatrix.needsUpdate = true;
   meshes.pool.instanceMatrix.needsUpdate = true;
   const shown = respondersOnly ? 0 : sim.active;
-  if (frame % 60 === 0 && useTwinCounts.getState().vehicles !== shown) useTwinCounts.setState({ vehicles: shown });
+  if (frame % 60 === 0) {
+    if (useTwinCounts.getState().vehicles !== shown) useTwinCounts.setState({ vehicles: shown });
+    // Console / Playwright: `__twin.traffic.audit()` counts overlapping bodies now; `.holds`, `.deadlocks`, `.overtakes`, `.yields` are running totals.
+    const twin = (window as unknown as { __twin?: { traffic?: TrafficSim } }).__twin;
+    if (twin) twin.traffic = sim;
+  }
   const night = ATMOS.windowGlow;
   lights.color.setScalar(0.3 + 0.7 * night);
   pool.color.setScalar(night);
