@@ -4,12 +4,14 @@ import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
 import { toLocal } from "../config";
+import { useCameraStore } from "../scene/cameraStore";
 import { useLive } from "./store";
 
 const COLUMN_H = 60;
 
 export function Streamer() {
   const streamer = useLive((s) => s.streamer);
+  const firstPerson = useCameraStore((s) => s.preset === "streamer" && !s.cctv);
   const [x, z] = useMemo(() => toLocal(streamer.lat, streamer.lon), [streamer]);
   const ring = useRef<THREE.Mesh>(null);
   const column = useRef<THREE.Mesh>(null);
@@ -30,7 +32,7 @@ export function Streamer() {
   });
 
   return (
-    <group position={[x, 0, z]}>
+    <group position={[x, 0, z]} visible={!firstPerson}>
       <mesh ref={column} position={[0, COLUMN_H / 2, 0]}>
         <cylinderGeometry args={[1.4, 2.2, COLUMN_H, 16, 1, true]} />
         <meshBasicMaterial

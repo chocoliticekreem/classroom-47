@@ -1,5 +1,7 @@
 "use client";
 
+import { CompareOverlay } from "../compare/CompareOverlay";
+import { ViewBar } from "../compare/ViewBar";
 import { Agents } from "./Agents";
 import { Buses } from "./Buses";
 import { Cameras } from "./Cameras";
@@ -30,6 +32,8 @@ export function LiveHud() {
     <>
       <LabelHost />
       <Hud />
+      <ViewBar />
+      <CompareOverlay />
     </>
   );
 }

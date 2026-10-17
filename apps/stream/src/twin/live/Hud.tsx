@@ -1,5 +1,6 @@
 "use client";
 
+import { useCompare } from "../compare/store";
 import { useLive, useLiveFeeds, useNow } from "./store";
 
 const DUE_SOON_S = 300;
@@ -29,6 +30,8 @@ export function Hud() {
   const updatedAt = useLive((s) => s.updatedAt);
   const screenMode = useLive((s) => s.screenMode);
   const now = useNow();
+  const comparing = useCompare((s) => s.camId !== null);
+  if (comparing) return null;
 
   let people = 0;
   let vehicles = 0;

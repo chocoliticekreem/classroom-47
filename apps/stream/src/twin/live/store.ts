@@ -17,6 +17,7 @@ export interface LiveState {
   /** Wall clock, ticked once a second for render-time countdowns; 0 before the feeds start. */
   now: number;
   screenMode: "video" | "frame" | null;
+  gps: "off" | "on" | "error";
 }
 
 export const useLive = create<LiveState>(() => ({
@@ -29,7 +30,34 @@ export const useLive = create<LiveState>(() => ({
   updatedAt: 0,
   now: 0,
   screenMode: null,
+  gps: "off",
 }));
+
+let gpsWatch: number | null = null;
+
+/** Browser geolocation drives the streamer position until stopped. */
+export function toggleGps() {
+  if (gpsWatch !== null) {
+    navigator.geolocation.clearWatch(gpsWatch);
+    gpsWatch = null;
+    useLive.setState({ gps: "off" });
+    return;
+  }
+  if (!("geolocation" in navigator)) {
+    useLive.setState({ gps: "error" });
+    return;
+  }
+  gpsWatch = navigator.geolocation.watchPosition(
+    (pos) => useLive.setState({ streamer: { lat: pos.coords.latitude, lon: pos.coords.longitude }, gps: "on" }),
+    () => {
+      if (gpsWatch !== null) navigator.geolocation.clearWatch(gpsWatch);
+      gpsWatch = null;
+      useLive.setState({ gps: "error" });
+    },
+    { enableHighAccuracy: true, maximumAge: 1000, timeout: 15_000 },
+  );
+  useLive.setState({ gps: "on" });
+}
 
 const CAMS_MS = 60_000;
 const DISRUPTIONS_MS = 60_000;
