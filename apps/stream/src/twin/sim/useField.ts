@@ -6,6 +6,8 @@ import { useDemoSettings } from "@/platform/demo";
 import type { FieldResponse } from "@/twin/field/types";
 import { camFrame, type CamFrame } from "@/twin/live/project";
 import { useLive } from "@/twin/live/store";
+import { currentOrigin } from "@/twin/config";
+import { useOrigin } from "@/twin/origin";
 
 const FIELD_MS = 30_000;
 
@@ -55,7 +57,8 @@ function start() {
     ctrl?.abort();
     ctrl = new AbortController();
     try {
-      const res = await fetch("/api/twin/field", { signal: ctrl.signal, cache: "no-store" });
+      const o = currentOrigin();
+      const res = await fetch(`/api/twin/field?lat=${o.lat}&lon=${o.lon}`, { signal: ctrl.signal, cache: "no-store" });
       if (!res.ok) return;
       const f = (await res.json()) as FieldResponse;
       if (stopped || !Array.isArray(f.segments)) return;
@@ -67,10 +70,17 @@ function start() {
   };
   void tick();
   const timer = setInterval(() => void tick(), FIELD_MS);
+  const unsub = useOrigin.subscribe((s, prev) => {
+    if (s.version === prev.version) return;
+    lastField = null;
+    useFieldStore.setState(null);
+    void tick();
+  });
   return () => {
     stopped = true;
     ctrl?.abort();
     clearInterval(timer);
+    unsub();
   };
 }
 

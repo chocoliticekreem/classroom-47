@@ -8,6 +8,7 @@ import { buildFalconPoint } from "./bankside/falconPoint";
 import { buildHalkin } from "./bankside/halkin";
 import { LAYERS, type SiteModel } from "./bankside/kit";
 import { makeSignMaterial, makeSiteMaterials, updateSiteMaterials } from "./bankside/materials";
+import { towerHillInRange, towerHillOffset } from "../landmarks";
 
 /**
  * Two hero buildings on the south bank, inside the loaded city: Falcon Point (Bankside) and Halkin (the
@@ -77,6 +78,7 @@ export function Bankside() {
   const plane = useMemo(() => new THREE.PlaneGeometry(1, 1), []);
 
   useFrame(() => updateSiteMaterials(built.materials, built.signMaterials));
+  const [thx, thz] = towerHillOffset();
 
   useEffect(
     () => () => {
@@ -91,8 +93,9 @@ export function Bankside() {
     [built, plane],
   );
 
+  if (!towerHillInRange()) return null;
   return (
-    <>
+    <group position={[thx, 0, thz]}>
       {built.sites.map(({ site, model, signs }, slot) => (
         <group key={site.id}>
           <group position={[site.at[0], 0, site.at[1]]} rotation={[0, site.yaw, 0]} scale={site.scale}>
@@ -121,6 +124,6 @@ export function Bankside() {
           />
         </group>
       ))}
-    </>
+    </group>
   );
 }

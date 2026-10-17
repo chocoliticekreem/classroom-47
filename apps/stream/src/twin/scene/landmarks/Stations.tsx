@@ -3,7 +3,7 @@
 import { Billboard } from "@react-three/drei";
 import { useMemo } from "react";
 import * as THREE from "three";
-import { toLocal } from "../../config";
+import { insideGeometryBounds, toLocal } from "../../config";
 import { railHeight, STATION_FALLBACKS, type StationNetwork } from "../../landmarks";
 import { Label } from "../../live/Label";
 import { useGeometry } from "../useGeometry";
@@ -172,6 +172,7 @@ export function Stations() {
     }));
     for (const f of STATION_FALLBACKS) {
       const [x, z] = toLocal(f.lat, f.lon);
+      if (!insideGeometryBounds(x, z)) continue;
       const dup = raw.some((r) => r.network === f.network && Math.hypot(r.x - x, r.z - z) < 150);
       if (!dup) raw.push({ name: f.name, x, z, network: f.network });
     }

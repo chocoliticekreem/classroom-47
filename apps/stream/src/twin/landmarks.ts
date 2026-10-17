@@ -2,7 +2,8 @@
  * Real London landmarks as pure data. Positions are lat/lon (use toLocal for metres); headings are
  * compass bearings of the long axis (0 = north, clockwise). Heights are metres.
  */
-import { toLocal, type Ring } from "./config";
+import { currentOrigin, insideGeometryBounds, toLocal, TOWER_HILL, type Ring } from "./config";
+import { distanceM } from "@/platform/around/geo";
 
 export type LandmarkKind =
   | "suspension-bridge"
@@ -44,6 +45,28 @@ export const LANDMARKS = {
 
 export function landmarkPos(l: Landmark): [number, number] {
   return toLocal(l.lat, l.lon);
+}
+
+/** Beyond this the fog has swallowed even the towers, so the meshes are not built. */
+export const LANDMARK_RANGE_M = 3000;
+
+export function landmarkInRange(l: { lat: number; lon: number }, range = LANDMARK_RANGE_M): boolean {
+  const o = currentOrigin();
+  return distanceM(o.lat, o.lon, l.lat, l.lon) <= range;
+}
+
+/**
+ * Where Tower Hill sits in the current frame: hand-placed Tower Hill-local metres (Tower of London
+ * walls, viaducts, Bankside plots) are rendered under a group at this offset. [0, 0] at Tower Hill.
+ */
+export function towerHillOffset(): [number, number] {
+  return toLocal(TOWER_HILL.lat, TOWER_HILL.lon);
+}
+
+/** True when the Tower Hill-local hand-placed models are within the loaded area. */
+export function towerHillInRange(): boolean {
+  const [x, z] = towerHillOffset();
+  return insideGeometryBounds(x, z);
 }
 
 /** Compass bearing of a long axis → Three.js yaw for geometry whose long axis is local z. */
@@ -118,8 +141,11 @@ function smooth(edge: number, v: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** Height of the viaduct deck above ground at (x, z); 0 where rail runs at ground level. */
+/** Height of the viaduct deck above ground at (x, z) in the current frame; 0 where rail runs at ground level. */
 export function railHeight(x: number, z: number): number {
+  const [ox, oz] = towerHillOffset();
+  x -= ox;
+  z -= oz;
   let best = 0;
   for (const zone of ELEVATED_RAIL) {
     const dx = Math.min(x - zone.x0, zone.x1 - x);

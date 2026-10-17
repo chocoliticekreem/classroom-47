@@ -21,7 +21,6 @@ const goalPos = new THREE.Vector3();
 const goalTarget = new THREE.Vector3();
 const streamerGoal = new THREE.Vector3();
 const _look = new THREE.Vector3();
-const toLocalBridge = toLocal(TOWER_BRIDGE.lat, TOWER_BRIDGE.lon);
 
 /**
  * Vertical FOV for the compare half so the real frame's field of view fits it the way the <video>
@@ -161,7 +160,7 @@ export function CameraRig() {
       const f = fp.current;
       const k = 1 - Math.exp(-3 * step);
       camera.position.lerp(streamerGoal, k);
-      const [bx, bz] = toLocalBridge;
+      const [bx, bz] = toLocal(TOWER_BRIDGE.lat, TOWER_BRIDGE.lon);
       const baseYaw = f.hasTravel ? f.travelYaw : bearingRad(camera.position.x, camera.position.z, bx, bz);
       f.yaw = lerpAngle(f.yaw, baseYaw, 1 - Math.exp(-2 * step));
       const yaw = f.yaw + f.dragYaw;

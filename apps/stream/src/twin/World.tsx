@@ -2,17 +2,17 @@
 
 import { PerformanceMonitor, Stats } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
-import { Suspense, useMemo, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import { DevPanel } from "@/components/DevPanel";
 import { useConditions, useDemoSettings, type Conditions } from "@/platform/demo";
-import { ORIGIN } from "./config";
 import { LiveHud, LiveLayers } from "./live";
 import { Boats } from "./live/Boats";
 import { Pedestrians } from "./live/Pedestrians";
 import { useScenario } from "./live/scenario";
 import { Traffic } from "./live/Traffic";
 import { ModuleBoundary } from "./ModuleBoundary";
+import { areaName, SWAP_FADE_MS, useOrigin } from "./origin";
 import { Bankside } from "./scene/Bankside";
 import { Buildings } from "./scene/Buildings";
 import { CameraRig } from "./scene/CameraRig";
@@ -28,7 +28,7 @@ import { Probe } from "./scene/Probe";
 import { Pavements } from "./scene/Pavements";
 import { Roads } from "./scene/Roads";
 import { Sky } from "./scene/Sky";
-import { GeometryContext, useGeometryLoader } from "./scene/useGeometry";
+import { GeometryContext, useGeometryLoader, useRecentre } from "./scene/useGeometry";
 import { Water } from "./scene/Water";
 import { Atmosphere, Rain } from "./scene/Weather";
 
@@ -111,10 +111,22 @@ function ConditionsChip({ conditions }: { conditions: Conditions }) {
 
 export function World() {
   const [toggles] = useState(readToggles);
-  const conditions = useConditions(ORIGIN);
+  const origin = useOrigin((s) => s.origin);
+  const version = useOrigin((s) => s.version);
+  const swapping = useOrigin((s) => s.swapping);
+  const conditions = useConditions(origin);
   const settings = useDemoSettings();
   const scenario = useScenario((s) => s.scenario);
   const geometry = useGeometryLoader();
+  useRecentre();
+  const fly = useCameraStore((s) => s.fly);
+  const preset = useCameraStore((s) => s.preset);
+  useEffect(() => {
+    if (version > 0) fly(preset);
+    // Why: only a swap re-anchors the camera; preset changes fly on their own.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version]);
+  const area = areaName(origin);
   const [dpr, setDpr] = useState(perf.dprCap);
   const [gpu, setGpu] = useState("");
   const camera = useMemo(
@@ -165,7 +177,7 @@ export function World() {
           <CameraRig />
         </Module>
         {geometry.status === "ready" && (
-          <GeometryContext.Provider value={geometry.data}>
+          <GeometryContext.Provider key={`geometry-${version}`} value={geometry.data}>
             <Module name="Buildings" toggles={toggles}>
               <Buildings />
             </Module>
@@ -201,12 +213,14 @@ export function World() {
             </Module>
           </GeometryContext.Provider>
         )}
-        <Module name="Bankside" toggles={toggles}>
-          <Bankside />
-        </Module>
-        <Module name="Live" toggles={toggles}>
-          <LiveLayers />
-        </Module>
+        <group key={`live-${version}`}>
+          <Module name="Bankside" toggles={toggles}>
+            <Bankside />
+          </Module>
+          <Module name="Live" toggles={toggles}>
+            <LiveLayers />
+          </Module>
+        </group>
         <Module name="Post" toggles={toggles}>
           <Post />
         </Module>
@@ -215,24 +229,29 @@ export function World() {
       <div className="pointer-events-none absolute inset-0 z-10">
         <div className="absolute left-5 top-5 flex flex-col gap-0.5">
           <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-white/50">Digital twin</span>
-          <span className="text-lg font-semibold text-white">Tower Hill, London</span>
+          <span className="text-lg font-semibold text-white">{area}, London</span>
         </div>
         {geometry.status === "loading" && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="flex items-center gap-3 rounded-full border border-white/10 bg-black/60 px-5 py-2.5 text-sm text-white/85 backdrop-blur-md">
               <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
-              Loading Tower Hill…
+              Loading {area}…
             </div>
           </div>
         )}
         {geometry.status === "error" && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="max-w-sm rounded-2xl border border-red-400/30 bg-black/70 px-5 py-4 text-sm text-white/85 backdrop-blur-md">
-              <p className="font-medium text-red-300">Could not load Tower Hill</p>
+              <p className="font-medium text-red-300">Could not load {area}</p>
               <p className="mt-1 text-white/60">{geometry.message}</p>
             </div>
           </div>
         )}
+        <div
+          aria-hidden
+          className="absolute inset-0 bg-[#1c2546]"
+          style={{ opacity: swapping ? 1 : 0, transition: `opacity ${SWAP_FADE_MS}ms ease`, pointerEvents: "none" }}
+        />
         <ConditionsChip conditions={conditions} />
         {toggles.stats && gpu && (
           <div
