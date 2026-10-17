@@ -1,0 +1,10 @@
+[
+  {"query": "a large crowd of pedestrians crossing a busy city intersection", "expect_cameras": ["sf_streets_cam-1", "sf_streets_cam-2", "sf_streets_cam-3", "sf_streets_cam-4", "nyc_streets_cam-1", "nyc_streets_cam-2"]},
+  {"query": "people waiting at the curb while vehicles stop at the crosswalk", "expect_cameras": ["sf_streets_cam-1", "sf_streets_cam-2", "sf_streets_cam-3", "sf_streets_cam-4", "nyc_streets_cam-1", "nyc_streets_cam-2"]},
+  {"query": "a person walking towards the camera holding a phone", "expect_cameras": ["sf_streets_cam-1", "sf_streets_cam-2", "sf_streets_cam-3", "sf_streets_cam-4", "nyc_streets_cam-1", "nyc_streets_cam-2", "pie_cam-3"]},
+  {"query": "pedestrian close to a moving vehicle on the road", "expect_cameras": ["pie_cam-3", "sf_streets_cam-1", "sf_streets_cam-2", "sf_streets_cam-3", "sf_streets_cam-4", "nyc_streets_cam-1", "nyc_streets_cam-2", "neighborhood_cam-1"]},
+  {"query": "group of people gathering indoors in a corridor", "expect_cameras": ["smartspace_cam-1"]},
+  {"query": "a forklift driving down a warehouse aisle near a person", "expect_cameras": ["sdg_warehouse_cam-2"]},
+  {"query": "dense traffic on a multi-lane highway", "expect_cameras": ["i24_cam-1"]},
+  {"query": "someone filming the camera holder or following them", "expect_cameras": ["sf_streets_cam-1", "sf_streets_cam-2", "sf_streets_cam-3", "sf_streets_cam-4", "nyc_streets_cam-1", "nyc_streets_cam-2", "pie_cam-3"]}
+]

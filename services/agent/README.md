@@ -80,10 +80,31 @@ ConfigMap, creds from a Secret, Ingress path `/app`, only your team's namespace.
 To update: recreate the ConfigMap (`kubectl create configmap … --dry-run=client -o yaml | kubectl apply -f -`)
 and `kubectl rollout restart deploy/classroom47-agent`.
 
+## Deployed (team 47, verified 17 Oct 2026 12:50 BST)
+
+Namespace `team-47`: Deployment/Service/Ingress `classroom47-agent`, ConfigMap `classroom47-agent-code`
+(`app.py` + `requirements.txt`), Secret `classroom47-agent-creds` (keys `INGRESS_URL`, `USERNAME`, `PASSWORD`,
+`WANDB_API_KEY`, `WANDB_TEAM`, `WANDB_PROJECT`, `WANDB_MODEL`; `INGRESS_URL` points at the in-cluster
+`video-backend-service`). `WANDB_MODEL` is `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B`. Weave project
+`anson9m23-chocoliticekreem-codes/classroom-47`. `/app/health` → `{"ok": true, "vss": true, "wandb": true}`.
+
+## Evaluate the search the agent depends on
+
+`eval_search.py` runs the eight streamer-safety queries in `eval_queries.json` through `POST /api/v1/search`
+and reports hit@k (an expected camera appears in the top-k moments). Stdlib only, so it runs on the lab VM:
+
+```bash
+INGRESS_URL=$INGRESS_URL USERNAME=$USERNAME PASSWORD=$PASSWORD python3 eval_search.py --top-k 8 --json before.json
+# re-ingest with our prompt (ingest/reingest-videos), then run it again and compare
+```
+
+Result on 17 Oct 12:50 BST, before any re-ingest: **hit@8 = 7/8**; the miss is "someone filming the camera
+holder or following them" (2 moments, none from an expected camera). The table is in the root README.
+
 ## Try it
 
 ```bash
-APP=https://video-lab-team-<N>.cosmos.vastdata.com   # the public app host, not INGRESS_URL
+APP=https://video-lab-team-47.cosmos.vastdata.com   # the public app host, not INGRESS_URL
 curl -s "$APP/app/health"
 curl -s -X POST "$APP/app/assess" -H 'Content-Type: application/json' -d '{
   "question": "Is a crowd building around me?",
