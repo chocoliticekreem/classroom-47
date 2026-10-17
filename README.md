@@ -11,9 +11,14 @@ Built at the **[Real-Time Video Agents Hack, London](https://luma.com/vastlondon
 
 - **Brief:** build agents that unlock the value of video. They should make footage searchable and queryable, and act on it.
 - **Deadline:** **16:30 BST**, submitted at [tokensand.com/vastlondon/submit](https://tokensand.com/vastlondon/submit). Our own code freeze is 15:45.
-- **Sponsor stack:** NVIDIA Cosmos, YOLO, W&B inference + Weave, VAST AI OS, CoreWeave, Cursor.
+- **Infrastructure:** VAST's **CAMP** stack, required by the challenge.
+  - **C**ursor (SpaceXAI) is the coding agent.
+  - **A**: the agent runs on the VAST cluster.
+  - **M**: NVIDIA Cosmos and YOLO on CoreWeave, plus W&B inference + Weave.
+  - **P**: the VAST platform, with the NVIDIA VSS Blueprint, DataEngine and VastDB.
 - **Team docs:**
-  - [`AGENTS.md`](AGENTS.md): event facts, rules, submission checklist, sponsor access links.
+  - [`AGENTS.md`](AGENTS.md): event facts, rules, CAMP requirements and access, submission checklist.
+  - The [`vast-camp` skill](.agents/skills/vast-camp/SKILL.md): how to build on and deploy to CAMP.
   - [`HANDOFF.md`](HANDOFF.md): what works today, what's broken, next steps.
   - [`TODO.md`](TODO.md): to-dos.
   - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): the stream ↔ city event bus.
@@ -96,10 +101,13 @@ apps/web/src/
 ## Quick Start
 
 ```bash
-npm install                            # once, at the repo root (npm workspaces)
-npm run dev -w web                     # 3D city: http://localhost:3000 (/ and /city)
-npm run dev -w stream -- --port 3001   # streaming page: http://localhost:3001
+npm install          # once, at the repo root (npm workspaces)
+npm run dev:stream   # streaming page: http://localhost:3047 (Live / Around me / 3D mirror)
+npm run yolo         # local YOLO for "Around me": http://127.0.0.1:8047 (needs uv)
+npm run dev -w web   # 3D city: http://localhost:3000 (/ and /city)
 ```
+
+The CAMP parts (VSS, Cosmos, the agent on the VAST cluster) run on the event's lab VM. See the [`vast-camp` skill](.agents/skills/vast-camp/SKILL.md).
 
 Don't use the root `npm run dev`; it expects an `apps/api` workspace that isn't in this repo. The `apps/web` build is currently blocked; [`HANDOFF.md`](HANDOFF.md) has the details.
 

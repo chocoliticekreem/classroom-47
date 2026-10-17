@@ -1,15 +1,18 @@
 # Architecture — CAMP
 
-The repo follows VAST's **CAMP** developer stack: **C**oding agents, **A**gent runtimes, **M**odel services, **P**latform (VAST AI OS).
+The challenge requires VAST's **CAMP** stack: **C**oding agent, **A**gent runtime, **M**odel services, **P**latform.
+The event provides the infrastructure, and each layer is a sponsor. The requirements and access steps are in
+[`AGENTS.md`](../AGENTS.md#camp-the-infrastructure-we-must-build-on). The how-to is the
+[`vast-camp` skill](../.agents/skills/vast-camp/SKILL.md).
 
-| Layer | What | In this repo | Next |
+| Layer | Event infrastructure | In this repo today | Target |
 |---|---|---|---|
-| **C** — Coding agents | Cursor, Claude Code | `CLAUDE.md`, `AGENTS.md` | — |
-| **A** — Agent runtimes | Agents that act on stream + city state | `apps/stream/src/agents/chat-crowd` (mock chat crowd) | Advisor agent, persona sim agents; target runtime VAST AgentEngine |
-| **M** — Model services | W&B inference, NVIDIA Cosmos, YOLO on CoreWeave | — | `apps/stream/src/models/` when the first client lands |
-| **P** — Platform | Data + eventing | `apps/stream/src/platform/bus.ts` (cross-tab event bus) | VAST DataBase / InsightEngine for clip ingest + vector search |
+| **C**: Coding agent | Cursor (SpaceXAI) on the lab VM over Remote-SSH, with the official skills | `AGENTS.md`, `CLAUDE.md`, `HANDOFF.md`, the `vast-camp` skill | Build the CAMP agent in Cursor on the VM |
+| **A**: Agent runtime | VAST: team Kubernetes namespace, app at `/app` (`/deploy-app-no-registry`) | Mock chat crowd (`apps/stream/src/agents/chat-crowd`), runs in the browser | Python agent and dashboard on the cluster: VSS search-and-answer + YOLO counts → W&B reasoning → `calm/busy/danger` + advice |
+| **M**: Model services | NVIDIA Cosmos3-Reason, Cosmos Embed1, YOLO11 and Canary on CoreWeave GPUs. W&B serverless inference + Weave | Local YOLO on TfL (`services/yolo`). Cosmos and W&B clients (`services/vision`) | Cosmos and YOLO through VSS. Agent LLM on W&B, traced in Weave |
+| **P**: Platform | VAST: NVIDIA VSS Blueprint on S3, then DataEngine, then VastDB, with pre-ingested footage | Cross-tab bus (`apps/stream/src/platform/bus.ts`). Live TfL data via `/api/around/*` (outside VAST) | Our team's VSS index, re-ingested with our crowd prompt |
 
-UI lives in `apps/stream/src/components/{stream,chat}`; shared types in `apps/stream/src/lib`.
+Stream UI: `apps/stream/src/components/{stream,chat,around}`. Live-data logic: `apps/stream/src/platform/around`. Shared types: `apps/stream/src/lib`.
 
 ## Event bus contract
 
