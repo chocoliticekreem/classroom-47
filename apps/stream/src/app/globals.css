@@ -1,14 +1,17 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #07070a;
-  --surface: #0f0f14;
-  --surface-2: #16161d;
-  --border: #23232d;
-  --text: #f2f2f5;
-  --muted: #8a8a99;
+  --bg: #050507;
+  --surface: #0c0c10;
+  --surface-2: #131318;
+  --surface-3: #1a1a21;
+  --border: #1f1f27;
+  --border-strong: #2c2c36;
+  --text: #f4f3f0;
+  --muted: #7d7c88;
+  --dim: #4f4e5a;
   --ember: #ff4d2e;
-  --ember-soft: #ff4d2e22;
+  --ember-soft: #ff4d2e1f;
   --live: #ff2d55;
   --ok: #3ddc97;
   --warn: #ffb020;
@@ -18,16 +21,20 @@
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
   --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
   --color-text: var(--text);
   --color-muted: var(--muted);
+  --color-dim: var(--dim);
   --color-ember: var(--ember);
   --color-ember-soft: var(--ember-soft);
   --color-live: var(--live);
   --color-ok: var(--ok);
   --color-warn: var(--warn);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-sans-ui);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono-hud);
 }
 
 html,
@@ -38,18 +45,66 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-sans-ui), system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv05";
+}
+
+.font-mono {
+  font-feature-settings: "tnum", "zero";
+  font-variant-numeric: tabular-nums slashed-zero;
 }
 
 .scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+/* Why: film grain + scanlines sell the "street camera" look without touching the video element. */
+.grain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.28;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 2px,
+    rgb(0 0 0 / 0.14) 3px,
+    transparent 4px
+  );
+}
+
+.hud-grid {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.035) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black 30%, transparent 100%);
+}
+
+.hud-corner {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-color: rgb(255 255 255 / 0.7);
+  border-style: solid;
+  border-width: 0;
 }
 
 @keyframes chat-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -58,7 +113,7 @@ body {
 }
 
 .animate-chat-in {
-  animation: chat-in 180ms ease-out;
+  animation: chat-in 160ms ease-out;
 }
 
 @keyframes live-pulse {
@@ -73,4 +128,30 @@ body {
 
 .animate-live {
   animation: live-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.animate-sheet-up {
+  animation: sheet-up 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.animate-sweep {
+  animation: sweep 2.8s linear infinite;
 }

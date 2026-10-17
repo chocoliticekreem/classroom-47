@@ -1,5 +1,13 @@
 import type { ChatMessage, StreamLocation } from "@/lib/types";
 
+/** Mirrors WhatIfScenarioId in apps/web/src/world/streamerContract.ts (the city owns the scenario list). */
+export type WhatIfScenarioId =
+  | "leak_location_50"
+  | "crosswalk_surge_50"
+  | "sniper_ambush"
+  | "junction_accident"
+  | "flash_mob_100";
+
 /**
  * Cross-tab event bus. The stream page, the 3D city (Arvin) and any sim/agent tab
  * open on the same origin share one channel, so they integrate without a backend.
@@ -8,8 +16,14 @@ export type BusEvent =
   | { type: "stream.location"; location: StreamLocation }
   | { type: "stream.viewers"; viewers: number }
   | { type: "chat.message"; message: ChatMessage }
-  | { type: "location.reveal"; location: StreamLocation; viewers: number; at: number }
-  | { type: "sim.request"; location: StreamLocation; viewers: number; prompt: string }
+  | { type: "streamer:location_leaked"; location: StreamLocation; viewers: number; at: number }
+  | {
+      type: "reality:fork";
+      scenario: WhatIfScenarioId;
+      label: string;
+      location: StreamLocation;
+      viewers: number;
+    }
   | { type: "surroundings.update"; summary: string; level: "calm" | "busy" | "danger" };
 
 const CHANNEL = "classroom-47";

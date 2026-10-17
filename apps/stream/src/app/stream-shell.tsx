@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ChevronDown, MessageSquare } from "lucide-react";
 import { useChatCrowd } from "@/agents/chat-crowd/useChatCrowd";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { TopBar } from "@/components/TopBar";
@@ -12,17 +13,33 @@ import type { StreamContext, StreamLocation, StreamSource } from "@/lib/types";
 import { publish } from "@/platform/bus";
 
 const BASE_VIEWERS = 1840;
+const DESKTOP_QUERY = "(min-width: 768px)";
+
+// Why: ChatPanel owns scroll/draft state, so it must be mounted exactly once —
+// a CSS-only show/hide of two copies would fork that state.
+function useIsDesktop() {
+  const [desktop, setDesktop] = useState(() => window.matchMedia(DESKTOP_QUERY).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(DESKTOP_QUERY);
+    const onChange = () => setDesktop(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return desktop;
+}
 
 export function StreamShell() {
   const [source, setSource] = useState<StreamSource>({ kind: "idle" });
   const [location, setLocation] = useState<StreamLocation>(LOCATIONS[0]);
   const [viewers, setViewers] = useState(0);
   const [revealedAt, setRevealedAt] = useState<number | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const desktop = useIsDesktop();
   const live = source.kind !== "idle";
 
   const ctx: StreamContext = {
     streamer: "sonion",
-    title: "IRL London walk — West End at night, pull up?",
+    title: "IRL London walk — Tower Hill to Tower Bridge, pull up?",
     location,
     viewers,
     live,
@@ -66,24 +83,28 @@ export function StreamShell() {
   function reveal() {
     const at = Date.now();
     setRevealedAt(at);
-    publish({ type: "location.reveal", location, viewers, at });
+    publish({ type: "streamer:location_leaked", location, viewers, at });
     send(`yo I'm at ${location.name} right now, come say hi`);
   }
 
   function simulate() {
     publish({
-      type: "sim.request",
+      type: "reality:fork",
+      scenario: "leak_location_50",
       location,
       viewers,
-      prompt: `What happens if I tell ${viewers} viewers I'm at ${location.name}?`,
+      label: `What if I tell ${viewers} viewers I'm at ${location.name}?`,
     });
   }
+
+  const chat = <ChatPanel messages={messages} onSend={send} viewers={viewers} live={live} />;
+  const lastMessage = messages.at(-1);
 
   return (
     <div className="flex h-full flex-col">
       <TopBar live={live} />
-      <div className="flex min-h-0 flex-1">
-        <main className="scrollbar-thin flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-4 lg:p-6">
+      <div className="relative flex min-h-0 flex-1">
+        <main className="scrollbar-thin flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-3 pb-20 sm:p-4 md:pb-4 lg:gap-5 lg:p-6">
           <Player source={source} onSourceChange={changeSource} ctx={ctx} />
           <StreamerBar
             ctx={ctx}
@@ -93,9 +114,61 @@ export function StreamShell() {
           />
           <SurroundingsCard />
         </main>
-        <aside className="hidden w-[360px] shrink-0 flex-col border-l border-line bg-surface md:flex">
-          <ChatPanel messages={messages} onSend={send} viewers={viewers} live={live} />
-        </aside>
+
+        {desktop ? (
+          <aside className="flex w-[340px] shrink-0 flex-col border-l border-line bg-surface xl:w-[380px]">
+            {chat}
+          </aside>
+        ) : chatOpen ? (
+          <div className="absolute inset-x-0 bottom-0 top-[18%] z-20 flex flex-col">
+            <button
+              type="button"
+              aria-label="Collapse chat"
+              onClick={() => setChatOpen(false)}
+              className="h-6 shrink-0 bg-gradient-to-b from-transparent to-bg/80"
+            />
+            <div className="animate-sheet-up relative flex min-h-0 flex-1 flex-col rounded-t-xl border-t border-line-strong bg-surface shadow-[0_-24px_60px_rgba(0,0,0,0.6)]">
+              <button
+                type="button"
+                aria-label="Collapse chat"
+                onClick={() => setChatOpen(false)}
+                className="absolute left-1/2 top-1.5 z-10 grid h-5 w-12 -translate-x-1/2 place-items-center text-dim"
+              >
+                <ChevronDown className="size-4" />
+              </button>
+              <div className="min-h-0 flex-1 pt-3">{chat}</div>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setChatOpen(true)}
+            className="absolute inset-x-3 bottom-3 z-20 flex h-12 items-center gap-3 rounded-lg border border-line-strong bg-surface-2/95 px-3 text-left shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur"
+          >
+            <span className="relative grid size-8 shrink-0 place-items-center rounded-md bg-surface-3 text-text">
+              <MessageSquare className="size-4" />
+              {live && <span className="animate-live absolute right-1 top-1 size-1.5 rounded-full bg-live" />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-mono text-[9px] uppercase tracking-[0.16em] text-muted">
+                Chat {live ? `· ${viewers.toLocaleString("en-GB")} watching` : ""}
+              </span>
+              <span className="block truncate text-[13px] text-text/85">
+                {lastMessage ? (
+                  <>
+                    <span className="font-semibold" style={{ color: lastMessage.color }}>
+                      {lastMessage.username}
+                    </span>{" "}
+                    {lastMessage.text}
+                  </>
+                ) : (
+                  <span className="text-muted">Chat opens when you go live</span>
+                )}
+              </span>
+            </span>
+            <ChevronDown className="size-4 rotate-180 text-muted" />
+          </button>
+        )}
       </div>
     </div>
   );

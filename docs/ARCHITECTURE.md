@@ -20,8 +20,8 @@ Any tab on the **same origin** (e.g. `http://localhost:3000/...`) shares one `Br
 | `stream.location` | `location: StreamLocation` | Stream page | City |
 | `stream.viewers` | `viewers: number` | Stream page | City / sim |
 | `chat.message` | `message: ChatMessage` | Chat crowd | Anyone |
-| `location.reveal` | `location: StreamLocation`, `viewers: number`, `at: number` (ms epoch) | Stream page ("Tell chat my location") | City sim |
-| `sim.request` | `location: StreamLocation`, `viewers: number`, `prompt: string` | Stream page ("Simulate first") | City sim |
+| `streamer:location_leaked` | `location: StreamLocation`, `viewers: number`, `at: number` (ms epoch) | Stream page ("Tell chat my location") | City sim |
+| `reality:fork` | `scenario: WhatIfScenarioId` (e.g. `"leak_location_50"`), `label: string`, `location: StreamLocation`, `viewers: number` | Stream page ("Simulate first") | City sim |
 | `surroundings.update` | `summary: string`, `level: "calm" \| "busy" \| "danger"` | City / awareness data | Stream page (Surroundings card) |
 
 `StreamLocation` = `{ id: string; name: string; area: string; lat: number; lon: number }` (see `apps/stream/src/lib/types.ts`).
@@ -34,7 +34,7 @@ Inside this app, import the helpers:
 import { subscribe, publish } from "@/platform/bus";
 
 const off = subscribe((e) => {
-  if (e.type === "location.reveal" || e.type === "sim.request") {
+  if (e.type === "streamer:location_leaked" || e.type === "reality:fork") {
     runCrowdSim(e.location, e.viewers);
   }
 });
@@ -47,7 +47,7 @@ From a separate app on the same origin, use the raw channel:
 ```ts
 const ch = new BroadcastChannel("classroom-47");
 ch.onmessage = ({ data }) => {
-  if (data.type === "location.reveal") runCrowdSim(data.location, data.viewers);
+  if (data.type === "streamer:location_leaked") runCrowdSim(data.location, data.viewers);
 };
 ch.postMessage({ type: "surroundings.update", summary: "Trafalgar Sq stays green", level: "calm" });
 ```
