@@ -1,16 +1,17 @@
 import { mulberry32, wrapAngle } from "../sim/rng";
-import { LANE_REF_M, river, sampleRiver, type RiverSample } from "../river";
+import { LANES_M, river, sampleRiver, type RiverSample } from "../river";
 import { SPECS, type BoatKind, type BoatSpec } from "./models";
 
-/** Lateral offset of the three lanes, metres from the centreline (inner, middle, outer). */
-const LANES_M = [18, 40, LANE_REF_M];
 const STOP_M = 60;
 const PAST_M = 80;
 const OPEN_LEAD_S = 60;
 const OPEN_S = 25;
 const CLOSE_S = 25;
-const MAX_OPEN_HOLD_S = 120;
+/** After this long fully open, boats still short of the stop line must wait for the next lift. */
+const HOLD_S = 45;
 const GATE_OPEN = 0.88;
+/** A tall boat this far past the stop line is committed to the span and is never stopped. */
+const COMMITTED_M = 8;
 const ENTRY_M = 30;
 const WATER_Y = 0.14;
 
@@ -20,10 +21,10 @@ const POPULATION: [BoatKind, number][] = [
   ["sleek", 5],
   ["superA", 2],
   ["superB", 1],
-  ["cruise", 4],
+  ["cruise", 3],
   ["tug", 3],
   ["tall", 2],
-  ["sailbarge", 2],
+  ["sailbarge", 1],
 ];
 /** Lighters towed behind each tug, in tug order. */
 const TOWS = [2, 1, 1];
@@ -212,7 +213,8 @@ function liftClear(f: Fleet) {
     const b = f.boats[i];
     if (!b.spec.tall || b.gone) continue;
     const rel = -toBridge(b);
-    if (rel > -130 && rel < PAST_M + b.half) return false;
+    const from = f.lift.held > HOLD_S ? -(STOP_M + b.half - COMMITTED_M) : -(STOP_M + b.half + 25);
+    if (rel > from && rel < PAST_M + b.half) return false;
   }
   return true;
 }
@@ -240,7 +242,7 @@ function stepLift(f: Fleet, dt: number) {
     }
   } else if (river.liftPhase === "open") {
     l.held += dt;
-    if (l.held > MAX_OPEN_HOLD_S || liftClear(f)) river.liftPhase = "closing";
+    if (liftClear(f)) river.liftPhase = "closing";
   } else {
     l.progress = Math.max(0, l.progress - dt / CLOSE_S);
     if (l.progress <= 0) {
@@ -318,9 +320,10 @@ function stepBoat(f: Fleet, b: Boat, dt: number) {
   }
   if (gap < 70) vTarget = Math.min(vTarget, Math.max(0, leadSpeed * Math.min(1, (gap - 6) / 25) + (gap - 6) * 0.1));
 
-  if (b.spec.tall && (river.bridgeOpen < GATE_OPEN || river.liftPhase === "closing")) {
+  const gateShut = river.bridgeOpen < GATE_OPEN || river.liftPhase === "closing" || (river.liftPhase === "open" && f.lift.held > HOLD_S);
+  if (b.spec.tall && gateShut) {
     const d = toBridge(b) - STOP_M - b.half;
-    if (toBridge(b) > 0) vTarget = Math.min(vTarget, d > 0 ? Math.sqrt(2 * d) : 0);
+    if (toBridge(b) > 0 && d > -COMMITTED_M) vTarget = Math.min(vTarget, d > 0 ? Math.sqrt(2 * d) : 0);
   }
 
   const dv = vTarget - b.speed;

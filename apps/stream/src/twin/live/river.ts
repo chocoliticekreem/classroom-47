@@ -50,12 +50,12 @@ const BRIDGE_LON = -0.07537;
 /** Beyond this |x| the water polygon is cut by the tile box, not by a bank. */
 const CLIP_X = 730;
 const MIN_REACH_M = 150;
-/** Lateral room under the bridge: boats funnel into this corridor around the central span. */
-const BRIDGE_CORRIDOR_M = 18;
-const BRIDGE_FUNNEL_FROM_M = 70;
-const BRIDGE_FUNNEL_SLOPE = 0.2;
-/** Lane offset that maps onto BRIDGE_CORRIDOR_M when funnelling (the widest lane in use). */
-export const LANE_REF_M = 62;
+/** Lane offsets used by traffic (inner, middle, outer), metres from the centreline. */
+export const LANES_M = [18, 40, 62];
+/** Where those lanes squeeze to under the bridge, so even the widest yacht clears the towers (central span is about +-33 m). */
+const BRIDGE_LANES_M = [5.5, 13.5, 24];
+const BRIDGE_FUNNEL_FROM_M = 60;
+const BRIDGE_FUNNEL_LEN_M = 220;
 
 let active: RiverPath | null = null;
 /** Lateral shift (right of west -> east) that centres traffic on the bridge's central span. */
@@ -335,10 +335,19 @@ export function sampleRiver(s: number, lane: number, out: RiverSample) {
   tz /= tl;
   const overshoot = s < 0 ? s : s > p.length ? s - p.length : 0;
   const hw = p.hw[i] + (p.hw[i + 1] - p.hw[i]) * k;
-  const corridor = BRIDGE_CORRIDOR_M + Math.max(0, Math.abs(s - river.bridgeS) - BRIDGE_FUNNEL_FROM_M) * BRIDGE_FUNNEL_SLOPE;
-  const funnel = Math.min(1, corridor / LANE_REF_M);
-  const centred = Math.max(0, Math.min(1, 1 - (Math.abs(s - river.bridgeS) - BRIDGE_FUNNEL_FROM_M) / 150));
-  const lateral = Math.max(-hw * 0.72, Math.min(hw * 0.72, lane * funnel + bridgeBias * centred));
+  const squeeze = Math.max(0, Math.min(1, 1 - (Math.abs(s - river.bridgeS) - BRIDGE_FUNNEL_FROM_M) / BRIDGE_FUNNEL_LEN_M));
+  const mag = Math.abs(lane);
+  let narrowed = mag;
+  for (let k = 0; k < LANES_M.length; k++) {
+    const lo = k ? LANES_M[k - 1] : 0;
+    if (mag <= LANES_M[k]) {
+      const blo = k ? BRIDGE_LANES_M[k - 1] : 0;
+      narrowed = blo + ((mag - lo) / (LANES_M[k] - lo)) * (BRIDGE_LANES_M[k] - blo);
+      break;
+    }
+  }
+  const shaped = lane < 0 ? -narrowed : narrowed;
+  const lateral = Math.max(-hw * 0.72, Math.min(hw * 0.72, lane + (shaped - lane) * squeeze + bridgeBias * squeeze));
   out.x = p.xs[i] + (p.xs[i + 1] - p.xs[i]) * k + tx * overshoot - tz * lateral;
   out.z = p.zs[i] + (p.zs[i + 1] - p.zs[i]) * k + tz * overshoot + tx * lateral;
   out.tx = tx;

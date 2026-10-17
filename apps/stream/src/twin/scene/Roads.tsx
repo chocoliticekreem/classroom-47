@@ -7,7 +7,7 @@ import type { RoadNetwork, XZ } from "../network/types";
 import { useNetwork } from "../network/useNetwork";
 import { MeshBuilder, makeSurfaceMaterial, useSurfaceUniforms } from "./surfaces";
 
-const ASPHALT = { major: new THREE.Color("#2a2e37"), minor: new THREE.Color("#252932") };
+const ASPHALT = { major: new THREE.Color("#343842"), minor: new THREE.Color("#2e323c") };
 const PAINT = new THREE.Color("#d6dae2");
 const MARKING_Y = ROAD_Y + 0.02;
 
