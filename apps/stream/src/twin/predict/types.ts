@@ -11,8 +11,11 @@ export interface Persona {
   id: string;
   archetype: string;
   size: number;
+  zone?: string;
   zoneName: string;
+  origin?: { x: number; z: number };
   destination: string;
+  departMin?: number;
   rationale: string;
 }
 
@@ -57,6 +60,7 @@ export interface PredictRun {
   timeline: TimelineStep[];
   report: { headline: string; items: ReportItem[]; assumptions: string[]; mode: "llm" | "rules" };
   interventions: (Intervention & { source?: string; affectedSegments?: number[] })[];
+  camSegments?: { camId: string; segmentId: number; zoneId: string | null; seedPeds: number }[];
   trace?: { weave_project: string; model: string };
 }
 
