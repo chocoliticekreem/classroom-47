@@ -179,7 +179,7 @@ export function StreamShell() {
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <ViewTabs tab={tab} onChange={setTab} />
-            <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-2 md:flex">
               {tab === "live" && (
                 <>
                   <button
