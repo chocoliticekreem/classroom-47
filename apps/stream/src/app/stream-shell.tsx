@@ -7,6 +7,7 @@ import { AroundMe } from "@/components/around/AroundMe";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { DevPanel } from "@/components/DevPanel";
 import { TopBar } from "@/components/TopBar";
+import { FollowerCard } from "@/components/stream/FollowerCard";
 import { Player } from "@/components/stream/Player";
 import { StreamerBar } from "@/components/stream/StreamerBar";
 import { SurroundingsCard } from "@/components/stream/SurroundingsCard";
@@ -135,6 +136,7 @@ export function StreamShell() {
               onReveal={reveal}
               onSimulate={mirror}
             />
+            <FollowerCard />
             <SurroundingsCard />
           </div>
           {tab === "around" && (
