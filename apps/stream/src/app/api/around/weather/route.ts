@@ -1,9 +1,10 @@
 import type { NextRequest } from "next/server";
+import { cached, TTL } from "@/lib/server/cache";
+import { cacheShort, json } from "@/lib/server/json";
 import { parsePoint } from "@/platform/around/geo";
 import type { LiveWeather } from "@/platform/demo";
 
 const TTL_MS = 5 * 60_000;
-const cache = new Map<string, { at: number; weather: LiveWeather }>();
 
 interface OpenMeteoCurrent {
   temperature_2m: number;
@@ -25,31 +26,32 @@ function kindFor(c: OpenMeteoCurrent): LiveWeather["kind"] {
   return "clear";
 }
 
+async function fetchWeather(point: { lat: number; lon: number }): Promise<LiveWeather> {
+  const url =
+    `https://api.open-meteo.com/v1/forecast?latitude=${point.lat}&longitude=${point.lon}` +
+    "&current=temperature_2m,precipitation,cloud_cover,weather_code,wind_speed_10m,is_day,visibility&timezone=Europe%2FLondon";
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`Open-Meteo failed: HTTP ${res.status}`);
+  const c = ((await res.json()) as { current: OpenMeteoCurrent }).current;
+  return {
+    kind: kindFor(c),
+    temperatureC: c.temperature_2m,
+    cloudCover: c.cloud_cover,
+    precipitationMm: c.precipitation,
+    windKph: c.wind_speed_10m,
+    isDay: c.is_day === 1,
+    visibilityM: c.visibility,
+    at: Date.now(),
+  };
+}
+
 export async function GET(request: NextRequest) {
   const point = parsePoint(request.nextUrl.searchParams, 0);
   if (!point) return Response.json({ error: "lat and lon query params are required" }, { status: 400 });
   const key = `${point.lat.toFixed(2)},${point.lon.toFixed(2)}`;
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < TTL_MS) return Response.json(hit.weather);
-  const url =
-    `https://api.open-meteo.com/v1/forecast?latitude=${point.lat}&longitude=${point.lon}` +
-    "&current=temperature_2m,precipitation,cloud_cover,weather_code,wind_speed_10m,is_day,visibility&timezone=Europe%2FLondon";
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) throw new Error(`Open-Meteo failed: HTTP ${res.status}`);
-    const c = ((await res.json()) as { current: OpenMeteoCurrent }).current;
-    const weather: LiveWeather = {
-      kind: kindFor(c),
-      temperatureC: c.temperature_2m,
-      cloudCover: c.cloud_cover,
-      precipitationMm: c.precipitation,
-      windKph: c.wind_speed_10m,
-      isDay: c.is_day === 1,
-      visibilityM: c.visibility,
-      at: Date.now(),
-    };
-    cache.set(key, { at: Date.now(), weather });
-    return Response.json(weather);
+    const weather = await cached(`weather-${key}`, { ttlMs: TTL_MS, maxStaleMs: TTL.hour }, () => fetchWeather(point));
+    return json(weather, request, cacheShort(60));
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 502 });
   }
