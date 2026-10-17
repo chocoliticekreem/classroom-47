@@ -11,7 +11,7 @@ export type SiteMaterials = Record<Layer, THREE.Material>;
 export function makeSiteMaterials(): SiteMaterials {
   return {
     body: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 }),
-    glass: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.2, metalness: 0.6 }),
+    glass: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.1 }),
     lit: glowing(),
     strip: glowing(),
   };
@@ -22,6 +22,7 @@ export function updateSiteMaterials(m: SiteMaterials, signs: THREE.MeshBasicMate
   const g = ATMOS.windowGlow;
   (m.lit as THREE.MeshBasicMaterial).color.setScalar(g * 2.6);
   m.lit.visible = g > 0.04;
+  (m.glass as THREE.MeshStandardMaterial).color.setScalar(1 + (1 - g) * 2.2);
   (m.strip as THREE.MeshBasicMaterial).color.setScalar(0.4 + g * 2.4);
   for (const s of signs) s.color.setScalar(0.6 + g * 1.6);
 }
