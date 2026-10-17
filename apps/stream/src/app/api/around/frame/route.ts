@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
   const id = request.nextUrl.searchParams.get("id") ?? "";
   try {
     const res = await fetch(`${JAMCAM_YOLO_URL}/frame?id=${encodeURIComponent(id)}`, {
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(15_000),
     });
     return new Response(res.body, {
       status: res.status,
