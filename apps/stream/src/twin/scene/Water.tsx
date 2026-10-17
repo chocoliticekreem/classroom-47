@@ -209,10 +209,12 @@ void main() {
   vec2 lq = (p + N.xz * 10.0) / 6.0;
   vec2 lf = fract(lq) - 0.5;
   float lseed = hash21(floor(lq) + 17.0);
-  float lamp = step(0.9, lseed) * smoothstep(0.4, 0.0, length(lf * vec2(1.0, 0.5))) * (1.0 - smoothstep(0.1, 0.35, fp / 6.0));
+  vec2 vd = normalize(V.xz + 1e-4);
+  vec2 lfr = vec2(dot(lf, vd) * 0.55, dot(lf, vec2(-vd.y, vd.x)) * 1.6);
+  float lamp = step(0.93, lseed) * smoothstep(0.5, 0.0, length(lfr)) * (1.0 - smoothstep(0.1, 0.35, fp / 6.0));
   vec3 lampCol = mix(vec3(1.0, 0.62, 0.3), vec3(0.55, 0.75, 1.0), step(0.6, fract(lseed * 7.0)));
   float twinkle = 0.6 + 0.4 * sin(uTime * 1.6 + lseed * 40.0);
-  col += lampCol * lamp * twinkle * uLights * (0.5 + 1.5 * fresnel) * 1.4;
+  col += lampCol * lamp * lamp * twinkle * uLights * uLights * (0.5 + 1.5 * fresnel) * 1.5;
   float farGlow = 0.5 + 0.5 * sin(p.x * 0.045 + uTime * 0.3) * sin(p.y * 0.06 - uTime * 0.2);
   col += uGlow * uLights * 0.22 * fresnel * farGlow;
 

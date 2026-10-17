@@ -9,7 +9,7 @@
  *              and rebuild only when it actually changes.
  * - `dprCap`:  the device pixel ratio the Canvas currently renders at (high min(devicePixelRatio, 2), medium 1.5, low 1).
  * - `shadowSize`: sun shadow-map edge in texels (4096 / 2048 / 0 = shadows off); Lights.tsx applies it.
- * - `ao`:      screen-space AO mode, "full" | "half" | "off"; Post.tsx applies it.
+ * - `ao`:      screen-space AO quality, "high" | "medium" | "off" (always half-res: full-res costs ~5 ms more at 5 MP); Post.tsx applies it.
  * - `renderer`: UNMASKED_RENDERER_WEBGL, e.g. "ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Unspecified Version)".
  * - `software`: true when the renderer string is SwiftShader / llvmpipe / a software rasteriser.
  */
@@ -19,9 +19,9 @@ const TIERS: PerfTier[] = ["low", "medium", "high"];
 const MAX_DPR = 2;
 const OSCILLATION_MS = 45_000;
 
-const TIER_FX: Record<PerfTier, { dpr: number; shadowSize: number; ao: "full" | "half" | "off" }> = {
-  high: { dpr: MAX_DPR, shadowSize: 4096, ao: "full" },
-  medium: { dpr: 1.5, shadowSize: 2048, ao: "half" },
+const TIER_FX: Record<PerfTier, { dpr: number; shadowSize: number; ao: "high" | "medium" | "off" }> = {
+  high: { dpr: MAX_DPR, shadowSize: 4096, ao: "high" },
+  medium: { dpr: 1.5, shadowSize: 2048, ao: "medium" },
   low: { dpr: 1, shadowSize: 0, ao: "off" },
 };
 
@@ -37,6 +37,11 @@ function pinnedTier(): PerfTier | null {
 
 const pinned = pinnedTier();
 
+/** `?fx=noao,nosmaa,nobloom,noshadow` switches single effects off for A/B frame-time tests. */
+export function fxOff(name: string) {
+  return typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("fx") ?? "").split(",").includes(name);
+}
+
 function apply(tier: PerfTier) {
   const fx = TIER_FX[tier];
   perf.tier = tier;
@@ -49,7 +54,7 @@ export const perf = {
   tier: "high" as PerfTier,
   dprCap: 1,
   shadowSize: 0,
-  ao: "off" as "full" | "half" | "off",
+  ao: "off" as "high" | "medium" | "off",
   renderer: "",
   software: false,
 };
