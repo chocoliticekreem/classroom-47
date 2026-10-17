@@ -10,7 +10,12 @@ import type {
   AroundStation,
   CamReading,
 } from "@/platform/around/types";
+import { useLondonTime } from "@/components/LiveClock";
 import { crowdLevel, formatCountdown, stationCrowd } from "./markers";
+
+function ClipTime() {
+  return <span className="tabular-nums">{useLondonTime(false)}</span>;
+}
 
 export function formatDistance(m: number) {
   return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
@@ -70,7 +75,7 @@ export function CamCard({ cam, reading, isYourFeed, onClose }: CamCardProps) {
         )}
         <span className="live-badge absolute left-2 top-2">
           <span className="animate-live size-1.5 rounded-full bg-white" />
-          {showAi ? "AI view" : "Live"}
+          {showAi ? "AI view" : "Live"} · <ClipTime />
         </span>
         <div className="absolute right-2 top-2">
           <CloseButton label="Close camera" onClick={onClose} />

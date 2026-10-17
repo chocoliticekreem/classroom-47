@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { isVirtualCam, liveOffsetS } from "@/lib/vcams";
 import type { AroundCam } from "@/platform/around/types";
 import { calibrationFor, camFrame, usePoseVersion } from "../live/project";
+import { LiveClock } from "@/components/LiveClock";
 import { AlignBar } from "./AlignBar";
 import { useAutofit } from "./autofit";
 import { useLive } from "../live/store";
@@ -176,6 +177,11 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
             style={{ width: "100%", height: "100%", objectFit: "contain" }}
           />
         )}
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+          <div style={{ ...containBox(box.w, box.h, frame.aspect), position: "relative" }}>
+            <LiveClock />
+          </div>
+        </div>
         <div style={{ ...caption, left: 72 }}>
           <Dot color="var(--live)" />
           Real CCTV
