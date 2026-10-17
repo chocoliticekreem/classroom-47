@@ -1,0 +1,474 @@
+"""Classroom 47 agent: the CAMP "A" layer, served on the cluster at /app."""
+
+from __future__ import annotations
+
+import base64
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
+
+try:
+    import weave
+    from openai import OpenAI
+except ImportError:
+    weave = None
+    OpenAI = None
+
+LEVELS = ("calm", "busy", "danger")
+WANDB_BASE_URL = "https://api.inference.wandb.ai/v1"
+JWT_SAFETY_MARGIN_S = 60
+DEFAULT_JWT_TTL_S = 50 * 60
+
+
+class UpstreamError(Exception):
+    def __init__(self, dependency: str, detail: str):
+        super().__init__(detail)
+        self.dependency = dependency
+        self.detail = detail
+
+
+def env_str(name: str, default: str = "") -> str:
+    return os.environ.get(name, "").strip() or default
+
+
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(env_str(name, str(default)))
+    except ValueError:
+        return default
+
+
+def env_float(name: str, default: float) -> float:
+    try:
+        return float(env_str(name, str(default)))
+    except ValueError:
+        return default
+
+
+class Config:
+    def __init__(self) -> None:
+        self.port = env_int("PORT", 8080)
+        self.timeout_s = env_float("REQUEST_TIMEOUT_S", 20.0)
+        self.username = env_str("USERNAME")
+        self.password = env_str("PASSWORD")
+        self.ingress_url = env_str("INGRESS_URL").rstrip("/")
+        self.wandb_api_key = env_str("WANDB_API_KEY")
+        self.wandb_team = env_str("WANDB_TEAM")
+        self.wandb_project = env_str("WANDB_PROJECT")
+        self.wandb_model = env_str("WANDB_MODEL", "Qwen/Qwen3.8-27B")
+        self.top_k = env_int("VSS_TOP_K", 8)
+        self.min_similarity = env_float("VSS_MIN_SIMILARITY", 0.3)
+
+    @property
+    def vss_configured(self) -> bool:
+        return bool(self.ingress_url and self.username and self.password)
+
+    @property
+    def wandb_configured(self) -> bool:
+        return bool(self.wandb_api_key and self.wandb_team and self.wandb_project)
+
+    @property
+    def weave_project(self) -> str:
+        return f"{self.wandb_team}/{self.wandb_project}" if self.wandb_configured else ""
+
+
+CFG = Config()
+
+
+def http_json(method: str, url: str, body: dict | None, headers: dict[str, str], dependency: str) -> Any:
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Content-Type", "application/json")
+    for key, value in headers.items():
+        req.add_header(key, value)
+    try:
+        with urllib.request.urlopen(req, timeout=CFG.timeout_s) as resp:
+            return json.loads(resp.read().decode() or "null")
+    except urllib.error.HTTPError as exc:
+        raise UpstreamError(dependency, f"HTTP {exc.code} from {method} {url}") from None
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise UpstreamError(dependency, f"{type(exc).__name__} reaching {url}") from None
+    except json.JSONDecodeError:
+        raise UpstreamError(dependency, f"non-JSON response from {url}") from None
+
+
+def jwt_expiry(token: str) -> float:
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+        return float(claims["exp"])
+    except (IndexError, KeyError, ValueError, TypeError):
+        return time.time() + DEFAULT_JWT_TTL_S
+
+
+class VssClient:
+    def __init__(self) -> None:
+        self._token = ""
+        self._expires_at = 0.0
+
+    def token(self) -> str:
+        if not CFG.vss_configured:
+            raise UpstreamError("vss", "INGRESS_URL, USERNAME or PASSWORD not set")
+        if self._token and time.time() < self._expires_at - JWT_SAFETY_MARGIN_S:
+            return self._token
+        body = {"username": CFG.username, "password": CFG.password}
+        data = http_json("POST", f"{CFG.ingress_url}/api/v1/auth/login", body, {}, "vss")
+        token = (data or {}).get("access_token") if isinstance(data, dict) else None
+        if not token:
+            raise UpstreamError("vss", "login returned no access_token")
+        self._token = token
+        self._expires_at = jwt_expiry(token)
+        return token
+
+    def post(self, path: str, body: dict) -> Any:
+        headers = {"Authorization": f"Bearer {self.token()}"}
+        return http_json("POST", f"{CFG.ingress_url}{path}", body, headers, "vss")
+
+    def search(self, query: str) -> list[dict]:
+        data = self.post(
+            "/api/v1/search",
+            {"query": query, "top_k": CFG.top_k, "min_similarity": CFG.min_similarity},
+        )
+        return [normalize_moment(m) for m in extract_list(data)]
+
+    def search_and_answer(self, query: str) -> tuple[str, list[dict]]:
+        data = self.post("/api/v1/agent/search-and-answer", {"query": query, "top_k": CFG.top_k})
+        answer = ""
+        if isinstance(data, dict):
+            answer = str(data.get("answer") or data.get("response") or data.get("result") or "")
+        return answer, [normalize_moment(m) for m in extract_list(data)]
+
+    def reachable(self) -> bool:
+        if not CFG.vss_configured:
+            return False
+        try:
+            self.token()
+            return True
+        except UpstreamError:
+            return False
+
+
+VSS = VssClient()
+
+
+def extract_list(data: Any) -> list[dict]:
+    if isinstance(data, list):
+        return [m for m in data if isinstance(m, dict)]
+    if isinstance(data, dict):
+        for key in ("results", "evidence", "moments", "segments", "sources", "data", "items"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return [m for m in value if isinstance(m, dict)]
+    return []
+
+
+def first(d: dict, *keys: str, default: Any = None) -> Any:
+    for key in keys:
+        if key in d and d[key] not in (None, ""):
+            return d[key]
+    meta = d.get("metadata")
+    if isinstance(meta, dict):
+        for key in keys:
+            if key in meta and meta[key] not in (None, ""):
+                return meta[key]
+    return default
+
+
+def to_float(value: Any) -> float | None:
+    try:
+        return round(float(value), 3)
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_moment(m: dict) -> dict:
+    return {
+        "video": str(first(m, "video", "video_name", "original_video", "source", "file", default="")),
+        "start_s": to_float(first(m, "start_s", "start", "start_time", "start_sec")),
+        "end_s": to_float(first(m, "end_s", "end", "end_time", "end_sec")),
+        "description": str(first(m, "description", "text", "caption", "content", "summary", default="")),
+        "similarity": to_float(first(m, "similarity", "score", "distance")),
+    }
+
+
+def dedupe(moments: list[dict]) -> list[dict]:
+    seen: set[tuple] = set()
+    out = []
+    for m in moments:
+        key = (m["video"], m["start_s"], m["end_s"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(m)
+    return out[: CFG.top_k]
+
+
+def build_vss_query(question: str, location: dict | None) -> str:
+    place = f" near {location['name']}" if location and location.get("name") else ""
+    focus = (
+        "crowds gathering or growing, people moving towards or following the camera holder, "
+        "people filming or pointing phones at the camera, blocked crossings, vehicles stopping for crowds"
+    )
+    return f"{question}{place}. Look for: {focus}."
+
+
+SYSTEM_PROMPT = (
+    "You are a safety advisor for a live IRL streamer walking through London. "
+    "You get the streamer's question, live YOLO counts and video evidence from the city's cameras. "
+    "Reply with STRICT JSON only, no prose, no markdown: "
+    '{"level": "calm"|"busy"|"danger", "advice": string, "reasons": string[]}. '
+    "advice: at most 2 sentences, imperative, spoken to the streamer. "
+    "danger = crowd forming around or following the streamer, filming them, or a blocked route; "
+    "busy = many people but nothing directed at the streamer; calm = otherwise."
+)
+
+
+def build_llm_user_message(question: str, location: dict | None, yolo: dict | None, answer: str, evidence: list[dict]) -> str:
+    lines = [f"Streamer question: {question}"]
+    if location:
+        lines.append(f"Location: {json.dumps(location)}")
+    if yolo:
+        lines.append(f"Live YOLO counts: {json.dumps(yolo)}")
+    if answer:
+        lines.append(f"VSS agent answer: {answer}")
+    lines.append("Video evidence (Cosmos descriptions):")
+    for m in evidence:
+        span = f"{m['start_s']}-{m['end_s']}s" if m["start_s"] is not None else "?"
+        lines.append(f"- [{m['video']} {span} sim={m['similarity']}] {m['description']}")
+    if not evidence:
+        lines.append("- none found")
+    return "\n".join(lines)
+
+
+class LlmClient:
+    def __init__(self) -> None:
+        self._client = None
+        self._model = ""
+        self._weave_ready = False
+
+    def client(self):
+        if OpenAI is None:
+            raise UpstreamError("wandb", "openai/weave packages not installed")
+        if not CFG.wandb_configured:
+            raise UpstreamError("wandb", "WANDB_API_KEY, WANDB_TEAM or WANDB_PROJECT not set")
+        if self._client is None:
+            self._client = OpenAI(
+                base_url=WANDB_BASE_URL,
+                api_key=CFG.wandb_api_key,
+                project=CFG.weave_project,
+                timeout=CFG.timeout_s,
+            )
+        return self._client
+
+    def init_weave(self) -> None:
+        if self._weave_ready or weave is None or not CFG.wandb_configured:
+            return
+        try:
+            weave.init(CFG.weave_project)
+            self._weave_ready = True
+        except Exception as exc:
+            print(f"weave.init failed: {type(exc).__name__}", file=sys.stderr)
+
+    def complete(self, user_message: str) -> str:
+        model = self._model or CFG.wandb_model
+        try:
+            return self._chat(model, user_message)
+        except UpstreamError:
+            if self._model:
+                raise
+        self._model = self._first_chat_model()
+        return self._chat(self._model, user_message)
+
+    def _chat(self, model: str, user_message: str) -> str:
+        client = self.client()
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                temperature=0.2,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+            )
+        except Exception as exc:
+            raise UpstreamError("wandb", f"{type(exc).__name__} from model {model}") from None
+        return resp.choices[0].message.content or ""
+
+    def _first_chat_model(self) -> str:
+        client = self.client()
+        try:
+            models = list(client.models.list())
+        except Exception as exc:
+            raise UpstreamError("wandb", f"{type(exc).__name__} listing models") from None
+        for m in models:
+            if "embed" not in m.id.lower():
+                return m.id
+        raise UpstreamError("wandb", "no chat model available")
+
+
+LLM = LlmClient()
+
+
+def parse_verdict(raw: str) -> dict:
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text.split("\n", 1)[1] if "\n" in text else text
+    start, end = text.find("{"), text.rfind("}")
+    data: Any = None
+    if start != -1 and end > start:
+        try:
+            data = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            data = None
+    if not isinstance(data, dict):
+        return {"level": "busy", "advice": text[:240] or "Stay aware of your surroundings.", "reasons": []}
+    level = str(data.get("level", "")).lower()
+    reasons = data.get("reasons")
+    return {
+        "level": level if level in LEVELS else "busy",
+        "advice": str(data.get("advice") or "Stay aware of your surroundings.")[:400],
+        "reasons": [str(r) for r in reasons][:6] if isinstance(reasons, list) else [],
+    }
+
+
+def assess_core(question: str, location: dict | None, yolo: dict | None) -> dict:
+    query = build_vss_query(question, location)
+    answer, evidence = VSS.search_and_answer(query)
+    if len(evidence) < CFG.top_k:
+        evidence = dedupe(evidence + VSS.search(query))
+    verdict = parse_verdict(LLM.complete(build_llm_user_message(question, location, yolo, answer, evidence)))
+    verdict["evidence"] = evidence
+    verdict["vss_answer"] = answer
+    verdict["trace"] = {"weave_project": CFG.weave_project}
+    return verdict
+
+
+assess = weave.op()(assess_core) if weave is not None else assess_core
+
+
+def validate_assess_body(body: Any) -> tuple[str, dict | None, dict | None]:
+    if not isinstance(body, dict):
+        raise ValueError("body must be a JSON object")
+    question = str(body.get("question") or "What's happening near the streamer right now?")[:500]
+    location = body.get("location") if isinstance(body.get("location"), dict) else None
+    yolo = body.get("yolo") if isinstance(body.get("yolo"), dict) else None
+    return question, location, yolo
+
+
+DASHBOARD_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Classroom 47 agent</title>
+<style>
+:root{--bg:#0b0d10;--card:#14181d;--line:#232a33;--fg:#e8edf2;--mute:#8b98a5;--calm:#36c275;--busy:#f0b429;--danger:#ff4d4f;--accent:#5aa9ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,Inter,Segoe UI,sans-serif}
+main{max-width:860px;margin:0 auto;padding:32px 16px}h1{font-size:22px;margin:0 0 4px}p.sub{color:var(--mute);margin:0 0 24px}
+form{display:flex;gap:8px;margin-bottom:20px}input{flex:1;background:var(--card);border:1px solid var(--line);color:var(--fg);padding:12px 14px;border-radius:10px;font-size:15px}
+button{background:var(--accent);color:#06101c;border:0;padding:12px 18px;border-radius:10px;font-weight:600;cursor:pointer}button:disabled{opacity:.5}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
+.level{display:inline-block;padding:4px 12px;border-radius:999px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;font-size:12px;color:#06101c}
+.calm{background:var(--calm)}.busy{background:var(--busy)}.danger{background:var(--danger)}
+.advice{font-size:20px;margin:12px 0 8px}ul{margin:6px 0 0 18px;padding:0;color:var(--mute)}
+.ev{border-top:1px solid var(--line);padding:10px 0}.ev:first-of-type{border-top:0}.meta{color:var(--mute);font-size:12px}
+.err{color:var(--danger)}a{color:var(--accent)}.hidden{display:none}
+</style></head><body><main>
+<h1>Classroom 47 agent</h1>
+<p class="sub">Know what's around you. Rehearse the future before you cause it.</p>
+<form id="f"><input id="q" placeholder="What's happening near the streamer?" value="What's happening near the streamer?"><button id="b">Assess</button></form>
+<div id="out" class="hidden">
+  <div class="card"><span id="lvl" class="level"></span><div id="adv" class="advice"></div><ul id="rs"></ul>
+    <p class="meta" id="trace"></p></div>
+  <div class="card"><strong>Evidence</strong><div id="ev"></div></div>
+</div>
+<div id="err" class="card err hidden"></div>
+<script>
+const $=id=>document.getElementById(id);
+$('f').addEventListener('submit',async e=>{e.preventDefault();$('b').disabled=true;$('err').classList.add('hidden');$('out').classList.add('hidden');
+try{const r=await fetch('/app/assess',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:$('q').value})});
+const d=await r.json();if(!r.ok){throw new Error(d.error||r.status)}
+$('lvl').textContent=d.level;$('lvl').className='level '+d.level;$('adv').textContent=d.advice;
+$('rs').innerHTML=(d.reasons||[]).map(x=>`<li>${esc(x)}</li>`).join('');
+const wp=d.trace&&d.trace.weave_project;$('trace').innerHTML=wp?`Traced in Weave: <a target="_blank" href="https://wandb.ai/${esc(wp)}/weave">${esc(wp)}</a>`:'';
+$('ev').innerHTML=(d.evidence||[]).map(m=>`<div class="ev"><div>${esc(m.description||'(no description)')}</div><div class="meta">${esc(m.video)} · ${fmt(m.start_s)}–${fmt(m.end_s)} s · sim ${m.similarity??'?'}</div></div>`).join('')||'<p class="meta">No moments returned.</p>';
+$('out').classList.remove('hidden')}catch(x){$('err').textContent='Assess failed: '+x.message;$('err').classList.remove('hidden')}finally{$('b').disabled=false}});
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));const fmt=v=>v==null?'?':v;
+</script></main></body></html>
+"""
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "classroom47-agent/0.1"
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        print(f"{self.command} {self.path} {args[1] if len(args) > 1 else ''}", file=sys.stderr)
+
+    def _cors(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def _send(self, status: int, body: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self._cors()
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json(self, status: int, data: dict) -> None:
+        self._send(status, json.dumps(data).encode(), "application/json")
+
+    def _route(self) -> str:
+        path = self.path.split("?", 1)[0]
+        if path in ("/app", "/app/"):
+            return "/"
+        return path[4:] if path.startswith("/app/") else path
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self._cors()
+        self.end_headers()
+
+    def do_GET(self) -> None:
+        route = self._route()
+        if route == "/":
+            self._send(200, DASHBOARD_HTML.encode(), "text/html; charset=utf-8")
+        elif route == "/health":
+            self._json(200, {"ok": True, "vss": VSS.reachable(), "wandb": CFG.wandb_configured})
+        else:
+            self._json(404, {"error": "not found"})
+
+    def do_POST(self) -> None:
+        if self._route() != "/assess":
+            self._json(404, {"error": "not found"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+            question, location, yolo = validate_assess_body(body)
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._json(400, {"error": f"bad request: {exc}"})
+            return
+        try:
+            self._json(200, assess(question, location, yolo))
+        except UpstreamError as exc:
+            self._json(502, {"error": f"{exc.dependency} unavailable: {exc.detail}", "dependency": exc.dependency})
+        except Exception as exc:
+            self._json(500, {"error": f"internal error: {type(exc).__name__}"})
+
+
+def main() -> None:
+    LLM.init_weave()
+    server = ThreadingHTTPServer(("0.0.0.0", CFG.port), Handler)
+    print(f"agent listening on :{CFG.port} (vss configured={CFG.vss_configured}, wandb configured={CFG.wandb_configured})", file=sys.stderr)
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
