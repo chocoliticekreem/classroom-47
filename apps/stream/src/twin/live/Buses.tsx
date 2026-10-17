@@ -11,6 +11,7 @@ import type { TwinGeometry } from "../config";
 import { toLocal } from "../config";
 import { approachPath, pathAt, SNAP_ENABLED, useSnapIndex, type Path } from "../network/snap";
 import type { XZ } from "../network/types";
+import { useCompare } from "../compare/store";
 import { useLive, useNow } from "./store";
 
 const APPROACH_S = 90;
@@ -185,6 +186,8 @@ export function Buses() {
   const roads = useLive((s) => s.roads);
   const now = useNow();
   const snap = useSnapIndex();
+  // These buses are placed from TfL arrival times, not seen; the compare view shows only what the camera saw.
+  const comparing = useCompare((s) => s.camId !== null);
 
   const places = useMemo<StopPlace[]>(
     () =>
@@ -221,9 +224,7 @@ export function Buses() {
       {places.map((p) => (
         <StopMarker key={p.stop.id} place={p} now={now} />
       ))}
-      {due.map((d) => (
-        <Bus key={d.key} place={d.place} arrival={d.arrival} />
-      ))}
+      {!comparing && due.map((d) => <Bus key={d.key} place={d.place} arrival={d.arrival} />)}
     </group>
   );
 }

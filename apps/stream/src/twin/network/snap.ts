@@ -172,6 +172,66 @@ export function snapVehicle(idx: SnapIndex, x: number, z: number, heading: numbe
   return found;
 }
 
+export interface RoadSnap {
+  /** Nearest point on the road's centre-line. */
+  px: number;
+  pz: number;
+  /** Unit tangent from→to at that point; left of from→to is (tz, -tx). */
+  tx: number;
+  tz: number;
+  /** Signed offset of the input from the centre-line, positive to the left of from→to. */
+  lateral: number;
+  width: number;
+  oneway: boolean;
+  dist: number;
+}
+
+/**
+ * Nearest road centre-line within `maxM` (at most VEHICLE_SNAP_M + 2, the grid's padding). With a known
+ * `heading` (NaN = none), segments running across it lose out, so a car in a junction box picks the road
+ * it is driving along rather than the one it is crossing.
+ */
+export function nearestRoad(idx: SnapIndex, x: number, z: number, heading: number, out: RoadSnap, maxM = VEHICLE_SNAP_M): boolean {
+  const list = idx.cells.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));
+  if (!list) return false;
+  const known = !Number.isNaN(heading);
+  const hx = known ? Math.sin(heading) : 0;
+  const hz = known ? Math.cos(heading) : 0;
+  let best = Infinity;
+  const { seg, segEdge, net } = idx;
+  for (let n = 0; n < list.length; n++) {
+    const r = list[n];
+    const ax = seg[r * 4];
+    const az = seg[r * 4 + 1];
+    const vx = seg[r * 4 + 2] - ax;
+    const vz = seg[r * 4 + 3] - az;
+    const len2 = vx * vx + vz * vz;
+    if (len2 < 1e-6) continue;
+    const len = Math.sqrt(len2);
+    const tx = vx / len;
+    const tz = vz / len;
+    let t = ((x - ax) * tx + (z - az) * tz) / len;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const px = ax + vx * t;
+    const pz = az + vz * t;
+    const d = Math.hypot(x - px, z - pz);
+    if (d > maxM) continue;
+    const score = known ? d + 4 * (1 - Math.abs(tx * hx + tz * hz)) : d;
+    if (score >= best) continue;
+    best = score;
+    const edge = net.edges[segEdge[r]];
+    out.px = px;
+    out.pz = pz;
+    out.tx = tx;
+    out.tz = tz;
+    out.lateral = (x - px) * tz - (z - pz) * tx;
+    out.width = edge.width;
+    out.oneway = edge.oneway;
+    out.dist = d;
+  }
+  return best < Infinity;
+}
+
 export interface PersonSnap {
   x: number;
   z: number;

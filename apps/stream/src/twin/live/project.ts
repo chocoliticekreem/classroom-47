@@ -140,6 +140,24 @@ export function projectInto(frame: CamFrame, u: number, v: number, out: Float32A
   out[o + 1] = frame.z + (dz / flat) * reach;
 }
 
+/** Inverse of projectInto: frame coords (u, v) of point (x, y, z) written into `out`. False when it is behind the camera. */
+export function frameCoordsOf(frame: CamFrame, x: number, z: number, out: Float32Array | number[], y = 0) {
+  const sh = Math.sin(frame.headingRad);
+  const ch = Math.cos(frame.headingRad);
+  const sp = Math.sin(frame.pitchRad);
+  const cp = Math.cos(frame.pitchRad);
+  const px = x - frame.x;
+  const py = y - frame.heightM;
+  const pz = z - frame.z;
+  const depth = px * sh * cp - py * sp - pz * ch * cp;
+  if (depth < 1e-3) return false;
+  const xn = (px * ch + pz * sh) / depth;
+  const yn = (px * sh * sp + py * cp - pz * ch * sp) / depth;
+  out[0] = (xn / frame.tanH + 1) / 2;
+  out[1] = (1 - yn / frame.tanV) / 2;
+  return true;
+}
+
 /** Interpolates a track at clip time t into out[o], out[o+1] = (u, v). Returns false outside the track. */
 export function sampleInto(pts: TrackedObject["pts"], t: number, out: Float32Array | number[], o = 0) {
   const n = pts.length;
