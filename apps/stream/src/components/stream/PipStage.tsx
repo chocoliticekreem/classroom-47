@@ -12,6 +12,8 @@ const SIZES = [
 
 const GAP = 16;
 const TOOLBAR_CLEARANCE = 64;
+// Why: the global Dev chip is fixed to the bottom-right corner, so bottom-right items sit above it.
+const DEV_CHIP_CLEARANCE = 52;
 const ASPECT = 0.5625;
 const MOVE = "350ms cubic-bezier(0.2, 0.8, 0.2, 1)";
 
@@ -34,6 +36,8 @@ interface PipStageProps {
   overlay?: (state: StageState) => ReactNode;
   /** Extra buttons placed left of the fullscreen button. */
   toolbar?: ReactNode;
+  /** Center keeps the buttons clear of a corner that the embedded page already uses. */
+  toolbarAlign?: "right" | "center";
   className?: string;
 }
 
@@ -41,21 +45,22 @@ interface PipStageProps {
  * Two surfaces share one stage. Swapping only changes their geometry, never their place in the tree,
  * so an iframe or WebGL map keeps running instead of reloading.
  */
-export function PipStage({ primary, secondary, primaryLabel, secondaryLabel, corner, overlay, toolbar, className = "" }: PipStageProps) {
+export function PipStage({ primary, secondary, primaryLabel, secondaryLabel, corner, overlay, toolbar, toolbarAlign = "right", className = "" }: PipStageProps) {
   const [size, setSize] = useState(1);
   const [swapped, setSwapped] = useState(false);
   const [hidden, setHidden] = useState(false);
-  const fs = useFullscreen<HTMLDivElement>();
+  const { ref: stageRef, active: fullscreen, toggle: toggleFullscreen } = useFullscreen<HTMLDivElement>();
 
   const showPip = secondary !== null && !hidden;
   const width = `min(${SIZES[size].width}px, 46cqw)`;
   const height = `calc(${width} * ${ASPECT})`;
   const atTop = corner.startsWith("top");
   const atLeft = corner.endsWith("left");
+  const bottomGap = atLeft ? GAP : DEV_CHIP_CLEARANCE;
 
   const pipGeometry: CSSProperties = {
     left: atLeft ? GAP : `calc(100% - ${GAP}px - ${width})`,
-    top: atTop ? TOOLBAR_CLEARANCE : `calc(100% - ${GAP}px - ${height})`,
+    top: atTop ? TOOLBAR_CLEARANCE : `calc(100% - ${bottomGap}px - ${height})`,
     width,
     height,
   };
@@ -118,28 +123,28 @@ export function PipStage({ primary, secondary, primaryLabel, secondaryLabel, cor
 
   return (
     <div
-      ref={fs.ref}
+      ref={stageRef}
       className={`relative min-h-0 w-full overflow-hidden bg-black [container-type:inline-size] ${
-        fs.active ? "" : "rounded-[28px] shadow-[0_0_0_1px_rgb(255_255_255/0.08),0_30px_70px_-20px_rgb(0_0_0/0.8)]"
+        fullscreen ? "" : "rounded-[28px] shadow-[0_0_0_1px_rgb(255_255_255/0.08),0_30px_70px_-20px_rgb(0_0_0/0.8)]"
       } ${className}`}
     >
       {layer("primary", swapped && showPip, primary, primaryLabel, false)}
       {showPip && layer("secondary", !swapped, secondary, secondaryLabel, true)}
 
       <div className="pointer-events-none absolute inset-0 z-10">
-        {overlay?.({ swapped: swapped && showPip, fullscreen: fs.active })}
+        {overlay?.({ swapped: swapped && showPip, fullscreen: fullscreen })}
       </div>
 
-      <div className="absolute right-3 top-3 z-30 flex items-center gap-2">
+      <div className={`absolute top-3 z-30 flex items-center gap-2 ${toolbarAlign === "center" ? "left-1/2 -translate-x-1/2" : "right-3"}`}>
         {toolbar}
         <button
           type="button"
-          onClick={fs.toggle}
-          aria-label={fs.active ? "Exit full screen" : "Full screen"}
+          onClick={toggleFullscreen}
+          aria-label={fullscreen ? "Exit full screen" : "Full screen"}
           className="pill pill-sm glass"
         >
-          {fs.active ? <Minimize className="size-3.5" aria-hidden /> : <Maximize className="size-3.5" aria-hidden />}
-          {fs.active ? "Exit" : "Full screen"}
+          {fullscreen ? <Minimize className="size-3.5" aria-hidden /> : <Maximize className="size-3.5" aria-hidden />}
+          {fullscreen ? "Exit" : "Full screen"}
         </button>
       </div>
 
@@ -152,7 +157,7 @@ export function PipStage({ primary, secondary, primaryLabel, secondaryLabel, cor
             left: atLeft ? GAP : undefined,
             right: atLeft ? undefined : GAP,
             top: atTop ? TOOLBAR_CLEARANCE : undefined,
-            bottom: atTop ? undefined : GAP,
+            bottom: atTop ? undefined : bottomGap,
           }}
         >
           <Video className="size-3.5" aria-hidden />

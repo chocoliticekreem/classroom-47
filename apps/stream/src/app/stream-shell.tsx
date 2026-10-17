@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, ExternalLink, Maximize, MessageSquare, RectangleHorizontal } from "lucide-react";
 import { useChatCrowd } from "@/agents/chat-crowd/useChatCrowd";
+import { normalizePlace } from "@/agents/chat-crowd/scene";
 import { useSceneChat } from "@/agents/chat-crowd/useSceneChat";
 import { AroundMe } from "@/components/around/AroundMe";
 import { ChatPanel } from "@/components/chat/ChatPanel";
@@ -132,7 +133,7 @@ export function StreamShell() {
     const at = Date.now();
     setRevealedAt(at);
     publish({ type: "streamer:location_leaked", location, viewers, at });
-    send(`yo I'm at ${location.name} right now, come say hi`);
+    send(`yo I'm at ${normalizePlace(location.name, location.area).name} right now, come say hi`);
   }
 
   function mirror() {
@@ -145,7 +146,7 @@ export function StreamShell() {
     const session = new URLSearchParams(window.location.search).get("session");
     if (session) url.searchParams.set("session", session);
     setMirrorUrl(url.pathname + url.search);
-    setTab("3d");
+    changeTab("3d");
     publish({
       type: "reality:fork",
       scenario: "leak_location_50",
@@ -177,8 +178,13 @@ export function StreamShell() {
     ) : null;
 
   function toggleWide() {
-    if (!wide) setChatFloat(true);
-    setWide((w) => !w);
+    setChatFloat(!wide);
+    setWide(!wide);
+  }
+
+  function changeTab(next: View) {
+    setChatFloat(false);
+    setTab(next);
   }
 
   return (
@@ -192,7 +198,7 @@ export function StreamShell() {
           }`}
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <ViewTabs tab={tab} onChange={setTab} />
+            <ViewTabs tab={tab} onChange={changeTab} />
             <div className="flex items-center gap-2">
               {tab === "live" && (
                 <>
@@ -360,7 +366,8 @@ function TwinView({ src, feed }: { src: string; feed: ReactNode | null }) {
   return (
     <PipStage
       className="min-h-[560px] flex-1"
-      corner="bottom-left"
+      corner="bottom-right"
+      toolbarAlign="center"
       primaryLabel="3D mirror"
       secondaryLabel="stream"
       secondary={feed}

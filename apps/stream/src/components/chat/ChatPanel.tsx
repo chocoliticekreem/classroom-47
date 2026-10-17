@@ -16,6 +16,7 @@ import {
   Zap,
 } from "lucide-react";
 import type { Badge, ChatMessage } from "@/lib/types";
+import { useChatBackend } from "@/platform/chat/crowd";
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -172,6 +173,7 @@ export function ChatPanel({ messages, onSend, viewers, live, onCollapse }: ChatP
     }
   }
 
+  const backend = useChatBackend();
   const signals = messages.reduce((n, m) => n + (m.locationSignal ? 1 : 0), 0);
 
   return (
@@ -180,6 +182,12 @@ export function ChatPanel({ messages, onSend, viewers, live, onCollapse }: ChatP
         <h2 className="flex items-center gap-2 font-mono text-[10px] tracking-normal text-text">
           <span className={`size-1.5 rounded-full ${live ? "animate-live bg-live" : "bg-dim"}`} />
           Chat
+          <span
+            title={backend === "wandb" ? "Lines written by Nemotron on W&B Inference, traced in Weave" : "Local persona crowd (no W&B key)"}
+            className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${backend === "wandb" ? "bg-candy-orange/20 text-candy-orange" : "bg-white/10 text-muted"}`}
+          >
+            {backend === "wandb" ? "W&B" : "local"}
+          </span>
         </h2>
         <div className="flex items-center gap-3 font-mono text-[10px] tracking-normal">
           {signals > 0 && (

@@ -1,9 +1,10 @@
 export type Archetype =
   | "hype"
-  | "questioner"
+  | "opportunist"
+  | "hater"
   | "local"
   | "superfan"
-  | "troll"
+  | "questioner"
   | "mod";
 
 export type Badge = "mod" | "vip" | "sub" | "founder" | "verified";
@@ -30,6 +31,8 @@ export interface ChatMessage {
   locationSignal?: boolean;
   /** Set when the line reacts to what the vision model saw on stream; holds that scene description. */
   scene?: string;
+  /** Where the line was written: the W&B model or the local template crowd. */
+  source?: "wandb" | "local";
   highlight?: "donation" | "first" | "pinned";
   amount?: number;
 }

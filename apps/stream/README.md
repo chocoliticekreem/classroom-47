@@ -12,6 +12,20 @@ npm run dev -w stream
 
 Open http://localhost:3000.
 
+## Chat and Weights & Biases
+
+Chat is a crowd of personas (superfan, opportunist, hater, local, questioner, mod). `POST /api/chat/scene` batches a few persona lines per call on W&B Inference and reacts to the video frame (when one can be read), the streamer's messages, the location leak ("Tell chat my location") and the Mirror. Replies are strict JSON, validated (length, language, real names, distances, repeats) and every call has a timeout. Each batch is traced in Weave as `chat.persona_batch` with `chat.scene_describe` and `chat.write_lines` under it.
+
+Without a W&B key, or when a call fails, the same personas speak from local template lines. `useChatBackend()` (`platform/chat/crowd.ts`) reports `"wandb"` or `"local"`.
+
+Put these in `apps/stream/.env.local` (names only here, see `.env.example`):
+
+- `WANDB_API_KEY`: turns the model on. Without it the route returns 501 and chat stays local.
+- `WANDB_TEAM`, `WANDB_PROJECT`: the Weave project (`team/project`). Without them there are no traces.
+- `WANDB_MODEL`, `WANDB_VISION_MODEL`, `WANDB_BASE_URL`: optional overrides of the text model, the vision model and the inference URL.
+
+In development, `POST /api/chat/scene?mock=1` answers from the local lines through the same validation (`?mock=dirty` adds lines the validator must drop), so the route can be tried without a key.
+
 ## Structure
 
 The code is laid out by CAMP layer (Coding agents, Agent runtimes, Model services, Platform). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the layers and the cross-tab event bus the 3D city integrates through. Team to-dos are in [TODO.md](TODO.md).
