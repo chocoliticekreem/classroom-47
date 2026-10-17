@@ -1,18 +1,21 @@
 import * as THREE from "three";
 import type { AroundCam, CamClipTracks, TrackedClass, TrackedObject } from "@/platform/around/types";
 import { WORLD_RADIUS_M } from "../config";
-import { laneLateral, snapPerson, snapVehicle, type PersonSnap, type SnapIndex, type VehicleSnap } from "../network/snap";
+import { laneLateral, snapPerson, snapVehicle, VEHICLE_REACH_M, type PersonSnap, type SnapIndex, type VehicleSnap } from "../network/snap";
 import type { RoadNetwork, XZ } from "../network/types";
 import { SKIN } from "./models/people";
 import { camFrame, projectInto, sampleInto, type CamFrame } from "./project";
 import { motionStats } from "./motionStats";
+import { bodiesClash, junctionLookup } from "./sim/replay";
 
 /**
  * Live entity simulation over real YOLO tracks. Each TfL clip plays ONCE, in real time, from the moment
  * it arrives; when a track's data ends the entity dead-reckons along its lane / footway at its last
- * smoothed speed and fades out, and a track from the next clip that appears where a reckoned entity
- * is takes that entity over instead of spawning a twin. Nothing here allocates per frame except when
- * a new track activates.
+ * smoothed speed, and a track from the next clip that appears where a reckoned entity is takes that
+ * entity over instead of spawning a twin. A people figure fades out after RECKON_S; a vehicle keeps
+ * driving the road network (it stops at a dead end) and is only retired once `keep` says nobody can
+ * see it, or at the map edge. Vehicles are held to a bumper gap on spawn and in motion. Nothing here
+ * allocates per frame except when a new track activates.
  */
 
 export type Model = "person" | "car" | "van" | "bus" | "bike";
@@ -51,6 +54,8 @@ const CORRECTION_MS = 8;
 const YAW_RATE_VEHICLE = 2.5;
 const YAW_RATE_PERSON = 6;
 const RECKON_S = 25;
+/** A reckoning vehicle this far from the origin has reached the map edge and may be retired even in view. */
+const MAP_EDGE_M = WORLD_RADIUS_M - 20;
 const FADE_IN_S = 0.6;
 const FADE_OUT_S = 2.5;
 const HANDOVER_M = 6;
@@ -58,8 +63,9 @@ const HANDOVER_COS = Math.cos(Math.PI / 4);
 const DUP_CAR_M = 1.5;
 const DUP_PERSON_M = 0.6;
 const DUP_PROBATION_S = 1;
-const GAP_CAR_M = 6;
-const GAP_HEAVY_M = 12;
+/** Minimum bumper-to-bumper gap, plus a share of the pair's combined length. */
+const GAP_M = 2;
+const GAP_PER_LENGTH = 0.04;
 const PERSON_SEP_M = 0.7;
 /** Largest single-frame push-back, kept under the 3 m teleport threshold. */
 const MAX_PUSH_M = 2.5;
@@ -203,7 +209,12 @@ function advanceLane(net: RoadNetwork, e: Entity, d: number): boolean {
         nextRev = candRev;
       }
     }
-    if (next === edge) return false;
+    if (next === edge) {
+      // Dead end: the vehicle stops at the end of its lane.
+      e.s = e.rev ? 0 : edge.length;
+      e.speed = 0;
+      break;
+    }
     edge = next;
     e.rev = nextRev;
     e.laneId = edge.id * 2 + (nextRev ? 1 : 0);
@@ -259,6 +270,8 @@ function advanceFootway(net: RoadNetwork, e: Entity, d: number): boolean {
 
 export class MotionSim {
   readonly ents: Entity[] = [];
+  /** Keys of vehicles retired by the latest `step`, for the audit. */
+  readonly retired: string[] = [];
   private readonly pending: Pending[] = [];
   private readonly seenClips = new Map<string, number>();
   private readonly people: Entity[] = [];
@@ -295,7 +308,9 @@ export class MotionSim {
     }
   }
 
-  step(now: number, dt: number, snap: SnapIndex | null) {
+  /** `keep` says whether a reckoning vehicle must stay (in view, or near the camera that tracked it); without it none retire. */
+  step(now: number, dt: number, snap: SnapIndex | null, keep: ((e: Entity) => boolean) | null = null) {
+    this.retired.length = 0;
     this.activate(now, snap);
     const lerpK = 1 - Math.exp(-SNAP_RATE * dt);
     const speedK = 1 - Math.exp(-SPEED_RATE * dt);
@@ -324,7 +339,7 @@ export class MotionSim {
             } else e.footway = -1;
           } else {
             pushToCentre(e, e.frame, obs.yaw);
-            if (snap && snapVehicle(snap, obs.x, obs.z, obs.moving ? obs.yaw : NaN, _vs)) {
+            if (snap && snapVehicle(snap, obs.x, obs.z, obs.moving ? obs.yaw : NaN, _vs, VEHICLE_REACH_M, e.laneId, e.cls === "bus")) {
               obs.x = _vs.x;
               obs.z = _vs.z;
               obs.yaw = _vs.heading;
@@ -336,7 +351,7 @@ export class MotionSim {
         }
       }
       if (e.state === State.Reckon) {
-        if (now - e.reckonAt > RECKON_S) e.state = State.Dying;
+        if (isPerson && now - e.reckonAt > RECKON_S) e.state = State.Dying;
         else {
           const d = e.speed * dt;
           let onNet = false;
@@ -348,10 +363,17 @@ export class MotionSim {
             obs.x = e.x + Math.sin(e.yaw) * d;
             obs.z = e.z + Math.cos(e.yaw) * d;
             obs.yaw = e.yaw;
-            // Off the network there is nothing to follow: coast briefly, then go.
-            if (now - e.reckonAt > RECKON_S * 0.3) e.state = State.Dying;
+            // Off the network there is nothing to follow: a figure coasts briefly, then goes.
+            if (isPerson && now - e.reckonAt > RECKON_S * 0.3) e.state = State.Dying;
           }
-          if (obs.x * obs.x + obs.z * obs.z > WORLD_RADIUS_M * WORLD_RADIUS_M) e.state = State.Dying;
+          const atEdge = obs.x * obs.x + obs.z * obs.z > (isPerson ? WORLD_RADIUS_M * WORLD_RADIUS_M : MAP_EDGE_M * MAP_EDGE_M);
+          if (isPerson && atEdge) e.state = State.Dying;
+          // A vehicle only leaves once it is out of sight (or at the map edge): never a pop in view.
+          else if (!isPerson && (atEdge || (keep && !keep(e)))) {
+            e.alive = false;
+            this.retired.push(e.key);
+            continue;
+          }
           hasObs = true;
         }
       }
@@ -373,7 +395,7 @@ export class MotionSim {
         if (e.fade <= 0) e.alive = false;
       } else if (e.fade < 1) e.fade = Math.min(1, e.fade + dt / FADE_IN_S);
     }
-    this.separateVehicles();
+    this.separateVehicles(snap);
     this.separatePeople();
     let w = 0;
     for (let i = 0; i < this.ents.length; i++) if (this.ents[i].alive) this.ents[w++] = this.ents[i];
@@ -393,7 +415,7 @@ export class MotionSim {
       const dims = DIMS[p.cls as keyof typeof DIMS] ?? DIMS.car;
       if (!isPerson) {
         pushToCentre({ length: dims[2], width: dims[0] } as Entity, p.frame, obs.moving ? obs.yaw : 0);
-        if (snap && snapVehicle(snap, obs.x, obs.z, obs.moving ? obs.yaw : NaN, _vs)) {
+        if (snap && snapVehicle(snap, obs.x, obs.z, obs.moving ? obs.yaw : NaN, _vs, VEHICLE_REACH_M, -1, p.cls === "bus")) {
           obs.x = _vs.x;
           obs.z = _vs.z;
           obs.yaw = _vs.heading;
@@ -408,7 +430,7 @@ export class MotionSim {
         this.pending.splice(i, 1);
         continue;
       }
-      if (this.nearDuplicate(p, isPerson)) {
+      if (this.nearDuplicate(p, isPerson) || (!isPerson && this.crowded(p, dims, snap))) {
         if (!p.probationUntil) p.probationUntil = now + DUP_PROBATION_S;
         else if (now >= p.probationUntil) {
           motionStats.duplicatesDropped++;
@@ -444,6 +466,17 @@ export class MotionSim {
     best.key = `${p.camId}:${p.clipStart}:${p.tr.id}`;
     best.color.set(p.tr.color ?? FALLBACK_COLOR[p.cls]);
     return true;
+  }
+
+  /** True while a vehicle spawned here would sit inside another's bumper gap, so its spawn waits for the spot to clear. */
+  private crowded(p: Pending, dims: [number, number, number], snap: SnapIndex | null): boolean {
+    const yaw = obs.moving ? obs.yaw : Math.atan2(obs.x - p.frame.x, obs.z - p.frame.z);
+    const atJunction = snap ? junctionLookup(snap)(obs.x, obs.z) : false;
+    for (const e of this.ents) {
+      if (e.kind === "person" || e.state === State.Dying) continue;
+      if (bodiesClash(obs.x, obs.z, yaw, dims[2], dims[0], e.x, e.z, e.yaw, e.length, e.width, atJunction)) return true;
+    }
+    return false;
   }
 
   private nearDuplicate(p: Pending, isPerson: boolean): boolean {
@@ -490,26 +523,25 @@ export class MotionSim {
     motionStats.spawned++;
   }
 
-  /** Simple car-following: a vehicle on the same lane never closes within its class gap of its leader. */
-  private separateVehicles() {
+  /** Vehicles never sit inside each other's bumper gap: whichever is behind (or, at a junction, later in the list) is held back. */
+  private separateVehicles(snap: SnapIndex | null) {
     const ents = this.ents;
+    const junction = snap ? junctionLookup(snap) : null;
     for (let i = 0; i < ents.length; i++) {
       const a = ents[i];
-      if (a.kind === "person" || a.laneId < 0 || a.state === State.Dying) continue;
+      if (a.kind === "person" || a.state === State.Dying) continue;
       for (let j = i + 1; j < ents.length; j++) {
         const b = ents[j];
-        if (b.laneId !== a.laneId || b.state === State.Dying) continue;
-        const fx = Math.sin(a.yaw);
-        const fz = Math.cos(a.yaw);
-        let d = (b.x - a.x) * fx + (b.z - a.z) * fz;
-        const follower = d >= 0 ? a : b;
-        const leader = d >= 0 ? b : a;
-        d = Math.abs(d);
-        const lateral = Math.abs((b.x - a.x) * fz - (b.z - a.z) * fx);
-        if (lateral > 2.5) continue;
-        const gap = (follower.model === "bus" || follower.model === "van" ? GAP_HEAVY_M : GAP_CAR_M) * 0.5 + leader.length * 0.5;
-        if (d >= gap) continue;
-        const back = Math.min(gap - d, MAX_PUSH_M);
+        if (b.kind === "person" || b.state === State.Dying) continue;
+        const atJunction = junction ? junction(a.x, a.z) || junction(b.x, b.z) : false;
+        if (!bodiesClash(a.x, a.z, a.yaw, a.length, a.width, b.x, b.z, b.yaw, b.length, b.width, atJunction)) continue;
+        const along = (b.x - a.x) * Math.sin(a.yaw) + (b.z - a.z) * Math.cos(a.yaw);
+        const sameWay = Math.cos(a.yaw - b.yaw) > 0;
+        const follower = !sameWay ? b : along >= 0 ? a : b;
+        const leader = follower === a ? b : a;
+        const gap = GAP_M + GAP_PER_LENGTH * (a.length + b.length);
+        const need = (a.length + b.length) / 2 + gap;
+        const back = Math.min(Math.max(need - Math.hypot(b.x - a.x, b.z - a.z), 0.1), MAX_PUSH_M);
         follower.x -= Math.sin(follower.yaw) * back;
         follower.z -= Math.cos(follower.yaw) * back;
         if (follower.state === State.Reckon) {
