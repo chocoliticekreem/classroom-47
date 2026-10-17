@@ -12,6 +12,10 @@ GET /clip?id=JamCams_00001.03500   -> the exact MP4 the tracks came from (TfL ov
 
 Each clip is ~10s and TfL refreshes it every few minutes, so readings are cached per camera.
 
+Virtual live cams (ids VCAM_*, apps/stream/src/lib/vcams.json) are pre-recorded 1080p street footage tracked
+ahead of time by services/vision/vcams.py: /tracks serves those tracks, /counts what is on screen at the
+wall-clock moment the player shows, /frame their busiest annotated frame.
+
 Follower detection for the streamer's own camera (see README "Follower detection"):
 POST /follow/frame?session=abc&t=<ms>[&lat=&lon=]  body: JPEG  -> same shape as /follow/state
 GET  /follow/state?session=abc -> {"people": [{id, visible_s, appearances, moved_m, follower, last_box}], "followers": n}
@@ -27,6 +31,7 @@ import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import cv2
@@ -51,6 +56,16 @@ VEHICLES = {1, 2, 3, 5, 7}  # bicycle, car, motorcycle, bus, truck
 CLASS_NAMES = {0: "person", 1: "bicycle", 2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
 # Part of the box to sample for colour, as (x0, x1, y0, y1) fractions: the torso, or the lower body panel (below the windows).
 SAMPLE = {"person": (0.3, 0.7, 0.2, 0.45), "vehicle": (0.25, 0.75, 0.5, 0.8)}
+
+# Virtual live cams (services/vision/vcams.py): 15 min of 1080p fixed street footage each, tracked ahead of
+# time. The player starts them at wall-clock time mod duration, so "now" in the footage is the same everywhere.
+APP = Path(__file__).resolve().parents[2] / "apps" / "stream"
+VCAM_DIR = APP / "public" / "footage" / "cams"
+try:
+    VCAM_FILES = {c["id"]: c["file"] for c in json.loads((APP / "src" / "lib" / "vcams.json").read_text())}
+except FileNotFoundError:
+    VCAM_FILES = {}
+CAM_PREFIXES = ("JamCams_", "VCAM_")
 
 model = YOLO(WEIGHTS)
 model_lock = threading.Lock()
@@ -338,6 +353,36 @@ def analyse(cam_id: str) -> None:
             inflight.discard(cam_id)
 
 
+vcam_cache: dict[str, dict] = {}
+
+
+def vcam_clip(cam_id: str) -> dict | None:
+    """A virtual cam's pre-computed tracks, in the same shape as a tracked JamCam clip."""
+    if cam_id not in vcam_cache:
+        path = VCAM_DIR / f"{VCAM_FILES.get(cam_id, '')}.tracks.json"
+        if not VCAM_FILES.get(cam_id) or not path.is_file():
+            return None
+        vcam_cache[cam_id] = json.loads(path.read_text())
+    return vcam_cache[cam_id]
+
+
+def vcam_reading(cam_id: str) -> dict | None:
+    """People and vehicles on screen in the moment of footage that is playing right now."""
+    clip = vcam_clip(cam_id)
+    if not clip or clip["duration"] <= 0:
+        return None
+    now = time.time()
+    t = now % clip["duration"]
+    live = [tr for tr in clip["tracks"] if tr["pts"][0][0] <= t + 1.5 and tr["pts"][-1][0] >= t - 1.5]
+    return {
+        "camId": cam_id,
+        "people": sum(tr["kind"] == "person" for tr in live),
+        "vehicles": sum(tr["kind"] == "vehicle" for tr in live),
+        "at": int(now * 1000),
+        "frame": (VCAM_DIR / f"{VCAM_FILES[cam_id]}.frame.jpg").is_file(),
+    }
+
+
 def schedule(cam_id: str) -> None:
     with state_lock:
         fresh = cam_id in cache and time.time() * 1000 - cache[cam_id]["at"] < TTL_S * 1000
@@ -363,7 +408,9 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         q = parse_qs(url.query)
         if url.path == "/counts":
-            ids = [i for i in q.get("ids", [""])[0].split(",") if i.startswith("JamCams_")][:MAX_IDS]
+            ids = [i for i in q.get("ids", [""])[0].split(",") if i.startswith(CAM_PREFIXES)][:MAX_IDS]
+            virtual = [i for i in ids if i.startswith("VCAM_")]
+            ids = [i for i in ids if i not in virtual]
             for cam_id in ids:
                 schedule(cam_id)
             with state_lock:
@@ -371,17 +418,23 @@ class Handler(BaseHTTPRequestHandler):
                     {**cache[i], "frame": i in frames} for i in ids if i in cache
                 ]
                 pending = [i for i in ids if i not in cache]
+            readings += [r for r in map(vcam_reading, virtual) if r]
             self._send(200, json.dumps({"readings": readings, "pending": pending}).encode(), "application/json")
         elif url.path == "/tracks":
-            ids = [i for i in q.get("ids", [""])[0].split(",") if i.startswith("JamCams_")][:MAX_IDS]
+            ids = [i for i in q.get("ids", [""])[0].split(",") if i.startswith(CAM_PREFIXES)][:MAX_IDS]
+            virtual = [i for i in ids if i.startswith("VCAM_")]
+            ids = [i for i in ids if i not in virtual]
             for cam_id in ids:
                 schedule(cam_id)
             with state_lock:
                 clips = [track_cache[i] for i in ids if i in track_cache]
+            clips += [c for c in map(vcam_clip, virtual) if c]
             self._send(200, json.dumps({"clips": clips}).encode(), "application/json")
         elif url.path == "/frame":
+            cam_id = q.get("id", [""])[0]
+            still = VCAM_DIR / f"{VCAM_FILES.get(cam_id, '')}.frame.jpg"
             with state_lock:
-                jpg = frames.get(q.get("id", [""])[0])
+                jpg = still.read_bytes() if VCAM_FILES.get(cam_id) and still.is_file() else frames.get(cam_id)
             if jpg:
                 self._send(200, jpg, "image/jpeg")
             else:

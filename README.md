@@ -98,7 +98,15 @@ npm run vast:guide     # fetch the official VAST guide submodule (read-only)
 npm run dev:stream     # stream page, Around me, /twin, advisor: http://localhost:3047
 npm run yolo           # local YOLO for Around me: http://127.0.0.1:8047 (needs uv)
 npm run predict        # Predict forecast service: http://localhost:8048 (needs uv)
+npm run vcams          # virtual live cams: download, YOLO26-track and Nemotron-calibrate (needs uv, ~1 GB, ~40 min per cam on a laptop CPU)
 ```
+
+**Virtual live cams.** TfL JamCams are 352×288 and loop one 10 s clip, so the map and the twin also carry a few
+sharp fixed street cameras (`apps/stream/src/lib/vcams.json`): 10-15 min of 1080p YouTube footage each, placed where
+it was filmed (Bank junction and Gracechurch St at night inside the twin; the Strand on the map only). The player joins each at the wall-clock moment so
+it plays like a live feed. YOLO26 tracks every person and vehicle ahead of time (`services/vision/vcams.py`),
+`services/yolo` serves those tracks like a JamCam's, and the twin's Compare CCTV view mirrors them in 3D from a pose
+Nemotron estimated. The footage is gitignored and never goes into VAST.
 
 `apps/stream` reads `AGENT_URL` (default `http://video-lab-team-47.cosmos.vastdata.com/app`),
 `PREDICT_URL`, `JAMCAM_YOLO_URL` and `WANDB_*` from `apps/stream/.env.local` (gitignored). Values live in

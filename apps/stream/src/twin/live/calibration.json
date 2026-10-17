@@ -108,5 +108,29 @@
       "aspect": 1.2222
     },
     "fitPoints": 876
+  },
+  "VCAM_bank": {
+    "headingDeg": 103.5,
+    "pitchDeg": 2.7,
+    "heightM": 1.6,
+    "hfovDeg": 55.0,
+    "aspect": 1.7778,
+    "source": "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B",
+    "confidence": 0.85,
+    "reason": "The camera looks east down Mansion House Street toward the Royal Exchange, with the building\u2019s pediment centered and the road vanishing point just above mid-height, consistent with a high fixed CCTV pole.",
+    "street": "Mansion House Street",
+    "at": "2026-10-17T13:15:21+00:00"
+  },
+  "VCAM_gracechurch": {
+    "headingDeg": 23.2,
+    "pitchDeg": -1.7,
+    "heightM": 1.6,
+    "hfovDeg": 55.0,
+    "aspect": 1.7778,
+    "source": "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B",
+    "confidence": 0.85,
+    "reason": "The street recedes toward the northeast as indicated by the TfL note, with the vanishing point just above mid-frame and a typical elevated CCTV height.",
+    "street": "Gracechurch Street",
+    "at": "2026-10-17T13:15:22+00:00"
   }
 }
