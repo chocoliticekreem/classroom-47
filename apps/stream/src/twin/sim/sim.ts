@@ -1,6 +1,6 @@
 import { WORLD_RADIUS_M } from "@/twin/config";
 import type { CamFrame } from "@/twin/live/project";
-import { FAR_M, FOV_DEG, NEAR_M } from "@/twin/live/project";
+import { inViewCone } from "@/twin/live/project";
 import type { FieldResponse } from "@/twin/field/types";
 import { KIND_PERSON, KIND_VEHICLE, MAX_AGENTS, MAX_PEOPLE, MAX_VEHICLES, registry as R } from "./registry";
 
@@ -87,21 +87,11 @@ export function setCoveredCams(frames: CamFrame[]) {
   if (G) markCovered(G);
 }
 
-function inCone(c: CamFrame, x: number, z: number) {
-  const dx = x - c.x;
-  const dz = z - c.z;
-  const d = Math.hypot(dx, dz);
-  if (d < NEAR_M || d > FAR_M) return false;
-  let diff = Math.atan2(dx, -dz) - c.headingRad;
-  while (diff > Math.PI) diff -= 2 * Math.PI;
-  while (diff < -Math.PI) diff += 2 * Math.PI;
-  return Math.abs(diff) <= (FOV_DEG / 2) * (Math.PI / 180);
-}
 
 function markCovered(g: Graph) {
   for (let i = 0; i < g.n; i++) {
     let c = 0;
-    for (const f of coveredFrames) if (inCone(f, g.midx[i], g.midz[i])) c = 1;
+    for (const f of coveredFrames) if (inViewCone(f, g.midx[i], g.midz[i])) c = 1;
     g.covered[i] = c;
   }
 }
