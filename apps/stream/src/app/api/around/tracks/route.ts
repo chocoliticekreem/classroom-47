@@ -20,7 +20,8 @@ async function fetchClips(ids: string[], timeoutMs: number): Promise<{ clips: Ca
  */
 export async function GET(request: NextRequest) {
   const ids = (request.nextUrl.searchParams.get("ids") ?? "").split(",").filter(Boolean);
-  const virtual = ids.filter((id) => id.startsWith("VCAM_"));
+  // On Vercel the virtual cams' footage is not deployed (too large) and their tracks cannot cross the tunnel in time.
+  const virtual = process.env.VERCEL ? [] : ids.filter((id) => id.startsWith("VCAM_"));
   const tfl = ids.filter((id) => !id.startsWith("VCAM_"));
   const [live, ...vcams] = await Promise.all([
     fetchClips(tfl, 15_000),
