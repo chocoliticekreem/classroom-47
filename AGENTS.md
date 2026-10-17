@@ -5,6 +5,8 @@ Hackathon project: speed and a demo that works live matter more than process.
 
 - **Current state, what's broken, who's on what:** [`HANDOFF.md`](HANDOFF.md)
 - **How to build on the required CAMP infrastructure:** the [`vast-camp` skill](.agents/skills/vast-camp/SKILL.md)
+- **The official VAST guide and skills:** [`vast-builders-challenge/`](https://github.com/vast-data/vast-builders-challenge), a git submodule at the repo root. Fetch it with `npm run vast:guide`
+- **Cursor:** the always-on rules are in [`.cursor/rules/classroom-47.mdc`](.cursor/rules/classroom-47.mdc). Claude Code reads `CLAUDE.md`
 - **Pitch, product and demo arc:** [`CLAUDE.md`](CLAUDE.md) (project section) and [`README.md`](README.md)
 - **To-dos:** [`TODO.md`](TODO.md). **Event bus contract:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
@@ -84,8 +86,10 @@ The judging slide links `tokensand.com/vastnyc`, copied over from the NYC event.
 **The organisers require the project to run on VAST's CAMP stack.** Every layer is a sponsor, and the
 judges look for each one. The step-by-step how-to (access, APIs, env vars, deploy, re-ingest prompt) is
 the **`vast-camp` skill**: [`.agents/skills/vast-camp/SKILL.md`](.agents/skills/vast-camp/SKILL.md), also
-linked into `.claude/skills/` and `.cursor/skills/`. Source of truth:
-[`vast-data/vast-builders-challenge`](https://github.com/vast-data/vast-builders-challenge).
+linked into `.claude/skills/` and `.cursor/skills/`. Source of truth: the official guide,
+[`vast-data/vast-builders-challenge`](https://github.com/vast-data/vast-builders-challenge). It's checked out
+as the **`vast-builders-challenge/` submodule** (`npm run vast:guide`; read-only, don't edit it) and
+pre-cloned on the lab VM.
 
 | Layer | Sponsor | Already running | What we build or use |
 |---|---|---|---|
@@ -95,11 +99,16 @@ linked into `.claude/skills/` and `.cursor/skills/`. Source of truth:
 | **P**: platform | VAST | NVIDIA VSS Blueprint on VAST: S3, then DataEngine, then VastDB, plus the VSS UI and API | Query our team's index, and re-ingest the footage with **our own Cosmos prompt** |
 
 **Rules.**
-- Only the **pre-ingested footage** can be used: dashcam clips of pedestrians at crossings, overhead highway multi-camera footage, a neighbourhood camera. **No uploads, and no internet video (YouTube, TfL) into VAST.**
+- **Footage:** build on the **pre-ingested corpus** and re-ingest it with our prompt. It has six packs (`ARCHITECTURE_REFERENCE.md`). The best fits for us:
+  - **F, indoor smart spaces** (`smartspace_cam-1`), the "Crowds" category;
+  - **E, SF street cams** (`sf_streets_cam-1…4`), pedestrians crossing;
+  - **B, Toronto forward-facing drives** (`pie_cam-3`), a streamer-like point of view.
+- **Never put internet video (YouTube, TfL) into VAST.** An upload skill exists, but the official path is re-ingest only, so **ask in the Cosmos workshop before uploading anything.**
 - The deployed app must be small: a `python:3.12-slim` image, with code from a ConfigMap of **about 1 MiB**. That means a Python agent plus a light dashboard. Our Next.js apps stay as local front ends.
 - Pick the team number **once**, using the number you were assigned.
 - Only 1–2 people run large re-ingests.
-- Credentials stay in `/config/<team>.config` on the VM. Never commit them.
+- Credentials stay in `/config/<team>.config` on the VM. Never commit them. List env var names only (`env | cut -d= -f1 | sort`), never bare `env`.
+- Use a matching official skill before writing raw REST calls. Build a web app, CLI or script, not a native app.
 
 **Getting access** (each person; the organisers' "Workshop quick start" slide):
 1. **Venue Wi-Fi:** `Halkin-WiFi Guest`. The password is on the venue sign and the quick-start slide; it isn't in this repo because the repo is public.
@@ -136,10 +145,15 @@ Cursor credits: check that requests show `Free` at cursor.com/dashboard/usage. I
   - `services/yolo`: a local YOLO server on TfL JamCams (port 8047).
   - `services/vision`: Python model clients (YOLO, Cosmos, W&B) and the London live-camera catalogue (uv).
   - `docs/`: `ARCHITECTURE.md` (CAMP mapping and the bus contract), `PMF.md` (market research), `superpowers/plans/` (the data-sourcing plan).
+  - `vast-builders-challenge/`: the **official VAST guide and Cursor skills** (git submodule, read-only).
+  - Agent config:
+    - `.agents/skills/` holds our own skills (`vast-camp`, `threejs-world-speedrun`, …), linked into `.claude/skills/` and `.cursor/skills/`.
+    - `.cursor/rules/classroom-47.mdc` has the Cursor rules.
   - `apps/*/AGENTS.md`: the Next.js 16 note. Read `node_modules/next/dist/docs/` before writing Next code; the APIs differ from older Next.
 - **Run on your laptop** (local front ends), from the repo root:
   ```bash
   npm install            # once, at the repo root
+  npm run vast:guide     # fetch the official VAST guide submodule (read-only)
   npm run dev:stream     # streaming page, http://localhost:3047
   npm run yolo           # YOLO server for Around me, http://127.0.0.1:8047 (needs uv)
   npm run dev -w web     # 3D city, http://localhost:3000 (build currently blocked, see HANDOFF.md)
