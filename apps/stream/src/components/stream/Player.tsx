@@ -20,6 +20,10 @@ interface PlayerProps {
   sync?: string;
   /** The phone's WebRTC video while this page follows a phone; shown in place of the idle card. */
   remote?: PhoneVideo;
+  /** "wide" fills the content width; "full" fills a fullscreen parent. */
+  size?: "default" | "wide" | "full";
+  /** Hands the webcam stream to the shell so the map and twin views can show it as a PiP. */
+  onCamStream?: (s: MediaStream | null) => void;
 }
 
 type Facing = "environment" | "user";
@@ -57,11 +61,14 @@ function Corners({ className = "border-white/70" }: { className?: string }) {
   );
 }
 
-export function Player({ source, onSourceChange, ctx, positionBadge, sync, remote }: PlayerProps) {
+export function Player({ source, onSourceChange, ctx, positionBadge, sync, remote, size = "default", onCamStream }: PlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [camStream, setCamStream] = useState<MediaStream | null>(null);
   const session = useMemo(() => sessionFromUrl(), []);
   usePhonePublisher(camStream, session);
+  useEffect(() => {
+    onCamStream?.(camStream);
+  }, [camStream, onCamStream]);
   const [error, setError] = useState<string | null>(null);
   const [camError, setCamError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
@@ -74,6 +81,11 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync, remot
     const video = videoRef.current;
     let stream: MediaStream | null = null;
     let cancelled = false;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCamError("The browser blocks the camera on plain http. Open the https link (tunnel) or localhost.");
+      onSourceChange({ kind: "idle" });
+      return;
+    }
     navigator.mediaDevices
       .getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
       .then((s) => {
@@ -114,12 +126,16 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync, remot
   const sourceLabel =
     source.kind === "webcam" ? (facing === "user" ? "Selfie camera" : "Rear camera") : source.kind === "idle" ? "" : source.label;
   const walking = source.kind === "webcam";
+  const frame =
+    size === "full"
+      ? "h-full rounded-none"
+      : size === "wide"
+        ? "h-[calc(100dvh-13rem)] min-h-[360px] rounded-[28px]"
+        : `rounded-[28px] ${walking ? "aspect-[3/4] sm:aspect-video" : "aspect-video"}`;
 
   return (
     <div
-      className={`relative w-full overflow-hidden rounded-lg border border-line bg-black ${
-        walking ? "aspect-[3/4] sm:aspect-video" : "aspect-video"
-      }`}
+      className={`relative w-full overflow-hidden bg-black shadow-[0_0_0_1px_rgb(255_255_255/0.08),0_30px_70px_-24px_rgb(0_0_0/0.85)] transition-[height,border-radius] duration-300 ${frame}`}
     >
       {source.kind === "idle" ? (
         remote && remote.status !== "off" ? (
@@ -138,7 +154,7 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync, remot
             loop
             playsInline
             onError={() => setError("The stream stopped responding.")}
-            className={`size-full object-cover ${walking && facing === "user" ? "-scale-x-100" : ""}`}
+            className={`size-full ${size !== "default" && !walking ? "object-contain" : "object-cover"} ${walking && facing === "user" ? "-scale-x-100" : ""}`}
           />
           <FollowerOverlay />
           <div className="grain scanlines pointer-events-none absolute inset-0" aria-hidden />
@@ -147,12 +163,12 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync, remot
           <Corners />
 
           <div className="absolute left-4 top-4 flex items-center gap-2 font-mono text-[13px] sm:left-6 sm:top-6 sm:text-[11px]">
-            <span className="flex h-7 items-center gap-1.5 rounded-[4px] bg-live px-2 font-semibold tracking-normal text-white sm:h-6">
+            <span className="live-badge">
               <span className="animate-live size-1.5 rounded-full bg-white" />
               Live
             </span>
-            <span className="flex h-7 items-center gap-1.5 rounded-[4px] border border-white/15 bg-black/50 px-2 text-white backdrop-blur-sm sm:h-6">
-              <span className="size-1.5 rounded-full bg-ember" />
+            <span className="flex h-[1.6rem] items-center gap-1.5 rounded-full bg-black/55 px-3 font-bold text-white shadow-[inset_0_1px_2px_rgb(255_255_255/0.2)] backdrop-blur-md">
+              <span className="size-1.5 rounded-full bg-candy-orange" />
               {formatViewers(ctx.viewers)}
               <span className="hidden text-white/50 sm:inline">watching</span>
             </span>
@@ -202,7 +218,7 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync, remot
             <button
               type="button"
               onClick={() => change({ kind: "idle" })}
-              className="flex h-11 shrink-0 items-center gap-1.5 rounded-[6px] border border-white/15 bg-black/50 px-3.5 font-mono text-[12px] tracking-normal text-white backdrop-blur-sm transition-colors hover:border-live hover:bg-live sm:h-8 sm:px-2.5 sm:text-[11px]"
+              className="pill glass !h-11 !px-4 hover:!bg-none hover:!bg-live sm:!h-9"
             >
               <Square className="size-2.5 fill-current" aria-hidden />
               End
@@ -347,14 +363,14 @@ function SourceButton({
     <button
       type="button"
       onClick={onClick}
-      className={`group flex items-center gap-3 rounded-[6px] border px-3 py-2.5 text-left transition-colors sm:flex-col sm:items-start sm:gap-4 sm:py-3 ${
+      className={`group flex items-center gap-3 rounded-[24px] px-3.5 py-3 text-left transition-transform duration-200 ease-[var(--ease-spring)] hover:-translate-y-0.5 hover:scale-[1.03] active:scale-95 sm:flex-col sm:items-start sm:gap-4 sm:py-4 ${
         accent
-          ? "border-ember/50 bg-ember-soft hover:border-ember"
-          : "border-line bg-bg/60 hover:border-line-strong hover:bg-surface-2"
+          ? "bg-[linear-gradient(135deg,rgb(255_42_149/0.28),rgb(255_148_25/0.22))] shadow-[inset_0_2px_3px_rgb(255_255_255/0.3),inset_0_-4px_8px_rgb(140_0_70/0.3),0_14px_28px_-10px_rgb(236_17_135/0.55)]"
+          : "tile"
       }`}
     >
       <span className="flex w-full items-center justify-between sm:w-auto">
-        <span className={`grid size-8 place-items-center rounded-[4px] ${accent ? "bg-ember text-bg" : "bg-surface-2 text-text"}`}>
+        <span className={`grid size-9 place-items-center rounded-full ${accent ? "bg-[image:var(--grad-candy)] text-white shadow-[inset_0_2px_3px_rgb(255_255_255/0.5)]" : "bg-white/10 text-text"}`}>
           {icon}
         </span>
       </span>

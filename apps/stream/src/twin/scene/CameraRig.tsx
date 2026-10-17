@@ -152,6 +152,7 @@ export function CameraRig() {
         cam.setViewOffset(size.width / 2, size.height, -size.width / 2, 0, size.width, size.height);
       } else {
         cam.fov = firstPerson ? STREAMER_FOV : DEFAULT_FOV;
+        cam.aspect = size.width / size.height;
         cam.clearViewOffset();
       }
       cam.updateProjectionMatrix();

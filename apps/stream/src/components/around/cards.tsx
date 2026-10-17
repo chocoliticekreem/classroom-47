@@ -16,8 +16,7 @@ export function formatDistance(m: number) {
   return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
 }
 
-const PANEL =
-  "absolute overflow-hidden rounded-xl border border-line-strong bg-surface/95 shadow-[0_18px_50px_rgba(0,0,0,0.6)] backdrop-blur";
+const PANEL = "glass overflow-hidden rounded-[26px]";
 
 function CloseButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
@@ -25,7 +24,7 @@ function CloseButton({ label, onClick }: { label: string; onClick: () => void })
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="grid size-6 shrink-0 place-items-center rounded-md bg-bg/80 text-text hover:bg-bg"
+      className="pill !h-7 !w-7 !px-0 bg-black/55 backdrop-blur-sm"
     >
       <X className="size-3.5" />
     </button>
@@ -48,7 +47,7 @@ export function CamCard({ cam, reading, isYourFeed, onClose }: CamCardProps) {
   const level = reading ? crowdLevel(reading.people) : null;
 
   return (
-    <article className={`${PANEL} left-3 top-3 w-[min(300px,calc(100%-24px))]`}>
+    <article className={`${PANEL} w-full`}>
       <div className="relative aspect-video bg-black">
         {showAi && reading ? (
           // eslint-disable-next-line @next/next/no-img-element -- live annotated frame, cache-busted
@@ -69,18 +68,18 @@ export function CamCard({ cam, reading, isYourFeed, onClose }: CamCardProps) {
             className="size-full object-cover"
           />
         )}
-        <span className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-bg/80 px-1.5 py-0.5 text-[10px] font-semibold text-text">
-          <span className="animate-live size-1.5 rounded-full bg-live" />
+        <span className="live-badge absolute left-2 top-2">
+          <span className="animate-live size-1.5 rounded-full bg-white" />
           {showAi ? "AI view" : "Live"}
         </span>
         <div className="absolute right-2 top-2">
           <CloseButton label="Close camera" onClick={onClose} />
         </div>
-        <div className="absolute bottom-2 left-2 flex rounded-md bg-bg/85 p-0.5 text-[10px] font-semibold">
+        <div className="absolute bottom-2 left-2 flex rounded-full bg-black/60 p-0.5 text-[11px] font-bold backdrop-blur-sm">
           <button
             type="button"
             onClick={() => setView("live")}
-            className={`rounded px-2 py-0.5 ${view === "live" ? "bg-surface-3 text-text" : "text-muted hover:text-text"}`}
+            className={`rounded-full px-2.5 py-1 transition-colors ${view === "live" ? "bg-white text-black" : "text-white/70 hover:text-white"}`}
           >
             Live clip
           </button>
@@ -89,8 +88,8 @@ export function CamCard({ cam, reading, isYourFeed, onClose }: CamCardProps) {
             onClick={() => setView("ai")}
             disabled={!aiReady}
             title={aiReady ? "Show YOLO detections" : "Analysing…"}
-            className={`rounded px-2 py-0.5 disabled:cursor-default disabled:opacity-40 ${
-              showAi ? "bg-ember text-bg" : "text-muted hover:text-text"
+            className={`rounded-full px-2.5 py-1 transition-colors disabled:cursor-default disabled:opacity-40 ${
+              showAi ? "bg-[image:var(--grad-candy)] text-white" : "text-white/70 hover:text-white"
             }`}
           >
             AI view
@@ -145,7 +144,7 @@ export function BusStopCard({ stop, now, fetchedAt, onClose }: BusStopCardProps)
     .filter((a) => a.seconds > -60)
     .slice(0, 5);
   return (
-    <article className={`${PANEL} bottom-3 right-3 w-[min(300px,calc(100%-24px))]`}>
+    <article className={`${PANEL} absolute bottom-3 right-3 w-[min(300px,calc(100%-24px))]`}>
       <div className="flex items-start gap-2.5 px-3 py-2.5">
         <span className="grid size-6 shrink-0 place-items-center rounded-[6px] bg-[#e0352b] text-[10px] font-bold text-white">
           {stop.indicator.replace(/[^A-Za-z0-9]/g, "").slice(0, 2) || <Bus className="size-3.5" />}
@@ -186,7 +185,7 @@ interface StationCardProps {
 export function StationCard({ station, onClose }: StationCardProps) {
   const crowd = stationCrowd(station.crowding);
   return (
-    <article className={`${PANEL} bottom-3 right-3 w-[min(300px,calc(100%-24px))]`}>
+    <article className={`${PANEL} w-full`}>
       <div className="flex items-start gap-2.5 px-3 py-2.5">
         <TrainFront className="mt-0.5 size-4 shrink-0 text-muted" />
         <div className="min-w-0 flex-1">
@@ -228,7 +227,7 @@ interface LiveCamCardProps {
 /** The public stream is only ever embedded (YouTube ToS forbids downloading it). */
 export function LiveCamCard({ cam, onClose }: LiveCamCardProps) {
   return (
-    <article className={`${PANEL} left-3 top-3 w-[min(340px,calc(100%-24px))]`}>
+    <article className={`${PANEL} w-full`}>
       <div className="relative aspect-video bg-black">
         <iframe
           key={cam.id}
@@ -264,8 +263,8 @@ export function DisruptionCard({ item, pinned, onClose }: DisruptionCardProps) {
   const serious = item.severity === "Serious" || item.severity === "Severe";
   return (
     <div
-      className={`${PANEL} bottom-3 left-3 flex w-[min(340px,calc(100%-24px))] items-start gap-2.5 px-3 py-2.5 ${
-        pinned ? "" : "pointer-events-none"
+      className={`${PANEL} absolute bottom-3 left-3 flex w-[min(360px,calc(100%-24px))] items-start gap-2.5 px-4 py-3 ${
+        pinned ? "pointer-events-auto" : "pointer-events-none"
       }`}
     >
       <TriangleAlert className={`mt-0.5 size-4 shrink-0 ${serious ? "text-live" : "text-warn"}`} />
