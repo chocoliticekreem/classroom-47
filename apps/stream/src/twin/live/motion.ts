@@ -51,7 +51,7 @@ const SNAP_RATE = 6;
 const SPEED_RATE = 2;
 /** Extra metres per second a pose may be corrected beyond its own speed, so a re-snap glides. */
 const CORRECTION_MS = 8;
-const YAW_RATE_VEHICLE = 2.5;
+const YAW_RATE_VEHICLE = 6;
 const YAW_RATE_PERSON = 6;
 const RECKON_S = 25;
 /** A reckoning vehicle this far from the origin has reached the map edge and may be retired even in view. */
@@ -185,23 +185,29 @@ function pushToCentre(e: Entity, frame: CamFrame, yaw: number) {
   obs.z += (rz / rl) * push;
 }
 
-/** Moves a lane vehicle `d` metres on, through junctions along the straightest edge; false at a dead end. */
+/**
+ * Moves a lane vehicle `d` metres on (negative = back the way it came), through junctions along the
+ * straightest edge. At a dead end it stops there (forward) or stays put (back); false only when it is off the network.
+ */
 function advanceLane(net: RoadNetwork, e: Entity, d: number): boolean {
   let edge = net.edges[e.laneId >> 1];
   e.s += e.rev ? -d : d;
   for (let guard = 0; guard < 4 && (e.s < 0 || e.s > edge.length); guard++) {
-    const over = e.rev ? -e.s : e.s - edge.length;
-    const node = net.nodes[e.rev ? edge.from : edge.to];
+    const atTo = e.s > edge.length;
+    const over = atTo ? e.s - edge.length : -e.s;
+    const node = net.nodes[atTo ? edge.to : edge.from];
+    // Leaving the node onto a new lane when moving with the lane, arriving from one when backing up.
+    const downstream = atTo !== e.rev;
     let next = edge;
     let nextRev = false;
     let best = -0.3;
     for (let i = 0; i < node.edges.length; i++) {
       const cand = net.edges[node.edges[i]];
       if (cand.id === edge.id) continue;
-      const candRev = cand.to === node.id;
+      const candRev = downstream ? cand.to === node.id : cand.from === node.id;
       if (candRev && cand.oneway) continue;
       const eps = Math.min(0.5, cand.length * 0.4);
-      const h = net.sample(cand.id, candRev ? cand.length - eps : eps, 0, _p);
+      const h = net.sample(cand.id, downstream === candRev ? cand.length - eps : eps, 0, _p);
       const score = Math.cos((candRev ? h + Math.PI : h) - e.yaw);
       if (score > best) {
         best = score;
@@ -210,22 +216,29 @@ function advanceLane(net: RoadNetwork, e: Entity, d: number): boolean {
       }
     }
     if (next === edge) {
-      // Dead end: the vehicle stops at the end of its lane.
-      e.s = e.rev ? 0 : edge.length;
-      e.speed = 0;
+      // Dead end: a vehicle driving on stops short of it; one backing up stays put.
+      e.s = downstream ? (e.rev ? e.length / 2 : edge.length - e.length / 2) : e.rev ? edge.length - e.length / 2 : e.length / 2;
+      if (downstream) e.speed = 0;
       break;
     }
     edge = next;
     e.rev = nextRev;
     e.laneId = edge.id * 2 + (nextRev ? 1 : 0);
-    e.s = nextRev ? edge.length - over : over;
+    e.s = downstream === nextRev ? edge.length - over : over;
   }
+  placeOnLane(net, e);
+  return true;
+}
+
+/** Writes the lane-line pose at the vehicle's (lane, s) into `obs`: always on the asphalt, heading along the road. */
+function placeOnLane(net: RoadNetwork, e: Entity) {
+  const edge = net.edges[e.laneId >> 1];
+  e.s = Math.min(edge.length, Math.max(0, e.s));
   const lat = laneLateral(edge.width);
   const h = net.sample(edge.id, e.s, e.rev ? -lat : lat, _p);
   obs.x = _p[0];
   obs.z = _p[1];
   obs.yaw = e.rev ? h + Math.PI : h;
-  return true;
 }
 
 /** Moves a person `d` metres along their footway, continuing onto the straightest touching footway. */
@@ -270,7 +283,7 @@ function advanceFootway(net: RoadNetwork, e: Entity, d: number): boolean {
 
 export class MotionSim {
   readonly ents: Entity[] = [];
-  /** Keys of vehicles retired by the latest `step`, for the audit. */
+  /** Keys that left the drawn set legitimately in the latest `step`: retired out of sight, or renamed by a handover. For the audit. */
   readonly retired: string[] = [];
   private readonly pending: Pending[] = [];
   private readonly seenClips = new Map<string, number>();
@@ -340,12 +353,12 @@ export class MotionSim {
           } else {
             pushToCentre(e, e.frame, obs.yaw);
             if (snap && snapVehicle(snap, obs.x, obs.z, obs.moving ? obs.yaw : NaN, _vs, VEHICLE_REACH_M, e.laneId, e.cls === "bus")) {
-              obs.x = _vs.x;
-              obs.z = _vs.z;
-              obs.yaw = _vs.heading;
+              // Progress along the lane eases toward the track's; the pose is always the lane line's.
+              const reach = (CORRECTION_MS + e.speed) * dt;
+              e.s = _vs.laneId === e.laneId ? e.s + Math.max(-reach, Math.min(reach, (_vs.s - e.s) * lerpK)) : _vs.s;
               e.laneId = _vs.laneId;
               e.rev = (_vs.laneId & 1) === 1;
-              e.s = _vs.s;
+              placeOnLane(net!, e);
             } else e.laneId = -1;
           }
         }
@@ -377,7 +390,11 @@ export class MotionSim {
           hasObs = true;
         }
       }
-      if (hasObs) {
+      if (hasObs && !isPerson && e.laneId >= 0) {
+        e.x = obs.x;
+        e.z = obs.z;
+        e.yaw = turnToward(e.yaw, obs.yaw, 1, YAW_RATE_VEHICLE * dt);
+      } else if (hasObs) {
         const maxStep = (CORRECTION_MS + e.speed) * dt;
         let dx = (obs.x - e.x) * lerpK;
         let dz = (obs.z - e.z) * lerpK;
@@ -463,6 +480,7 @@ export class MotionSim {
     best.t1 = p.t1;
     best.state = State.Tracked;
     best.reckonAt = now;
+    this.retired.push(best.key);
     best.key = `${p.camId}:${p.clipStart}:${p.tr.id}`;
     best.color.set(p.tr.color ?? FALLBACK_COLOR[p.cls]);
     return true;
@@ -542,12 +560,16 @@ export class MotionSim {
         const gap = GAP_M + GAP_PER_LENGTH * (a.length + b.length);
         const need = (a.length + b.length) / 2 + gap;
         const back = Math.min(Math.max(need - Math.hypot(b.x - a.x, b.z - a.z), 0.1), MAX_PUSH_M);
-        follower.x -= Math.sin(follower.yaw) * back;
-        follower.z -= Math.cos(follower.yaw) * back;
-        if (follower.state === State.Reckon) {
-          follower.s += follower.rev ? back : -back;
-          if (follower.speed > leader.speed) follower.speed = leader.speed;
+        if (follower.laneId >= 0 && snap) {
+          // Held back along its own lane, so it stays on the asphalt and the hold survives the next frame.
+          advanceLane(snap.net, follower, -back);
+          follower.x = obs.x;
+          follower.z = obs.z;
+        } else {
+          follower.x -= Math.sin(follower.yaw) * back;
+          follower.z -= Math.cos(follower.yaw) * back;
         }
+        if (follower.state === State.Reckon && follower.speed > leader.speed) follower.speed = leader.speed;
       }
     }
   }

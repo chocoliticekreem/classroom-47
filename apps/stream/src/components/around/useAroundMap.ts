@@ -27,6 +27,8 @@ function hitDisruptionId(map: MapLibreMap, e: MapMouseEvent) {
 function makeStreamerMarker(lib: MapLib, map: MapLibreMap, point: Point) {
   const el = document.createElement("div");
   el.className = "relative grid size-6 place-items-center";
+  // Above the cam and station pins, which are added later and would otherwise cover the streamer at a station.
+  el.style.zIndex = "2";
   el.innerHTML =
     '<span class="absolute inset-0 animate-ping rounded-full bg-ember/50"></span><span class="relative size-3.5 rounded-full bg-ember ring-[3px] ring-bg shadow-[0_0_18px_rgba(255,77,46,0.9)]"></span>';
   return new lib.Marker({ element: el }).setLngLat([point.lon, point.lat]).addTo(map);
@@ -68,7 +70,8 @@ export function useAroundMap(
       mapRef.current = map;
       (window as unknown as { __aroundMap: unknown }).__aroundMap = map;
 
-      map.on("load", () => {
+      // Why: "load" also waits for the first tiles; the layers and DOM markers only need the style, which lands seconds earlier.
+      map.once("style.load", () => {
         if (!map) return;
         brightenStyle(map);
         addAroundLayers(map, initial);

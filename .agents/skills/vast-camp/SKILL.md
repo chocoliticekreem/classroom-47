@@ -1,7 +1,7 @@
 ---
 name: vast-camp
 description: >-
-  Use when building, wiring or deploying any Classroom 47 feature for the VAST Builders Challenge.
+  Use when building, wiring or deploying any Mirrorverse feature for the VAST Builders Challenge.
   Every feature must run on the event's CAMP stack: Cursor coding agent, VAST agent runtime,
   NVIDIA + CoreWeave model services, VAST platform. This skill covers the layer map, how to reach
   the team's VSS backend, GPU models and W&B inference from the lab VM, how to deploy our app on
@@ -10,7 +10,7 @@ description: >-
   and skills, which are vendored as the `vast-builders-challenge/` submodule.
 ---
 
-# VAST CAMP stack for Classroom 47
+# VAST CAMP stack for Mirrorverse
 
 The organisers' rule for the day is that the project must be built on **CAMP**. Each layer is a sponsor:
 
@@ -120,7 +120,7 @@ The same repo is **pre-cloned on the lab VM**, with team credentials in `/config
 
 Parse the config with `grep '^KEY=' "$TEAM_CONFIG" | cut -d= -f2-` rather than `source`. On zsh, `USERNAME` is a reserved variable.
 
-## Footage: which packs fit Classroom 47 (`ARCHITECTURE_REFERENCE.md#video-corpus-already-indexed`)
+## Footage: which packs fit Mirrorverse (`ARCHITECTURE_REFERENCE.md#video-corpus-already-indexed`)
 
 One pipeline and one index cover six "packs". You filter them by `camera_id`, `location` or `capture_type`, and by detected object class.
 
@@ -197,7 +197,7 @@ The `gpu/` skills load `GPU_BEARER_TOKEN` from the config.
 
 ## Re-ingest with our prompt (Cosmos does the real reasoning)
 
-Cosmos3-Reason only writes down what the ingest prompt asks about. For Classroom 47, ask it to describe:
+Cosmos3-Reason only writes down what the ingest prompt asks about. For Mirrorverse, ask it to describe:
 - how many people there are and how dense the crowd is;
 - whether people are gathering or moving towards the camera or one spot;
 - whether anyone is filming, pointing a phone at, or following the camera holder;
@@ -259,7 +259,7 @@ What this means for us:
 - Keep the deployed part **small**: a Python agent API plus a light dashboard.
 - Our Next.js apps (`apps/stream`, `apps/web`) are far too big for a ConfigMap. They stay as local front ends and read the agent's output, if `/app` is reachable from a laptop. Check that after the first deploy.
 
-## Where Classroom 47 code sits today
+## Where Mirrorverse code sits today
 
 | Piece | Layer | On CAMP? |
 |---|---|---|

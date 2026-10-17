@@ -1,27 +1,56 @@
 "use client";
 
-import { useEffect, useState, type RefObject } from "react";
-import type { Map as MapLibreMap } from "maplibre-gl";
+import { useEffect, useMemo, useState, type RefObject } from "react";
+import type { Map as MapLibreMap, PaddingOptions } from "maplibre-gl";
 import { Route } from "lucide-react";
 import { publish } from "@/platform/bus";
-import { DESTINATIONS, type RouteResponse } from "@/platform/route/types";
+import { distanceM } from "@/platform/around/geo";
+import type { AroundStation } from "@/platform/around/types";
+import type { RouteDestination, RouteResponse } from "@/platform/route/types";
+import { insideGeometryBounds, projection, snapOrigin } from "@/twin/config";
 import { lineFeature, setData, type Point } from "./mapLayers";
+
+// The planner's street graph covers ~650 m around the streamer; keep a margin for snapping to it.
+const REACH_M = 600;
+const MIN_TRIP_M = 80;
+const MAX_DESTINATIONS = 6;
+// A picked destination is dropped once the streamer is this far from it (moved or switched location).
+const DROP_M = 900;
 
 interface RoutePickerProps {
   mapRef: RefObject<MapLibreMap | null>;
   ready: boolean;
   from: Point;
+  /** Real stations near the streamer (TfL), offered as destinations. */
+  stations: AroundStation[];
+  fitPadding: () => PaddingOptions;
 }
 
-/** Destination chips in the info drawer; draws the fastest (grey dashed) and calmer (ember) routes. */
-export function RoutePicker({ mapRef, ready, from }: RoutePickerProps) {
-  const [to, setTo] = useState<string | null>(null);
-  const [route, setRoute] = useState<RouteResponse | null>(null);
+/** Stations within walking reach of wherever the streamer is, nearest first. */
+function nearbyDestinations(from: Point, stations: AroundStation[]): RouteDestination[] {
+  const { toLocal } = projection(snapOrigin(from.lat, from.lon));
+  return stations
+    .map((s) => ({ name: s.name, lat: s.lat, lon: s.lon, d: distanceM(from.lat, from.lon, s.lat, s.lon) }))
+    .filter((s) => s.d >= MIN_TRIP_M && s.d <= REACH_M && insideGeometryBounds(...toLocal(s.lat, s.lon)))
+    .sort((a, b) => a.d - b.d)
+    // TfL lists one stop per mode, e.g. Bond Street (Underground) and Bond Street (Elizabeth line).
+    .filter((s, i, all) => all.findIndex((o) => o.name === s.name) === i)
+    .slice(0, MAX_DESTINATIONS)
+    .map(({ name, lat, lon }) => ({ name, lat, lon }));
+}
+
+/** Destination chips in the info drawer; draws the fastest (grey dashed) and calmer (ember) routes from the streamer. */
+export function RoutePicker({ mapRef, ready, from, stations, fitPadding }: RoutePickerProps) {
+  const destinations = useMemo(() => nearbyDestinations(from, stations), [from, stations]);
+  const [picked, setPicked] = useState<RouteDestination | null>(null);
+  const to = picked && distanceM(from.lat, from.lon, picked.lat, picked.lon) <= DROP_M ? picked : null;
+  const [fetched, setRoute] = useState<RouteResponse | null>(null);
+  const route = to ? fetched : null;
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  function pick(name: string) {
-    setTo((cur) => (cur === name ? null : name));
+  function pick(d: RouteDestination) {
+    setPicked((cur) => (cur?.name === d.name ? null : d));
     setRoute(null);
     setError(null);
     setLoading(true);
@@ -30,7 +59,8 @@ export function RoutePicker({ mapRef, ready, from }: RoutePickerProps) {
   useEffect(() => {
     if (!to) return;
     const ctrl = new AbortController();
-    fetch(`/api/route?from=${from.lat},${from.lon}&to=${encodeURIComponent(to)}&mode=calm`, { signal: ctrl.signal })
+    const q = `from=${from.lat},${from.lon}&to=${to.lat},${to.lon}&toName=${encodeURIComponent(to.name)}&mode=calm`;
+    fetch(`/api/route?${q}`, { signal: ctrl.signal })
       .then(async (r) => {
         const data = (await r.json()) as RouteResponse | { error: string };
         if (ctrl.signal.aborted) return;
@@ -73,9 +103,11 @@ export function RoutePicker({ mapRef, ready, from }: RoutePickerProps) {
           [Math.min(...lons), Math.min(...lats)],
           [Math.max(...lons), Math.max(...lats)],
         ],
-        { padding: 60, duration: 900, maxZoom: 17 },
+        { padding: fitPadding(), duration: 900, maxZoom: 17 },
       );
     }
+    // Why: fit once per new route, not again when the panel resizes the padding.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapRef, ready, route]);
 
   return (
@@ -85,13 +117,17 @@ export function RoutePicker({ mapRef, ready, from }: RoutePickerProps) {
           <Route className="size-4 text-candy-orange" aria-hidden />
           Walk to
         </span>
-        {DESTINATIONS.map((d) => {
-          const active = to === d.name;
+        {destinations.length === 0 && !to && (
+          <span className="text-[12px] font-semibold text-white/45">No stations within {REACH_M} m yet</span>
+        )}
+        {(to && !destinations.some((d) => d.name === to.name) ? [to, ...destinations] : destinations).map((d) => {
+          const active = to?.name === d.name;
           return (
             <button
               key={d.name}
               type="button"
-              onClick={() => pick(d.name)}
+              data-route-dest
+              onClick={() => pick(d)}
               aria-pressed={active}
               className={`pill pill-sm ${active ? "pill-candy" : ""}`}
             >
@@ -101,7 +137,7 @@ export function RoutePicker({ mapRef, ready, from }: RoutePickerProps) {
         })}
       </div>
       {to && loading && !route && <p className="text-[13px] font-semibold text-white/60">Planning on live crowd density…</p>}
-      {error && <p className="text-[13px] font-semibold text-warn">{error}</p>}
+      {to && error && <p className="text-[13px] font-semibold text-warn">{error}</p>}
       {route && (
         <div className="flex flex-col gap-2 rounded-[22px] bg-white/[0.06] px-3.5 py-3 text-[13px] font-semibold shadow-[inset_0_2px_3px_rgb(255_255_255/0.1)]">
           <p className="flex items-center gap-2.5 text-white/60">

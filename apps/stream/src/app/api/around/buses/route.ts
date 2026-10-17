@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { cached, TTL } from "@/lib/server/cache";
 import { cacheShort, json } from "@/lib/server/json";
+import { tfl } from "@/lib/server/tfl";
 import { distanceM, parsePoint } from "@/platform/around/geo";
 import type { AroundBusStop } from "@/platform/around/types";
 
@@ -23,12 +24,6 @@ const MAX_STOPS = 6;
 const ARRIVALS_TTL_MS = 25_000;
 // Stop search takes 7–14s on TfL and stops never move, so the list lives on disk for days.
 const STOPS_TTL_MS = 3 * TTL.day;
-
-async function tfl<T>(path: string, timeoutMs = 8000): Promise<T> {
-  const res = await fetch(`https://api.tfl.gov.uk${path}`, { signal: AbortSignal.timeout(timeoutMs) });
-  if (!res.ok) throw new Error(`TfL ${path} failed: HTTP ${res.status}`);
-  return (await res.json()) as T;
-}
 
 export async function GET(request: NextRequest) {
   const point = parsePoint(request.nextUrl.searchParams, 400);
@@ -57,10 +52,14 @@ async function loadStops(point: { lat: number; lon: number; radius: number }, ke
     .map((s) => ({ s, d: distanceM(point.lat, point.lon, s.lat, s.lon) }))
     .sort((a, b) => a.d - b.d)
     .slice(0, MAX_STOPS);
-  const at = Date.now();
   const stops: AroundBusStop[] = await Promise.all(
     nearest.map(async ({ s, d }) => {
-      const arrivals = await tfl<TflArrival[]>(`/StopPoint/${s.naptanId}/Arrivals`).catch(() => []);
+      // `at` travels with the arrivals so a stale copy served after a 429 still counts down from when TfL said it.
+      const { at, arrivals } = await cached(
+        `tfl-stop-arrivals-${s.naptanId}`,
+        { ttlMs: ARRIVALS_TTL_MS, persist: false },
+        async () => ({ at: Date.now(), arrivals: await tfl<TflArrival[]>(`/StopPoint/${s.naptanId}/Arrivals`) }),
+      ).catch(() => ({ at: Date.now(), arrivals: [] as TflArrival[] }));
       return {
         id: s.naptanId,
         name: s.commonName,

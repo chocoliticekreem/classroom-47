@@ -21,9 +21,17 @@ function parseLatLon(s: string | null): { lat: number; lon: number } | null {
   return Number.isFinite(lat) && Number.isFinite(lon) && !(lat === 0 && lon === 0) ? { lat, lon } : null;
 }
 
-function resolveTo(raw: string | null, anchors: FieldResponse["anchors"], { toLocal, toLatLon }: Projection) {
+function resolveTo(
+  raw: string | null,
+  label: string | null,
+  anchors: FieldResponse["anchors"],
+  { toLocal, toLatLon }: Projection,
+) {
   const point = parseLatLon(raw);
-  if (point) return { name: `${point.lat.toFixed(4)}, ${point.lon.toFixed(4)}`, ...point, xz: toLocal(point.lat, point.lon) };
+  if (point) {
+    const name = label?.trim().slice(0, 80) || `${point.lat.toFixed(4)}, ${point.lon.toFixed(4)}`;
+    return { name, ...point, xz: toLocal(point.lat, point.lon) };
+  }
   const q = (raw ?? "").trim().toLowerCase();
   if (!q) return null;
   const known = DESTINATIONS.find((d) => d.name.toLowerCase() === q || d.name.toLowerCase().startsWith(q));
@@ -47,7 +55,7 @@ export async function GET(request: NextRequest) {
     getJson<{ items: AroundDisruption[] }>(`${origin}/api/around/disruptions?${q}&radius=900`, { items: [] }),
   ]);
   if (!field) return Response.json({ error: "Crowd field unavailable" }, { status: 502 });
-  const to = resolveTo(params.get("to"), field.anchors, project);
+  const to = resolveTo(params.get("to"), params.get("toName"), field.anchors, project);
   if (!to) return Response.json({ error: "to must be a known place or lat,lon" }, { status: 400 });
   const closedLines = (disruptions.items ?? [])
     .filter((d) => /closed/i.test(d.closure))

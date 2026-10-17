@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useRef, type RefObject } from "react";
 import type { Map as MapLibreMap, Marker } from "maplibre-gl";
 import type { AroundBusStop, AroundCam, AroundLiveCam, AroundStation, CamReading } from "@/platform/around/types";
 import { busStopHtml, camPinClass, camPinHtml, liveCamPinHtml, stationPinHtml } from "./markers";
@@ -14,132 +14,153 @@ interface Refs {
   ready: boolean;
 }
 
+interface Placed {
+  marker: Marker;
+  /** The pin itself; the marker's own element carries MapLibre's positioning classes and must keep them. */
+  pin: HTMLButtonElement;
+  lat: number;
+  lon: number;
+  className: string;
+  html: string;
+}
+
+interface Item {
+  id: string;
+  lat: number;
+  lon: number;
+}
+
+const PIN_CLASS = "cursor-pointer transition-transform hover:scale-110";
+
+/**
+ * One DOM marker per item, keyed by id. Markers are created once and patched in place: a poll that
+ * returns the same items, a new YOLO count or a selection change only rewrites the pins that changed.
+ */
+function useKeyedMarkers<T extends Item>(
+  { mapRef, libRef, ready }: Refs,
+  kind: string,
+  items: T[],
+  render: (item: T) => { className: string; html: string },
+  onSelect: (id: string) => void,
+  visible: boolean,
+) {
+  const placedRef = useRef<Map<string, Placed>>(new Map());
+  const onSelectRef = useRef(onSelect);
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
+
+  useEffect(() => {
+    const placed = placedRef.current;
+    return () => {
+      placed.forEach((p) => p.marker.remove());
+      placed.clear();
+    };
+  }, [ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const lib = libRef.current;
+    if (!ready || !map || !lib) return;
+    const placed = placedRef.current;
+    const seen = new Set<string>();
+    for (const item of items) {
+      seen.add(item.id);
+      const { className, html } = render(item);
+      let p = placed.get(item.id);
+      if (!p) {
+        const pin = document.createElement("button");
+        pin.type = "button";
+        pin.dataset.kind = kind;
+        const id = item.id;
+        pin.addEventListener("click", (e) => {
+          e.stopPropagation();
+          onSelectRef.current(id);
+        });
+        const el = document.createElement("div");
+        el.append(pin);
+        const marker = new lib.Marker({ element: el }).setLngLat([item.lon, item.lat]).addTo(map);
+        p = { marker, pin, lat: item.lat, lon: item.lon, className: "", html: "" };
+        placed.set(id, p);
+      } else if (p.lat !== item.lat || p.lon !== item.lon) {
+        p.marker.setLngLat([item.lon, item.lat]);
+        p.lat = item.lat;
+        p.lon = item.lon;
+      }
+      if (p.className !== className) p.pin.className = p.className = className;
+      if (p.html !== html) p.pin.innerHTML = p.html = html;
+    }
+    for (const [id, p] of placed) {
+      if (seen.has(id)) continue;
+      p.marker.remove();
+      placed.delete(id);
+    }
+  }, [mapRef, libRef, ready, kind, items, render]);
+
+  useEffect(() => {
+    for (const p of placedRef.current.values()) p.marker.getElement().style.display = visible ? "" : "none";
+  }, [visible, items, ready]);
+}
+
 interface CamMarkerInput {
   cams: AroundCam[];
   readings: Map<string, CamReading>;
   activeCamId: string | null;
   selectedCamId: string | null;
   onSelect: (id: string) => void;
+  visible: boolean;
 }
 
-/** One DOM marker per camera; rebuilt when cams, counts or selection change. */
-export function useCamMarkers({ mapRef, libRef, ready }: Refs, input: CamMarkerInput) {
-  const markersRef = useRef<Map<string, Marker>>(new Map());
-  const { cams, readings, activeCamId, selectedCamId, onSelect } = input;
-
-  useEffect(() => {
-    const map = mapRef.current;
-    const lib = libRef.current;
-    if (!ready || !map || !lib) return;
-    const markers = markersRef.current;
-    for (const cam of cams) {
+export function useCamMarkers(refs: Refs, input: CamMarkerInput) {
+  const { cams, readings, activeCamId, selectedCamId, onSelect, visible } = input;
+  const render = useCallback(
+    (cam: AroundCam) => {
       const active = cam.id === activeCamId;
-      const el = document.createElement("button");
-      el.type = "button";
-      el.className = camPinClass(active, selectedCamId === cam.id);
-      el.innerHTML = camPinHtml(cam, active, readings.get(cam.id));
-      el.addEventListener("click", (e) => {
-        e.stopPropagation();
-        onSelect(cam.id);
-      });
-      markers.set(cam.id, new lib.Marker({ element: el }).setLngLat([cam.lon, cam.lat]).addTo(map));
-    }
-    return () => {
-      markers.forEach((m) => m.remove());
-      markers.clear();
-    };
-  }, [mapRef, libRef, ready, cams, readings, activeCamId, selectedCamId, onSelect]);
+      return { className: camPinClass(active, selectedCamId === cam.id), html: camPinHtml(cam, active, readings.get(cam.id)) };
+    },
+    [readings, activeCamId, selectedCamId],
+  );
+  useKeyedMarkers(refs, "cam", cams, render, onSelect, visible);
 }
 
-interface PinMarkerInput<T extends { id: string; lat: number; lon: number }> {
+interface PinMarkerInput<T extends Item> {
   items: T[];
   selectedId: string | null;
-  html: (item: T, selected: boolean) => string;
   onSelect: (id: string) => void;
+  visible: boolean;
 }
 
-/** One clickable DOM marker per item; rebuilt when the items or selection change. */
-function usePinMarkers<T extends { id: string; lat: number; lon: number }>(
-  { mapRef, libRef, ready }: Refs,
-  { items, selectedId, html, onSelect }: PinMarkerInput<T>,
-) {
-  const markersRef = useRef<Map<string, Marker>>(new Map());
-  useEffect(() => {
-    const map = mapRef.current;
-    const lib = libRef.current;
-    if (!ready || !map || !lib) return;
-    const markers = markersRef.current;
-    for (const item of items) {
-      const el = document.createElement("button");
-      el.type = "button";
-      el.className = "cursor-pointer transition-transform hover:scale-110";
-      el.innerHTML = html(item, selectedId === item.id);
-      el.addEventListener("click", (e) => {
-        e.stopPropagation();
-        onSelect(item.id);
-      });
-      markers.set(item.id, new lib.Marker({ element: el }).setLngLat([item.lon, item.lat]).addTo(map));
-    }
-    return () => {
-      markers.forEach((m) => m.remove());
-      markers.clear();
-    };
-  }, [mapRef, libRef, ready, items, selectedId, html, onSelect]);
+export function useStationMarkers(refs: Refs, { items, selectedId, onSelect, visible }: PinMarkerInput<AroundStation>) {
+  const render = useCallback(
+    (s: AroundStation) => ({ className: PIN_CLASS, html: stationPinHtml(s, selectedId === s.id) }),
+    [selectedId],
+  );
+  useKeyedMarkers(refs, "station", items, render, onSelect, visible);
 }
 
-export function useStationMarkers(refs: Refs, input: Omit<PinMarkerInput<AroundStation>, "html">) {
-  usePinMarkers(refs, { ...input, html: stationPinHtml });
+export function useLiveCamMarkers(refs: Refs, { items, selectedId, onSelect, visible }: PinMarkerInput<AroundLiveCam>) {
+  const render = useCallback(
+    (c: AroundLiveCam) => ({ className: PIN_CLASS, html: liveCamPinHtml(c, selectedId === c.id) }),
+    [selectedId],
+  );
+  useKeyedMarkers(refs, "livecam", items, render, onSelect, visible);
 }
 
-export function useLiveCamMarkers(refs: Refs, input: Omit<PinMarkerInput<AroundLiveCam>, "html">) {
-  usePinMarkers(refs, { ...input, html: liveCamPinHtml });
-}
-
-interface StopMarkerInput {
-  stops: AroundBusStop[];
-  fetchedAt: number | null;
+interface StopMarkerInput extends PinMarkerInput<AroundBusStop> {
   now: number;
-  selectedStopId: string | null;
-  onSelect: (id: string) => void;
 }
 
-/** Bus-stop flags; the countdown label is updated in place each tick instead of rebuilding. */
-export function useStopMarkers({ mapRef, libRef, ready }: Refs, input: StopMarkerInput) {
-  const markersRef = useRef<Map<string, Marker>>(new Map());
-  const { stops, fetchedAt, now, selectedStopId, onSelect } = input;
-
-  useEffect(() => {
-    const map = mapRef.current;
-    const lib = libRef.current;
-    if (!ready || !map || !lib) return;
-    const markers = markersRef.current;
-    for (const stop of stops) {
-      const el = document.createElement("button");
-      el.type = "button";
-      el.className = "cursor-pointer transition-transform hover:scale-110";
-      el.addEventListener("click", (e) => {
-        e.stopPropagation();
-        onSelect(stop.id);
-      });
-      markers.set(stop.id, new lib.Marker({ element: el }).setLngLat([stop.lon, stop.lat]).addTo(map));
-    }
-    return () => {
-      markers.forEach((m) => m.remove());
-      markers.clear();
-    };
-  }, [mapRef, libRef, ready, stops, onSelect]);
-
-  useEffect(() => {
-    for (const stop of stops) {
-      const el = markersRef.current.get(stop.id)?.getElement();
-      if (!el) continue;
-      const next = fetchedAt
-        ? stop.arrivals
-            .map((a) => liveSeconds(a.seconds, fetchedAt, now))
-            .filter((s) => s > -60)
-            .sort((a, b) => a - b)[0]
-        : undefined;
-      el.innerHTML = busStopHtml(stop, next ?? null, selectedStopId === stop.id);
-    }
-  }, [stops, fetchedAt, now, selectedStopId]);
+/** Bus-stop flags; the countdown counts down from when TfL reported it (`stop.at`). */
+export function useStopMarkers(refs: Refs, { items, selectedId, onSelect, visible, now }: StopMarkerInput) {
+  const render = useCallback(
+    (stop: AroundBusStop) => {
+      const next = stop.arrivals
+        .map((a) => liveSeconds(a.seconds, stop.at, now))
+        .filter((s) => s > -60)
+        .sort((a, b) => a - b)[0];
+      return { className: PIN_CLASS, html: busStopHtml(stop, next ?? null, selectedId === stop.id) };
+    },
+    [selectedId, now],
+  );
+  useKeyedMarkers(refs, "bus", items, render, onSelect, visible);
 }

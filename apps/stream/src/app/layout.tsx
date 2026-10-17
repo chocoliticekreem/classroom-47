@@ -8,7 +8,7 @@ const figtree = Figtree({
 });
 
 export const metadata: Metadata = {
-  title: "Classroom 47",
+  title: "Mirrorverse",
   description: "IRL streaming with eyes on the city around you.",
 };
 

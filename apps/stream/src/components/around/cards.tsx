@@ -10,7 +10,12 @@ import type {
   AroundStation,
   CamReading,
 } from "@/platform/around/types";
+import { useLondonTime } from "@/components/LiveClock";
 import { crowdLevel, formatCountdown, stationCrowd } from "./markers";
+
+function ClipTime() {
+  return <span className="tabular-nums">{useLondonTime(false)}</span>;
+}
 
 export function formatDistance(m: number) {
   return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
@@ -70,7 +75,7 @@ export function CamCard({ cam, reading, isYourFeed, onClose }: CamCardProps) {
         )}
         <span className="live-badge absolute left-2 top-2">
           <span className="animate-live size-1.5 rounded-full bg-white" />
-          {showAi ? "AI view" : "Live"}
+          {showAi ? "AI view" : "Live"} · <ClipTime />
         </span>
         <div className="absolute right-2 top-2">
           <CloseButton label="Close camera" onClick={onClose} />
@@ -144,7 +149,7 @@ export function BusStopCard({ stop, now, fetchedAt, onClose }: BusStopCardProps)
     .filter((a) => a.seconds > -60)
     .slice(0, 5);
   return (
-    <article className={`${PANEL} absolute bottom-3 right-3 w-[min(300px,calc(100%-24px))]`}>
+    <article className={`${PANEL} w-full`}>
       <div className="flex items-start gap-2.5 px-3 py-2.5">
         <span className="grid size-6 shrink-0 place-items-center rounded-[6px] bg-[#e0352b] text-[10px] font-bold text-white">
           {stop.indicator.replace(/[^A-Za-z0-9]/g, "").slice(0, 2) || <Bus className="size-3.5" />}
@@ -263,7 +268,7 @@ export function DisruptionCard({ item, pinned, onClose }: DisruptionCardProps) {
   const serious = item.severity === "Serious" || item.severity === "Severe";
   return (
     <div
-      className={`${PANEL} absolute bottom-3 left-3 flex w-[min(360px,calc(100%-24px))] items-start gap-2.5 px-4 py-3 ${
+      className={`${PANEL} flex w-full items-start gap-2.5 px-4 py-3 ${
         pinned ? "pointer-events-auto" : "pointer-events-none"
       }`}
     >

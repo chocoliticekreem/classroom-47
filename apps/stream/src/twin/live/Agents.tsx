@@ -8,13 +8,18 @@ import { ATMOS } from "../scene/palette";
 import { BUS_L, getBusKit } from "./bus/busKit";
 import { personBody, personHead, personMaterial, SKIN } from "./models/people";
 import { bikeBody, CAR_LENGTH, carBody, lampMaterial, lamps, paintMaterial, VAN_LENGTH, vanBody } from "./models/vehicles";
-import { camFrame, projectInto, sampleInto, usePoseVersion, type CamFrame } from "./project";
+import { camFrame, currentPose, projectInto, sampleInto, setPoseOverride, usePoseVersion, type CamFrame } from "./project";
+import { fitPose, useAutofit } from "../compare/autofit";
 import { syncClock, useCompare } from "../compare/store";
+import { buildingIndexOf, inBuilding, type BuildingIndex } from "../network/buildings";
 import { PAVEMENT_Y, ROAD_Y } from "../network/layout";
+import { useCameraStore } from "../scene/cameraStore";
+import { useGeometryLoader } from "../scene/useGeometry";
 import { asphaltMargin, SNAP_STATS, useSnapIndex, type SnapIndex } from "../network/snap";
 import { DIMS, MODEL_OF, MotionSim, State, type Entity, type Model } from "./motion";
 import { beginFrame, endFrame, recordPose } from "./motionStats";
 import { buildReplay, sampleTraj, trajEnded, type ReplayInput, type ReplaySet, type Traj } from "./sim/replay";
+import { isVirtualCam } from "@/lib/vcams";
 import { useLive } from "./store";
 
 const MAX_PEOPLE = 400;
@@ -313,7 +318,8 @@ function drawReplayed(scene: Scene, tr: SyncTrack, rep: Traj, syncT: number) {
   }
 }
 
-function drawSynced(scene: Scene, tracks: SyncTrack[], syncT: number, now: number, replay: ReplaySet | null) {
+/** Compared figures that land inside a building footprint (pose error, or no lane to replay on) are not drawn. */
+function drawSynced(scene: Scene, tracks: SyncTrack[], syncT: number, now: number, replay: ReplaySet | null, blds: BuildingIndex | null) {
   for (let i = 0; i < tracks.length; i++) {
     const tr = tracks[i];
     const rep = tr.kind === "person" ? undefined : replay?.byKey.get(tr.key);
@@ -342,6 +348,7 @@ function drawSynced(scene: Scene, tracks: SyncTrack[], syncT: number, now: numbe
     const isPerson = tr.kind === "person";
     let cx = _xz[0];
     let cz = _xz[1];
+    if (blds && inBuilding(blds, cx, cz)) continue;
     if (isPerson) {
       if (!placePerson(scene, cx, cz, yaw, fade, speed, tr.seed, now, tr.color, tr.skin)) continue;
     } else {
@@ -354,6 +361,7 @@ function drawSynced(scene: Scene, tracks: SyncTrack[], syncT: number, now: numbe
       const push = 0.5 * (along * l + Math.sqrt(1 - Math.min(1, along * along)) * w);
       cx += (rx / rl) * push;
       cz += (rz / rl) * push;
+      if (blds && inBuilding(blds, cx, cz)) continue;
       if (!placeVehicle(scene, tr.model, tr.cls, cx, cz, yaw, fade, tr.color)) continue;
     }
     let px = cx;
@@ -398,6 +406,8 @@ export function Agents() {
   const clips = useLive((s) => s.clips);
   const poseVersion = usePoseVersion((s) => s.v);
   const snap = useSnapIndex();
+  const geometry = useGeometryLoader();
+  const blds = useMemo(() => (geometry.status === "ready" ? buildingIndexOf(geometry.data) : null), [geometry]);
 
   const sim = useMemo(() => new MotionSim(), []);
   const compareCamId = useCompare((s) => s.camId);
@@ -409,6 +419,23 @@ export function Agents() {
   useEffect(() => {
     if (poseVersion > 0) sim.reframe(cams);
   }, [sim, cams, poseVersion]);
+
+  // Fit the compared camera's pose to the roads once per camera, so its cars land on lanes and the twin lines up with the video.
+  const clipAt = compareCamId ? clips[compareCamId]?.at : undefined;
+  useEffect(() => {
+    if (!compareCamId || !snap || !blds || clipAt === undefined) return;
+    const cam = cams.find((c) => c.id === compareCamId);
+    const clip = clips[compareCamId];
+    // Street-level virtual cams look at the horizon, where a degree of tilt moves a car tens of metres: keep their model pose.
+    if (!cam || !clip || isVirtualCam(cam.id) || useAutofit.getState().byCam[cam.id]) return;
+    const fit = fitPose(cam, clip, snap, blds, currentPose(cam));
+    if (!fit) return;
+    useAutofit.setState((s) => ({ byCam: { ...s.byCam, [cam.id]: fit } }));
+    setPoseOverride(cam.id, fit.pose);
+    useCameraStore.getState().setCctv(camFrame(cam), true);
+    // cams/clips are read at fit time; the fit is keyed on the camera and its clip arriving.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compareCamId, clipAt, snap, blds]);
 
   // The compared camera is drawn straight from its clip on the video's clock, so it is memoised here, not simulated.
   const synced = useMemo<SyncTrack[]>(() => {
@@ -540,7 +567,8 @@ export function Agents() {
     }
     const sc = scene.current;
     const video = syncClock.video;
-    const syncT = video && video.readyState >= 2 ? video.currentTime : -1;
+    const ended = video && video.ended && syncClock.endedAt !== null;
+    const syncT = !video || video.readyState < 2 ? -1 : ended ? video.duration + (performance.now() - syncClock.endedAt!) / 1000 : video.currentTime;
     const night = ATMOS.windowGlow;
     rig.lights.color.setScalar(0.3 + 0.7 * night);
     GLOW.value = 0.1 + 0.35 * night;
@@ -551,7 +579,7 @@ export function Agents() {
     _frustum.setFromProjectionMatrix(_pv);
     sim.step(performance.now() / 1000, Math.min(dt, 0.1), snap, (e) => inView(e.x, e.z, e.length, e.frame.x, e.frame.z));
     drawEntities(sc, sim.ents, performance.now() / 1000, syncClock.camId);
-    if (syncT >= 0) drawSynced(sc, synced, syncT, clock.elapsedTime, replay);
+    if (syncT >= 0) drawSynced(sc, synced, syncT, clock.elapsedTime, replay, blds);
     if (SNAP_STATS && snap) auditVehicles(snap, sim.retired, syncT);
     endFrame();
     flush(sc);

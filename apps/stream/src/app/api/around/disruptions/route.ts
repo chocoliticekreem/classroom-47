@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { cached, TTL } from "@/lib/server/cache";
 import { cacheShort, json } from "@/lib/server/json";
+import { tfl } from "@/lib/server/tfl";
 import { distanceM, parsePoint } from "@/platform/around/geo";
 import type { AroundDisruption } from "@/platform/around/types";
 
@@ -23,10 +24,10 @@ const allSegments = () => cached("tfl-disruptions", { ttlMs: TTL_MS, maxStaleMs:
 async function fetchSegments(): Promise<TflSegment[]> {
   const day = (d: Date) => d.toISOString().slice(0, 10);
   const now = new Date();
-  const url = `https://api.tfl.gov.uk/Road/all/Street/Disruption?startDate=${day(now)}&endDate=${day(new Date(now.getTime() + 86_400_000))}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`TfL street disruptions failed: HTTP ${res.status}`);
-  return (await res.json()) as TflSegment[];
+  return tfl<TflSegment[]>(
+    `/Road/all/Street/Disruption?startDate=${day(now)}&endDate=${day(new Date(now.getTime() + 86_400_000))}`,
+    20_000,
+  );
 }
 
 function parseLine(s: string): [number, number][] {

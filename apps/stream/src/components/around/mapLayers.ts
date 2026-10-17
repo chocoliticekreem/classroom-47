@@ -3,7 +3,12 @@ import type { AroundDisruption } from "@/platform/around/types";
 
 export const STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
 export const WALK_RADIUS_M = 500;
-export const ZOOM = 17;
+// Shows ~1 km across on a laptop, so the nearest cams and stations are on screen before the fit to them runs.
+export const ZOOM = 15.5;
+/** Fitting to nearby markers never zooms past this, so a lone cam next to the streamer keeps its streets in view. */
+export const FIT_MAX_ZOOM = 16.5;
+/** Below this street names vanish; a phone that cannot fit every nearby marker shows the closest ones instead. */
+export const FIT_MIN_ZOOM = 14.5;
 export const PITCH = 0;
 
 export interface Point {
@@ -60,6 +65,12 @@ export function lineFeature(polyline: [number, number][]): GeoJSON.FeatureCollec
 export function setData(map: MapLibreMap, sourceId: string, data: GeoJSON.GeoJSON) {
   const src = map.getSource(sourceId);
   if (src && "setData" in src) (src as { setData: (d: GeoJSON.GeoJSON) => void }).setData(data);
+}
+
+export function setLayersVisible(map: MapLibreMap, layerIds: string[], visible: boolean) {
+  for (const id of layerIds) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visible ? "visible" : "none");
+  }
 }
 
 /** The OpenFreeMap dark style is near-black; lift roads, buildings and labels so streets read. */

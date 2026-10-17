@@ -14,6 +14,8 @@ const WALK_MPS = 1.35;
 const HOT_PEDS = 6;
 const HOT_LABEL_M = 140;
 const NODE_SNAP_MAX_M = 120;
+/** OSM leaves islands (platforms, private yards, station concourses); a start on one this small is moved to the street network. */
+const MIN_COMPONENT_NODES = 30;
 
 interface Edge {
   to: number;
@@ -70,10 +72,36 @@ export function buildGraph(segments: FieldSegment[], closedLines: [number, numbe
   return { nodes, adj };
 }
 
-export function nearestNode(g: Graph, p: [number, number]) {
+/** Connected-component id per node, plus the size of each component. */
+function components(g: Graph) {
+  const id = new Int32Array(g.nodes.length).fill(-1);
+  const sizes: number[] = [];
+  for (let start = 0; start < g.nodes.length; start++) {
+    if (id[start] >= 0) continue;
+    const c = sizes.length;
+    let size = 0;
+    const stack = [start];
+    id[start] = c;
+    while (stack.length) {
+      const u = stack.pop()!;
+      size++;
+      for (const e of g.adj[u]) {
+        if (id[e.to] < 0) {
+          id[e.to] = c;
+          stack.push(e.to);
+        }
+      }
+    }
+    sizes.push(size);
+  }
+  return { id, sizes };
+}
+
+export function nearestNode(g: Graph, p: [number, number], accept: (node: number) => boolean = () => true) {
   let best = -1;
   let bestD = Infinity;
   for (let i = 0; i < g.nodes.length; i++) {
+    if (!accept(i)) continue;
     const d = Math.hypot(g.nodes[i][0] - p[0], g.nodes[i][1] - p[1]);
     if (d < bestD) {
       bestD = d;
@@ -207,8 +235,10 @@ export interface PlanInput {
 
 export function planRoutes(input: PlanInput): RouteResponse | { error: string } {
   const { graph } = input;
-  const a = nearestNode(graph, input.from.xz);
-  const b = nearestNode(graph, input.to.xz);
+  const comp = components(graph);
+  const a = nearestNode(graph, input.from.xz, (n) => comp.sizes[comp.id[n]] >= MIN_COMPONENT_NODES);
+  // Snap the destination onto the start's network: a station's TfL point often sits on an isolated platform or concourse.
+  const b = a < 0 ? -1 : nearestNode(graph, input.to.xz, (n) => comp.id[n] === comp.id[a]);
   if (a < 0) return { error: "Start is outside the twin's street graph (~650 m around the streamer)" };
   if (b < 0) return { error: "Destination is outside the twin's street graph (~650 m around the streamer)" };
   const fast = shortestPath(graph, a, b, "fast");
