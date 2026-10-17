@@ -10,6 +10,7 @@ import { DevPanel } from "@/components/DevPanel";
 import { TopBar } from "@/components/TopBar";
 import { FollowerCard } from "@/components/stream/FollowerCard";
 import { AdvisorCard } from "@/components/stream/AdvisorCard";
+import { ArchivePanel } from "@/components/stream/ArchivePanel";
 import { Player } from "@/components/stream/Player";
 import { StreamerBar } from "@/components/stream/StreamerBar";
 import { SurroundingsCard } from "@/components/stream/SurroundingsCard";
@@ -164,6 +165,7 @@ export function StreamShell() {
             />
             <FollowerCard />
             <AdvisorCard location={location} live={live} />
+            <ArchivePanel />
             <SurroundingsCard />
           </div>
           {tab === "around" && (
