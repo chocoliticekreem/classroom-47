@@ -86,7 +86,7 @@ The goal is something that **looks crazy** on stage and **never breaks** during 
 - Keep the README current: what it does, which sponsor tools and where, how to run it, demo GIF/video.
 - **Don't commit or push unless Sonion asks.**
 
-## Project: Classroom 47 (working name)
+## Project: Mirrorverse
 **One line:** situational awareness for IRL streamers in London, plus a parallel London where they rehearse a decision before they make it.
 **Tagline:** *Know what's around you. Rehearse the future before you cause it.*
 

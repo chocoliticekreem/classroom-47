@@ -1,10 +1,10 @@
-# Classroom 47: a video agent that keeps IRL streamers safe in London
+# Mirrorverse: a video agent that keeps IRL streamers safe in London
 
 > *Know what's around you. Rehearse the future before you cause it.*
 
 An IRL streamer broadcasts their location live to thousands of people. One message to chat can summon a
 crowd (Union Square 2023: 3,000–5,000 people, 65+ arrests; Oxford Street 2023: 34 dispersal orders).
-Classroom 47 watches the footage around the streamer, asks the video what is happening, and tells them
+Mirrorverse watches the footage around the streamer, asks the video what is happening, and tells them
 `calm | busy | danger`, with the clips that prove it and a safer spot to move to.
 
 Built on **17 October 2026** at the **VAST Builders Challenge: Real-Time Video Agents Hack, London**

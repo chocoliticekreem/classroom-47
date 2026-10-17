@@ -1,4 +1,4 @@
-# Classroom 47
+# Mirrorverse
 
 An IRL streaming platform that gives London streamers eyes on the city around them.
 It also links to a parallel 3D London, where they can simulate what happens before they tell chat where they are.

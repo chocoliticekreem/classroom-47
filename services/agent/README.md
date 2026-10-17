@@ -1,4 +1,4 @@
-# Classroom 47 agent (`/app`)
+# Mirrorverse agent (`/app`)
 
 The CAMP **A** layer: the agent runtime that runs on the team's VAST Kubernetes namespace and is
 reachable at Ingress path `/app`. It is the piece that turns the platform (**P**: VSS search over the

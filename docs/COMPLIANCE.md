@@ -1,6 +1,6 @@
 # Compliance with the official VAST Builders Challenge guide
 
-Audit of Classroom 47 against `vast-builders-challenge/` (the official guide, submodule at the repo root)
+Audit of Mirrorverse against `vast-builders-challenge/` (the official guide, submodule at the repo root)
 and the organisers' slides (`AGENTS.md`). Status verified **17 October 2026, 12:50 BST** by reading the
 code and running read-only checks against the team-47 cluster from the lab VM. Nothing here is claimed
 from intent.
