@@ -4,6 +4,9 @@ import { AdaptiveDpr, PerformanceMonitor, Stats } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { Suspense, useMemo, useState, type ReactNode } from "react";
 import * as THREE from "three";
+import { DevPanel } from "@/components/DevPanel";
+import { useConditions, useDemoSettings, type Conditions } from "@/platform/demo";
+import { ORIGIN } from "./config";
 import { LiveHud, LiveLayers } from "./live";
 import { ModuleBoundary } from "./ModuleBoundary";
 import { Buildings } from "./scene/Buildings";
@@ -19,6 +22,7 @@ import { Roads } from "./scene/Roads";
 import { Sky } from "./scene/Sky";
 import { GeometryContext, useGeometryLoader } from "./scene/useGeometry";
 import { Water } from "./scene/Water";
+import { Atmosphere, Rain } from "./scene/Weather";
 
 interface Toggles {
   only: Set<string> | null;
@@ -71,8 +75,36 @@ function PresetButtons() {
   );
 }
 
+const WEATHER_LABEL: Record<Conditions["weather"], string> = {
+  clear: "Clear",
+  cloudy: "Cloudy",
+  rain: "Rain",
+  fog: "Fog",
+  storm: "Storm",
+};
+const TIME_LABEL: Record<Conditions["time"], string> = { day: "Day", dusk: "Dusk", night: "Night" };
+
+function ConditionsChip({ conditions }: { conditions: Conditions }) {
+  const temp = conditions.live ? ` · ${Math.round(conditions.live.temperatureC)} °C` : "";
+  const text = `${WEATHER_LABEL[conditions.weather]}${temp} · ${TIME_LABEL[conditions.time]}`;
+  return (
+    <div
+      className={`absolute right-5 top-5 flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] font-medium backdrop-blur-md ${
+        conditions.isLive
+          ? "border-white/10 bg-black/50 text-white/85"
+          : "border-warn/40 bg-black/60 text-warn"
+      }`}
+    >
+      <span className={`size-1.5 rounded-full ${conditions.isLive ? "bg-ok" : "bg-warn"}`} />
+      {conditions.isLive ? `Live · ${text}` : `Demo override · ${text}`}
+    </div>
+  );
+}
+
 export function World() {
   const [toggles] = useState(readToggles);
+  const conditions = useConditions(ORIGIN);
+  const settings = useDemoSettings();
   const geometry = useGeometryLoader();
   const [dpr, setDpr] = useState(1.5);
   const camera = useMemo(
@@ -98,7 +130,11 @@ export function World() {
         {toggles.stats && <Stats />}
         <Probe />
         <Module name="Sky" toggles={toggles}>
+          <Atmosphere conditions={conditions} timeOverridden={settings.time !== null} />
           <Sky />
+        </Module>
+        <Module name="Weather" toggles={toggles}>
+          <Rain />
         </Module>
         <Module name="Lights" toggles={toggles}>
           <Lights />
@@ -154,8 +190,10 @@ export function World() {
             </div>
           </div>
         )}
+        <ConditionsChip conditions={conditions} />
         <PresetButtons />
         <LiveHud />
+        <DevPanel />
       </div>
     </div>
   );

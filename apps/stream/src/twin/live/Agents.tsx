@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { TrackedObject } from "@/platform/around/types";
 import { camFrame, projectInto, sampleInto, type CamFrame } from "./project";
+import { syncClock } from "../compare/store";
 import { useLive } from "./store";
 
 const MAX_PEOPLE = 400;
@@ -14,6 +15,7 @@ const TRAIL_STEP_S = 0.22;
 const FADE_S = 0.6;
 
 interface FlatTrack {
+  camId: string;
   frame: CamFrame;
   duration: number;
   kind: TrackedObject["kind"];
@@ -46,7 +48,7 @@ interface Scene {
   col: Float32Array;
 }
 
-function animate({ pm, bm, cm, tl, pos, col }: Scene, tracks: FlatTrack[], now: number) {
+function animate({ pm, bm, cm, tl, pos, col }: Scene, tracks: FlatTrack[], now: number, syncT: number) {
   let np = 0;
   let nv = 0;
   let seg = 0;
@@ -55,7 +57,8 @@ function animate({ pm, bm, cm, tl, pos, col }: Scene, tracks: FlatTrack[], now: 
     const tr = tracks[i];
     const isPerson = tr.kind === "person";
     if (isPerson ? np >= MAX_PEOPLE : nv >= MAX_VEHICLES) continue;
-    const t = (now + tr.seed * tr.duration) % tr.duration;
+    const synced = syncT >= 0 && tr.camId === syncClock.camId;
+    const t = synced ? syncT : (now + tr.seed * tr.duration) % tr.duration;
     if (!sampleInto(tr.pts, t, _uv)) continue;
     projectInto(tr.frame, _uv[0], _uv[1], _xz);
     const fade = Math.min(1, (t - tr.t0) / FADE_S, (tr.t1 - t) / FADE_S);
@@ -141,6 +144,7 @@ export function Agents() {
       for (const tr of clip.tracks) {
         if (tr.pts.length < 2) continue;
         out.push({
+          camId: cam.id,
           frame,
           duration: clip.duration,
           kind: tr.kind,
@@ -196,7 +200,9 @@ export function Agents() {
       if (!pm || !bm || !cm || !tl) return;
       scene.current = { pm, bm, cm, tl, pos: trailBuffers.pos, col: trailBuffers.col };
     }
-    animate(scene.current, tracks, clock.elapsedTime);
+    const video = syncClock.video;
+    const syncT = video && video.readyState >= 2 ? video.currentTime : -1;
+    animate(scene.current, tracks, clock.elapsedTime, syncT);
   });
 
   return (

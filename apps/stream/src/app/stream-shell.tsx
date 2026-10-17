@@ -5,6 +5,7 @@ import { ChevronDown, MessageSquare } from "lucide-react";
 import { useChatCrowd } from "@/agents/chat-crowd/useChatCrowd";
 import { AroundMe } from "@/components/around/AroundMe";
 import { ChatPanel } from "@/components/chat/ChatPanel";
+import { DevPanel } from "@/components/DevPanel";
 import { TopBar } from "@/components/TopBar";
 import { Player } from "@/components/stream/Player";
 import { StreamerBar } from "@/components/stream/StreamerBar";
@@ -121,6 +122,7 @@ export function StreamShell() {
   return (
     <div className="flex h-full flex-col">
       <TopBar live={live} />
+      <DevPanel />
       <div className="relative flex min-h-0 flex-1">
         <main className="scrollbar-thin flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-3 pb-20 sm:p-4 md:pb-4 lg:gap-5 lg:p-6">
           <ViewTabs tab={tab} onChange={setTab} />

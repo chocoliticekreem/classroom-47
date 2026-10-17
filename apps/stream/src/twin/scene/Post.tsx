@@ -8,15 +8,26 @@ import {
   ToneMapping,
   Vignette,
 } from "@react-three/postprocessing";
-import { ToneMappingMode } from "postprocessing";
+import { useFrame } from "@react-three/fiber";
+import { ToneMappingMode, type BloomEffect, type BrightnessContrastEffect } from "postprocessing";
+import { useRef } from "react";
+import { ATMOS } from "./palette";
 
 export function Post() {
+  const bloom = useRef<BloomEffect>(null);
+  const grade = useRef<BrightnessContrastEffect>(null);
+
+  useFrame(() => {
+    if (bloom.current) bloom.current.intensity = ATMOS.bloom;
+    if (grade.current) grade.current.brightness = ATMOS.brightness;
+  });
+
   return (
     <EffectComposer multisampling={0}>
-      <Bloom mipmapBlur intensity={1.1} luminanceThreshold={1} luminanceSmoothing={0.25} />
+      <Bloom ref={bloom} mipmapBlur intensity={1.1} luminanceThreshold={1} luminanceSmoothing={0.25} />
       <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
       <HueSaturation saturation={0.1} />
-      <BrightnessContrast contrast={0.1} brightness={0.035} />
+      <BrightnessContrast ref={grade} contrast={0.1} brightness={0.035} />
       <Vignette eskil={false} offset={0.2} darkness={0.5} />
     </EffectComposer>
   );

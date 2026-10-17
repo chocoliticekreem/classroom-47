@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 import type { AroundCam } from "@/platform/around/types";
 import { camFrame, viewConePoints } from "./project";
+import { useCompare } from "../compare/store";
 import { useLive } from "./store";
 
 const POLE_H = 7;
@@ -87,6 +88,8 @@ function Camera({ cam }: { cam: AroundCam }) {
   const clip = useLive((s) => s.clips[cam.id]);
   const { texture, mode } = useScreenTexture(cam);
   const frame = useMemo(() => camFrame(cam), [cam]);
+  const comparing = useCompare((s) => s.camId === cam.id);
+  const open = useCompare((s) => s.open);
 
   const cone = useMemo(() => {
     const pts = viewConePoints(frame);
@@ -146,7 +149,7 @@ function Camera({ cam }: { cam: AroundCam }) {
             <planeGeometry args={[SCREEN_W + 0.6, SCREEN_H + 0.6]} />
             <meshBasicMaterial color="#0c0c10" />
           </mesh>
-          <mesh>
+          <mesh onClick={(e) => (e.stopPropagation(), open(cam.id))}>
             <planeGeometry args={[SCREEN_W, SCREEN_H]} />
             {texture ? (
               <meshBasicMaterial key="live" map={texture} toneMapped={false} />
@@ -157,10 +160,14 @@ function Camera({ cam }: { cam: AroundCam }) {
         </Billboard>
         <Label position={[0, POLE_H + SCREEN_H + 3.2, 0]}>
           <div
+            role="button"
+            onClick={() => open(cam.id)}
             style={{
+              pointerEvents: "auto",
+              cursor: "pointer",
               fontFamily: "var(--font-figtree), system-ui, sans-serif",
               background: "rgba(12,12,16,0.78)",
-              border: "1px solid var(--border-strong)",
+              border: `1px solid ${comparing ? "var(--ember)" : "var(--border-strong)"}`,
               borderRadius: 10,
               padding: "6px 10px",
               color: "var(--text)",
@@ -193,6 +200,9 @@ function Camera({ cam }: { cam: AroundCam }) {
                 "analysing clip…"
               )}
               {mode === "frame" ? " · frame" : mode === "video" ? " · video" : ""}
+            </div>
+            <div style={{ color: comparing ? "var(--ember)" : "var(--dim)", fontSize: 11, marginTop: 2 }}>
+              {comparing ? "Comparing" : "Click to compare with real CCTV"}
             </div>
           </div>
         </Label>
