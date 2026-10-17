@@ -565,7 +565,8 @@ export function Agents() {
     }
     const sc = scene.current;
     const video = syncClock.video;
-    const syncT = video && video.readyState >= 2 ? video.currentTime : -1;
+    const ended = video && video.ended && syncClock.endedAt !== null;
+    const syncT = !video || video.readyState < 2 ? -1 : ended ? video.duration + (performance.now() - syncClock.endedAt!) / 1000 : video.currentTime;
     const night = ATMOS.windowGlow;
     rig.lights.color.setScalar(0.3 + 0.7 * night);
     GLOW.value = 0.1 + 0.35 * night;
