@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowUpRight, BadgeCheck, ChevronDown, Heart, MapPinned, Sparkles, Star } from "lucide-react";
+import { ArrowUpRight, BadgeCheck, ChevronDown, MapPinned, Sparkles } from "lucide-react";
 import { LOCATIONS } from "@/lib/locations";
 import type { StreamContext, StreamLocation } from "@/lib/types";
 
@@ -13,8 +13,6 @@ interface StreamerBarProps {
   onReveal: () => void;
   onSimulate: () => void;
 }
-
-const TAGS = ["IRL", "London", "Just Chatting"];
 
 function useSince(at: number | null) {
   const [now, setNow] = useState(() => Date.now());
@@ -36,14 +34,14 @@ export function StreamerBar({ ctx, positionSource = "demo", onLocationChange, on
   const pickerLabel = demo ? ctx.location.name : positionSource === "gps" ? "Phone GPS" : "Following phone";
 
   return (
-    <section className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-      <div className="flex min-w-0 flex-1 items-start gap-3.5">
+    <section className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
         <div className={`relative shrink-0 rounded-full p-[2px] ${ctx.live ? "bg-live" : "bg-line-strong"}`}>
           {/* eslint-disable-next-line @next/next/no-img-element -- remote SVG avatar, next/image adds nothing here */}
           <img
             src={`https://api.dicebear.com/9.x/notionists/svg?seed=${encodeURIComponent(ctx.streamer)}&backgroundColor=131318`}
             alt=""
-            className="size-12 rounded-full bg-surface-2 ring-2 ring-bg"
+            className="size-9 rounded-full bg-surface-2 ring-2 ring-bg"
           />
           {ctx.live && (
             <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-[3px] bg-live px-1 font-mono text-[8px] font-bold tracking-normal text-white ring-2 ring-bg">
@@ -53,7 +51,7 @@ export function StreamerBar({ ctx, positionSource = "demo", onLocationChange, on
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
-            <h1 className="truncate font-display text-[18px] font-semibold leading-tight tracking-[-0.02em]">
+            <h1 className="truncate font-display text-[15px] font-semibold leading-tight tracking-[-0.02em]">
               {ctx.streamer}
             </h1>
             <BadgeCheck className="size-4 shrink-0 text-ember" aria-label="Verified" />
@@ -61,17 +59,7 @@ export function StreamerBar({ ctx, positionSource = "demo", onLocationChange, on
               {ctx.live ? `${ctx.viewers.toLocaleString("en-GB")} watching` : "Offline"}
             </span>
           </div>
-          <p className="mt-0.5 truncate text-[14px] text-text/85">{ctx.title}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {TAGS.map((t) => (
-              <span
-                key={t}
-                className="rounded-[4px] border border-line px-1.5 py-0.5 font-mono text-[10px] tracking-normal text-muted"
-              >
-                {t}
-              </span>
-            ))}
-          </div>
+          <p className="truncate text-[13px] text-muted">{ctx.title}</p>
         </div>
       </div>
 
@@ -126,22 +114,6 @@ export function StreamerBar({ ctx, positionSource = "demo", onLocationChange, on
           )}
         </button>
 
-        <span className="mx-1 hidden h-6 w-px bg-line xl:block" />
-
-        <button
-          type="button"
-          className="flex h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-[13px] font-medium transition-colors hover:border-line-strong"
-        >
-          <Heart className="size-3.5" aria-hidden />
-          Follow
-        </button>
-        <button
-          type="button"
-          className="flex h-9 items-center gap-1.5 rounded-md bg-text px-3 text-[13px] font-semibold text-bg transition-opacity hover:opacity-90"
-        >
-          <Star className="size-3.5" aria-hidden />
-          Subscribe
-        </button>
       </div>
     </section>
   );
