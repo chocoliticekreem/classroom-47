@@ -25,7 +25,7 @@ export function Post() {
   });
 
   return (
-    <EffectComposer multisampling={4}>
+    <EffectComposer multisampling={0}>
       <Bloom ref={bloom} mipmapBlur intensity={1.1} luminanceThreshold={1} luminanceSmoothing={0.25} />
       <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
       <HueSaturation ref={saturation} saturation={0.1} />

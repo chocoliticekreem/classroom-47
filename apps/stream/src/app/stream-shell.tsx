@@ -13,6 +13,7 @@ import { AdvisorCard } from "@/components/stream/AdvisorCard";
 import { Player } from "@/components/stream/Player";
 import { StreamerBar } from "@/components/stream/StreamerBar";
 import { SurroundingsCard } from "@/components/stream/SurroundingsCard";
+import { prefetch } from "@/lib/client/cachedFetch";
 import { LOCATIONS } from "@/lib/locations";
 import type { StreamContext, StreamLocation, StreamSource } from "@/lib/types";
 import { useSurroundings } from "@/platform/around/useSurroundings";
@@ -51,6 +52,20 @@ export function StreamShell() {
   const link = useLiveLink({ live, viewers, demo: demoLocation });
   const location = link.location;
   useWakeLock(live);
+  useEffect(() => {
+    // The 3D tab is an iframe of /twin on this origin, so warming the Cache API here makes its first paint instant.
+    // The field is polled with no-store, so it is only fetched to get the server computing it early.
+    const warm = () => {
+      void prefetch("/api/twin/osm");
+      void fetch("/api/twin/field").catch(() => {});
+    };
+    if ("requestIdleCallback" in window) {
+      const id = window.requestIdleCallback(warm, { timeout: 5000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const t = setTimeout(warm, 2000);
+    return () => clearTimeout(t);
+  }, []);
 
   const ctx: StreamContext = {
     streamer: "sonion",

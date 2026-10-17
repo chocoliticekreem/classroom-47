@@ -6,8 +6,14 @@
 /** World origin: Tower Hill. Everything is placed relative to this point. */
 export const ORIGIN = { lat: 51.5098, lon: -0.0766 } as const;
 
-/** How far from the origin the twin loads real geometry, in metres. */
+/** Radius of the core mirrored area around Tower Hill, in metres (live feeds, fog and camera framing are tuned to it). */
 export const WORLD_RADIUS_M = 650;
+
+/** Rectangle of real OSM geometry loaded around the origin, in local metres. Reaches south-west past Bankside / Halkin. */
+export const GEOMETRY_BOUNDS = { xMin: -1100, xMax: 650, zMin: -650, zMax: 1100 } as const;
+
+export const insideGeometryBounds = (x: number, z: number) =>
+  x >= GEOMETRY_BOUNDS.xMin && x <= GEOMETRY_BOUNDS.xMax && z >= GEOMETRY_BOUNDS.zMin && z <= GEOMETRY_BOUNDS.zMax;
 
 const M_PER_DEG_LAT = 111_320;
 const M_PER_DEG_LON = M_PER_DEG_LAT * Math.cos((ORIGIN.lat * Math.PI) / 180);

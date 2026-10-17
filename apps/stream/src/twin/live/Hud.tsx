@@ -4,7 +4,7 @@ import { useDemoSettings } from "@/platform/demo";
 import { useCompare } from "../compare/store";
 import { useFieldStore } from "../sim/useField";
 import { distanceM } from "@/platform/around/geo";
-import { ORIGIN, WORLD_RADIUS_M } from "../config";
+import { insideGeometryBounds, ORIGIN, toLocal } from "../config";
 import { useScenario } from "./scenario";
 import { useTwinCounts } from "./sim/counts";
 import { useLive, useLiveFeeds, useNow } from "./store";
@@ -19,7 +19,7 @@ function StreamerStatus() {
   const speed = useLive((s) => s.streamerSpeed);
   const now = useNow();
   const away = distanceM(ORIGIN.lat, ORIGIN.lon, streamer.lat, streamer.lon);
-  const outside = away > WORLD_RADIUS_M;
+  const outside = !insideGeometryBounds(...toLocal(streamer.lat, streamer.lon));
   const age = ts ? `${Math.max(0, Math.round((now - ts) / 1000))} s ago` : "";
   const label =
     source === "phone"

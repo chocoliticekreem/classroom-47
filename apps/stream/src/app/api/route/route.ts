@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { cacheShort, json } from "@/lib/server/json";
 import type { AroundDisruption } from "@/platform/around/types";
 import { buildGraph, planRoutes } from "@/platform/route/plan";
 import { DESTINATIONS } from "@/platform/route/types";
@@ -60,6 +61,6 @@ export async function GET(request: NextRequest) {
   });
   if ("error" in result) return Response.json(result, { status: 400 });
   const mode = params.get("mode") === "fast" ? "fast" : "calm";
-  return Response.json({ ...result, mode });
+  return json({ ...result, mode }, request, cacheShort(10));
 }
 
