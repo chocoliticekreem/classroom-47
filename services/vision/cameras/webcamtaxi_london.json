@@ -1,0 +1,932 @@
+{
+ "updated": "2026-10-17",
+ "source": "https://www.webcamtaxi.com/en/england/london.html",
+ "cameras": [
+  {
+   "id": "00001.02500",
+   "name": "Victoria Embkmt/Temple Place",
+   "lat": 51.5107,
+   "lon": -0.11512,
+   "kind": "clip",
+   "status": "live",
+   "area": "West End",
+   "borough": "City of Westminster",
+   "road": "Victoria Embankment",
+   "view": "Zoom - Savoy Street jct",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.02500.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.02500.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.03506",
+   "name": "Tooley St/Boss St",
+   "lat": 51.502,
+   "lon": -0.07681,
+   "kind": "clip",
+   "status": "live",
+   "area": "Southwark & Bankside",
+   "borough": "Southwark",
+   "road": "Tooley Street",
+   "view": "EAST-Tooley St",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.03506.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.03506.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.03601",
+   "name": "Blackfriars Rd/Stamford St",
+   "lat": 51.5072,
+   "lon": -0.10443,
+   "kind": "clip",
+   "status": "live",
+   "area": "Southwark & Bankside",
+   "borough": "Southwark",
+   "road": "Southwark Street",
+   "view": "Zoom-Victoria Embankment jct",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.03601.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.03601.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.04223",
+   "name": "Waterloo Bridge south",
+   "lat": 51.5053,
+   "lon": -0.11402,
+   "kind": "clip",
+   "status": "live",
+   "area": "Westminster Bridge & Waterloo",
+   "borough": "Lambeth",
+   "road": "Waterloo Bridge",
+   "view": "Zoom - Kingsway Tunnel Ent.",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.04223.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.04223.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.04225",
+   "name": "York Road opp Mepham St",
+   "lat": 51.5043,
+   "lon": -0.11464,
+   "kind": "clip",
+   "status": "live",
+   "area": "Westminster Bridge & Waterloo",
+   "borough": "Lambeth",
+   "road": "York Road",
+   "view": "SOUTH-York Road",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.04225.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.04225.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.04227",
+   "name": "Westminster Bridge / South",
+   "lat": 51.5012,
+   "lon": -0.11583,
+   "kind": "clip",
+   "status": "live",
+   "area": "Westminster Bridge & Waterloo",
+   "borough": "Lambeth",
+   "road": "Addington Street",
+   "view": "WEST - Addington St",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.04227.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.04227.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.04476",
+   "name": "South Lambeth Rd/Parry St",
+   "lat": 51.4843,
+   "lon": -0.12288,
+   "kind": "clip",
+   "status": "live",
+   "area": "Vauxhall",
+   "borough": "Lambeth",
+   "road": "Langley Lane",
+   "view": "Zoom-Kennington Lane jct",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.04476.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.04476.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.04502",
+   "name": "Westminster Bridge/York Rd",
+   "lat": 51.5009,
+   "lon": -0.11762,
+   "kind": "clip",
+   "status": "live",
+   "area": "Westminster Bridge & Waterloo",
+   "borough": "Lambeth",
+   "road": "Westminster Bridge Road",
+   "view": "Zoom - Bridge Street jct Vic Emb",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.04502.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.04502.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.06501",
+   "name": "Parliament Square",
+   "lat": 51.5011,
+   "lon": -0.12628,
+   "kind": "clip",
+   "status": "live",
+   "area": "Westminster Bridge & Waterloo",
+   "borough": "City of Westminster",
+   "road": "Parliament Street",
+   "view": "St Margarets Street",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06501.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06501.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.06503",
+   "name": "Piccadilly/Whitehorse St",
+   "lat": 51.5054,
+   "lon": -0.14559,
+   "kind": "clip",
+   "status": "live",
+   "area": "Mayfair & Park Lane",
+   "borough": "City of Westminster",
+   "road": "Piccadilly",
+   "view": "EAST - A4 twds Piccadilly Circus",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06503.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06503.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.06504",
+   "name": "Piccadilly/Down St",
+   "lat": 51.5044,
+   "lon": -0.1472,
+   "kind": "clip",
+   "status": "live",
+   "area": "Mayfair & Park Lane",
+   "borough": "City of Westminster",
+   "road": "Piccadilly",
+   "view": "NE zoom - Hamilton Place and HPC",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06504.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06504.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.06509",
+   "name": "Grosvenor/Chapel St",
+   "lat": 51.5005,
+   "lon": -0.14971,
+   "kind": "clip",
+   "status": "live",
+   "area": "Belgravia & Victoria",
+   "borough": "City of Westminster",
+   "road": "Grosvenor Place",
+   "view": "NORTH-twds Hyde Park Corner",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06509.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06509.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.06514",
+   "name": "Grosvenor Pl/Hyde Pk Cnr",
+   "lat": 51.5018,
+   "lon": -0.15163,
+   "kind": "clip",
+   "status": "live",
+   "area": "Belgravia & Victoria",
+   "borough": "City of Westminster",
+   "road": "Grosvenor Place",
+   "view": "Zoom-Consitution Hill jct",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06514.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06514.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.06517",
+   "name": "Gnor Gdns/Buckingham Palace Rd",
+   "lat": 51.497,
+   "lon": -0.14555,
+   "kind": "clip",
+   "status": "live",
+   "area": "Belgravia & Victoria",
+   "borough": "City of Westminster",
+   "road": "Grosvenor Gardens",
+   "view": "SOUTH - twds Westminster",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06517.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06517.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.06519",
+   "name": "Buckingham Palace Rd/Eaton Lane",
+   "lat": 51.4972,
+   "lon": -0.14465,
+   "kind": "clip",
+   "status": "live",
+   "area": "Belgravia & Victoria",
+   "borough": "City of Westminster",
+   "road": "Buckingham Palace Road",
+   "view": "SOUTH - BPR twds Victoria station",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06519.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06519.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.06580",
+   "name": "Old Brompton Rd / Earls Court Rd",
+   "lat": 51.4896,
+   "lon": -0.19005,
+   "kind": "clip",
+   "status": "live",
+   "area": "Kensington",
+   "borough": "Kensington and Chelsea",
+   "road": "Old Brompton Road",
+   "view": "Zoom - Finborough Road jct",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06580.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06580.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.06590",
+   "name": "Strand/Lancaster Place",
+   "lat": 51.5114,
+   "lon": -0.11924,
+   "kind": "clip",
+   "status": "live",
+   "area": "West End",
+   "borough": "City of Westminster",
+   "road": "Strand",
+   "view": "Zoom - Strand Underpass entrance",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06590.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06590.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.06607",
+   "name": "A4 Cromwell Rd/Queens Gate",
+   "lat": 51.4954,
+   "lon": -0.17937,
+   "kind": "clip",
+   "status": "live",
+   "area": "Kensington",
+   "borough": "Kensington and Chelsea",
+   "road": "Cromwell Road",
+   "view": "EAST-A4 twds V&A",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06607.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.06607.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.07301",
+   "name": "St Giles Circus",
+   "lat": 51.5165,
+   "lon": -0.13032,
+   "kind": "clip",
+   "status": "live",
+   "area": "West End",
+   "borough": "City of Westminster",
+   "road": "Tottenham Court Road",
+   "view": "Zoom - Goodge Street jct",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07301.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07301.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.07304",
+   "name": "A3220 Northern Roundabout",
+   "lat": 51.5154,
+   "lon": -0.21691,
+   "kind": "clip",
+   "status": "live",
+   "area": "Kensington",
+   "borough": "Kensington and Chelsea",
+   "road": "Westway",
+   "view": "ZOOM - NORTH WEST - Scrubs Lane Mitre Bridge",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07304.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07304.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.07358",
+   "name": "A501 W of Mabledon Place",
+   "lat": 51.5283,
+   "lon": -0.12807,
+   "kind": "clip",
+   "status": "offline",
+   "area": "Fitzrovia, Euston & Holborn",
+   "borough": "Camden",
+   "road": "Euston Road",
+   "view": "WEST-A501 twds Euston Station",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07358.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07358.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.07365",
+   "name": "A501 W of Park Sq East",
+   "lat": 51.524,
+   "lon": -0.14568,
+   "kind": "clip",
+   "status": "live",
+   "area": "Marylebone",
+   "borough": "City of Westminster",
+   "road": "Marylebone Road",
+   "view": "VMS-01\\/707",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07365.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07365.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.07369",
+   "name": "Baker St/Marylebone Rd",
+   "lat": 51.5222,
+   "lon": -0.15768,
+   "kind": "clip",
+   "status": "live",
+   "area": "Marylebone",
+   "borough": "City of Westminster",
+   "road": "Marylebone Road",
+   "view": "WEST-A501 Marylebone Rd",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07369.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07369.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.07390",
+   "name": "Tottenham Court Rd/Grafton Way",
+   "lat": 51.5238,
+   "lon": -0.13724,
+   "kind": "clip",
+   "status": "live",
+   "area": "Fitzrovia, Euston & Holborn",
+   "borough": "Camden",
+   "road": "Tottenham Court Road",
+   "view": "Zoom south twds Goodge Street",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07390.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07390.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.07450",
+   "name": "Piccadilly Circus",
+   "lat": 51.5096,
+   "lon": -0.13484,
+   "kind": "clip",
+   "status": "offline",
+   "area": "West End",
+   "borough": "City of Westminster",
+   "road": "Piccadilly Circus",
+   "view": "Piccadilly Circus",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07450.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07450.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.07458",
+   "name": "Shaftesbury Ave / Macclesfield St",
+   "lat": 51.5121,
+   "lon": -0.13158,
+   "kind": "clip",
+   "status": "live",
+   "area": "West End",
+   "borough": "City of Westminster",
+   "road": "Shaftesbury Avenue",
+   "view": "East zoom - Greek Street jct and Cambridge Circus",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07458.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07458.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.07550",
+   "name": "Charing Cross Rd/Cranbourne St",
+   "lat": 51.5113,
+   "lon": -0.1283,
+   "kind": "clip",
+   "status": "live",
+   "area": "West End",
+   "borough": "City of Westminster",
+   "road": "Cranbourn Street",
+   "view": "North - CXR twds Cambridge Circus",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07550.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07550.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.07551",
+   "name": "Charing Cross Rd / Cambridge Circus",
+   "lat": 51.5131,
+   "lon": -0.12914,
+   "kind": "clip",
+   "status": "live",
+   "area": "West End",
+   "borough": "City of Westminster",
+   "road": "Charing Cross Road",
+   "view": "Zoom twrds Leicester Sq",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07551.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07551.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.07590",
+   "name": "Southampton Row/Vernon Place",
+   "lat": 51.5191,
+   "lon": -0.12116,
+   "kind": "clip",
+   "status": "live",
+   "area": "Fitzrovia, Euston & Holborn",
+   "borough": "Camden",
+   "road": "Southampton Row",
+   "view": "Zoom-Holborn station junction",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07590.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.07590.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.08751",
+   "name": "Park Lane Opposite Stanhope Gate",
+   "lat": 51.5066,
+   "lon": -0.15277,
+   "kind": "clip",
+   "status": "live",
+   "area": "Mayfair & Park Lane",
+   "borough": "City of Westminster",
+   "road": "Park Lane",
+   "view": "SOUTH-Parl Land (twds Hyde Park Corner)",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.08751.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.08751.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.08753",
+   "name": "Park Lane / Upper Grosvenor St",
+   "lat": 51.5101,
+   "lon": -0.1572,
+   "kind": "clip",
+   "status": "live",
+   "area": "Mayfair & Park Lane",
+   "borough": "City of Westminster",
+   "road": "Park Lane",
+   "view": "East - Upper Grosvenor Street",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.08753.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.08753.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.08858",
+   "name": "Oxford St/Orchard St",
+   "lat": 51.514,
+   "lon": -0.15409,
+   "kind": "clip",
+   "status": "live",
+   "area": "Marylebone",
+   "borough": "City of Westminster",
+   "road": "Oxford Street",
+   "view": "Zoom-Selfridges Ped X",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.08858.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.08858.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.09630",
+   "name": "Caledonian R/Caledonia S",
+   "lat": 51.5318,
+   "lon": -0.12093,
+   "kind": "clip",
+   "status": "live",
+   "area": "Islington",
+   "borough": "Islington",
+   "road": "Caledonia Street",
+   "view": "Zoom - Kings Cross Bridge \\/ Pentonville Rd jct",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.09630.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.09630.jpg"
+    }
+   ]
+  },
+  {
+   "id": "00001.09703",
+   "name": "Upper St Nth/Duncan St",
+   "lat": 51.534,
+   "lon": -0.10518,
+   "kind": "clip",
+   "status": "offline",
+   "area": "Islington",
+   "borough": "Islington",
+   "road": "Duncan Street",
+   "view": "Zoom south - Liverpool Road jct",
+   "source": "Webcamtaxi \u00b7 London Traffic Cam (TfL JamCam)",
+   "page": "https://www.webcamtaxi.com/en/england/london/london-traffic.html",
+   "links": [
+    {
+     "label": "Video clip (.mp4)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.09703.mp4"
+    },
+    {
+     "label": "Still image (.jpg)",
+     "url": "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.09703.jpg"
+    }
+   ]
+  },
+  {
+   "id": "abbey-road-crossing",
+   "name": "Abbey Road Crossing",
+   "lat": 51.53204,
+   "lon": -0.17752,
+   "kind": "live",
+   "status": "live",
+   "area": "St John's Wood",
+   "borough": "City of Westminster",
+   "road": "Abbey Road",
+   "view": "Zebra crossing",
+   "source": "Webcamtaxi \u00b7 Beatles Abbey Road Crossing (EarthCam on YouTube)",
+   "page": "https://www.webcamtaxi.com/en/england/london/beatles-abbey-road-crossing-cam.html",
+   "links": [
+    {
+     "label": "YouTube live stream",
+     "url": "https://www.youtube.com/watch?v=zMCea32gpmg"
+    }
+   ]
+  },
+  {
+   "id": "heathrow",
+   "name": "Heathrow Airport",
+   "lat": 51.47,
+   "lon": -0.4543,
+   "kind": "live",
+   "status": "live",
+   "area": "Heathrow",
+   "borough": "Hillingdon",
+   "road": "Cosmopolitan Way",
+   "view": "Runways, aircraft only",
+   "source": "Webcamtaxi \u00b7 London Heathrow Airport Cam",
+   "page": "https://www.webcamtaxi.com/en/england/london/heathrow-airport-cam.html",
+   "links": [
+    {
+     "label": "Flightradar24 live (YouTube)",
+     "url": "https://www.youtube.com/watch?v=SgvpyjQX_HM"
+    },
+    {
+     "label": "Flight Focus 365 live (YouTube)",
+     "url": "https://www.youtube.com/@FlightFocus365/live"
+    }
+   ]
+  },
+  {
+   "id": "london-bridge-golden-hinde",
+   "name": "London Bridge & Thames (Golden Hinde)",
+   "lat": 51.50735,
+   "lon": -0.09045,
+   "kind": "extra",
+   "status": "live",
+   "area": "Southwark & Bankside",
+   "borough": "Southwark",
+   "road": null,
+   "view": "Across the river to London Bridge and the City",
+   "source": "Not on Webcamtaxi \u00b7 Beach Life Cams on YouTube (found earlier)",
+   "page": null,
+   "links": [
+    {
+     "label": "YouTube live stream",
+     "url": "https://www.youtube.com/watch?v=znmUEZUM9Zc"
+    }
+   ]
+  },
+  {
+   "id": "notting-hill-gate",
+   "name": "Notting Hill Gate Station",
+   "lat": 51.50906,
+   "lon": -0.19617,
+   "kind": "extra",
+   "status": "live",
+   "area": "Kensington",
+   "borough": "Kensington and Chelsea",
+   "road": "Notting Hill Gate",
+   "view": "Street outside the station",
+   "source": "Not on Webcamtaxi \u00b7 Notting Hill Gate Cam on YouTube (found earlier)",
+   "page": null,
+   "links": [
+    {
+     "label": "YouTube live stream",
+     "url": "https://www.youtube.com/@NottingHillGateCam/live"
+    }
+   ]
+  }
+ ],
+ "unplaced": [
+  {
+   "name": "London Underground Cam",
+   "why": "Moving camera on Tube trains, so it has no fixed location.",
+   "source": "Webcamtaxi",
+   "page": "https://www.webcamtaxi.com/en/england/london/underground-railway-system.html",
+   "links": [
+    {
+     "label": "Techandtrains101 live (YouTube)",
+     "url": "https://www.youtube.com/channel/UCmEC5XS9Ol-6jqBaKpzqehQ/live"
+    }
+   ]
+  },
+  {
+   "name": "London Bus Tour Cam",
+   "why": "A looped recording of bus rides around London, not a live view of one place.",
+   "source": "Webcamtaxi",
+   "page": "https://www.webcamtaxi.com/en/england/london/bus-tour-cam.html",
+   "links": [
+    {
+     "label": "YouTube stream",
+     "url": "https://www.youtube.com/watch?v=wDaV8EkYHmk"
+    }
+   ]
+  }
+ ]
+}

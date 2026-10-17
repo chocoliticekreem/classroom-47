@@ -42,3 +42,6 @@ next-env.d.ts
 
 # local browser automation artifacts
 .playwright-mcp/
+
+# copied from maplibre-gl at predev/prebuild
+/public/maplibre-gl-worker.mjs
