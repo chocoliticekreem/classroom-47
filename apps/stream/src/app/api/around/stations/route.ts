@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { cached, TTL } from "@/lib/server/cache";
 import { cacheShort, json } from "@/lib/server/json";
+import { tfl } from "@/lib/server/tfl";
 import { distanceM, parsePoint } from "@/platform/around/geo";
 import type { AroundStation, StationLine } from "@/platform/around/types";
 
@@ -25,14 +26,11 @@ interface TflCrowding {
   timeUtc: string | null;
 }
 
-const TFL = "https://api.tfl.gov.uk";
 const STATUS_MODES = "tube,dlr,overground,elizabeth-line";
-
-async function tfl<T>(path: string): Promise<T> {
-  const res = await fetch(`${TFL}${path}`, { signal: AbortSignal.timeout(8000) });
-  if (!res.ok) throw new Error(`TfL ${path} failed: HTTP ${res.status}`);
-  return (await res.json()) as T;
-}
+// Callers ask for 600 m and 900 m; one search at the larger radius serves both from one TfL call.
+const MIN_SEARCH_M = 900;
+// TfL's anonymous budget is ~50 requests a minute and every Underground station costs one crowding call.
+const CROWDING_TTL_MS = 3 * TTL.minute;
 
 const stopsNear = (lat: number, lon: number, radius: number) =>
   cached(`tfl-stations-${lat.toFixed(3)},${lon.toFixed(3)}-${radius}`, { ttlMs: TTL.day }, async () => {
@@ -56,7 +54,7 @@ const lineStatus = () =>
   });
 
 const crowding = (naptan: string) =>
-  cached(`tfl-crowding-${naptan}`, { ttlMs: TTL.minute, maxStaleMs: 10 * TTL.minute, persist: false }, () =>
+  cached(`tfl-crowding-${naptan}`, { ttlMs: CROWDING_TTL_MS, maxStaleMs: 10 * TTL.minute, persist: false }, () =>
     tfl<TflCrowding>(`/crowding/${naptan}/Live`),
   );
 
@@ -64,7 +62,11 @@ export async function GET(request: NextRequest) {
   const point = parsePoint(request.nextUrl.searchParams, 900);
   if (!point) return Response.json({ error: "lat and lon query params are required" }, { status: 400 });
   try {
-    const [stops, status] = await Promise.all([stopsNear(point.lat, point.lon, point.radius), lineStatus()]);
+    const [found, status] = await Promise.all([
+      stopsNear(point.lat, point.lon, Math.max(point.radius, MIN_SEARCH_M)),
+      lineStatus(),
+    ]);
+    const stops = found.filter((s) => distanceM(point.lat, point.lon, s.lat, s.lon) <= point.radius);
     // Only Underground stations have live crowding; DLR/rail return dataAvailable=false.
     const live = await Promise.all(
       stops.map((s) => (s.modes.includes("tube") ? crowding(s.naptanId).catch(() => null) : null)),

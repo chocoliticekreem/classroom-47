@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { cached, TTL } from "@/lib/server/cache";
 import { cacheShort, json } from "@/lib/server/json";
+import { tfl } from "@/lib/server/tfl";
 import { virtualCams } from "@/lib/vcams";
 import { distanceM, parsePoint } from "@/platform/around/geo";
 import type { AroundCam } from "@/platform/around/types";
@@ -24,9 +25,7 @@ function headingFromView(view: string | undefined): number | null {
 }
 
 async function fetchCams(): Promise<Omit<AroundCam, "distanceM">[]> {
-  const res = await fetch("https://api.tfl.gov.uk/Place/Type/JamCam");
-  if (!res.ok) throw new Error(`TfL JamCam list failed: HTTP ${res.status}`);
-  const places = (await res.json()) as TflPlace[];
+  const places = await tfl<TflPlace[]>("/Place/Type/JamCam", 20_000);
   const prop = (p: TflPlace, key: string) => p.additionalProperties.find((a) => a.key === key)?.value;
   return places
     .filter((p) => prop(p, "available") !== "false" && prop(p, "videoUrl"))
