@@ -1,8 +1,8 @@
 # HANDOFF: repo state and next steps
 
-**Snapshot:** 2026-10-17, 11:50 BST. `main` includes PR #5 (Around me), PR #6 (the 3D twin) and Chris's `services/`.
+**Snapshot:** 2026-10-17, 12:05 BST. `main` includes PRs #5–#7 (Around me, the 3D twin, the CCTV compare) and Chris's `services/`.
 
-Event facts, rules and the CAMP requirements are in [`AGENTS.md`](AGENTS.md). The how-to for the infrastructure is the [`vast-camp` skill](.agents/skills/vast-camp/SKILL.md). Update this file when the state changes.
+Event facts, rules, CAMP requirements, the **official schedule and judging criteria** (from the organisers' slides) are in [`AGENTS.md`](AGENTS.md). The how-to for the infrastructure is the [`vast-camp` skill](.agents/skills/vast-camp/SKILL.md). Update this file when the state changes.
 
 **Verification:** nothing was installed or built for this snapshot. It comes from reading the code, with `file:line` references so you can check it.
 
@@ -39,7 +39,12 @@ Event facts, rules and the CAMP requirements are in [`AGENTS.md`](AGENTS.md). Th
   - The YOLO routes need `npm run yolo`. Without it they return 503 with a hint.
 - **3D mirror tab** (PR #6): shows `/twin?lat=…&lon=…` (`stream-shell.tsx:19,141`).
   - The twin is in `src/twin/`: a Tower Hill origin, real OpenStreetMap buildings and roads via `/api/twin/osm`, and live layers for people (YOLO tracks), buses, CCTV frames, disruptions and the streamer.
-  - **It follows only `stream.location` on the bus** (`twin/live/store.ts:99`). `reality:fork` and `streamer:location_leaked` do nothing yet, so there's **no "what if" crowd simulation**.
+  - PR #7 added:
+    - a **real-vs-simulated CCTV compare**: the real JamCam clip next to the twin rendered from the same camera pose;
+    - a **first-person streamer view**;
+    - **live weather and sun** from Open-Meteo;
+    - a **dev panel** to override weather, time and crowd for demos.
+  - **It follows only `stream.location` on the bus** (`twin/live/store.ts:128`). `reality:fork` and `streamer:location_leaked` do nothing yet, so there's **no "what if" crowd simulation**.
 - **Demo settings** (`src/platform/demo.ts`): live by default. Weather, time and crowd multiplier can be overridden; they sync across tabs.
 - **Run:** `npm run dev:stream` → http://localhost:3047.
 
@@ -53,7 +58,7 @@ Event facts, rules and the CAMP requirements are in [`AGENTS.md`](AGENTS.md). Th
   - W&B inference;
   - a London live-camera catalogue that resolves YouTube streams with yt-dlp.
   - No app uses it yet. YouTube footage must never go into VAST.
-- **Name clash:** in `apps/stream`, `YOLO_URL` means our local server. On the VM, `YOLO_URL` is the shared YOLO11 GPU endpoint, with a different API. Rename ours if the two ever meet.
+- **YOLO variables:** our local server is `JAMCAM_YOLO_URL` (renamed in PR #7). `YOLO_URL` on the VM is the shared YOLO11 GPU endpoint.
 
 ## `apps/web` (imported 3D city + console): blocked
 
@@ -76,7 +81,10 @@ Event facts, rules and the CAMP requirements are in [`AGENTS.md`](AGENTS.md). Th
 
 1. **Footage:** the VAST-backed part must use the provided footage, not TfL or YouTube. Proposal: the dashcam pedestrian-crossing clips, re-ingested with a crowd and approach prompt (the prompt is in the skill).
 2. **Which 3D:** the real-OSM `/twin` in `apps/stream` now works on live data and matches the pitch (real Tower Hill). The imported `apps/web` city is fictional and doesn't build. Suggestion: build on `/twin`, and leave `apps/web` out of the demo unless someone needs a piece of it.
-3. **"No previous projects" (`CLAUDE.md`):** `apps/web` came from hamyway-city (e2e report dated 2026-10-10, settings link to the old repo). Confirm the rule on Discord, then keep it and say so openly, trim it, or drop it.
+3. **"No previous projects" (`CLAUDE.md`):** `apps/web` came from hamyway-city (e2e report dated 2026-10-10, settings link to the old repo).
+   - The organisers' slides don't mention this rule, so it's still unconfirmed.
+   - Ask on Discord, then keep `apps/web` and say so openly, trim it, or drop it.
+4. **Who gives the demos:** a 2-minute demo at 16:45, then 3 minutes at 18:00 if we're in the top 5.
 
 ## Next steps (in order)
 
@@ -85,7 +93,11 @@ Event facts, rules and the CAMP requirements are in [`AGENTS.md`](AGENTS.md). Th
 3. **Agent on the cluster:** a Python service that does VSS `search-and-answer`, adds YOLO counts, reasons on W&B with Weave tracing, and returns `calm | busy | danger` plus advice. Deploy it with `/deploy-app-no-registry`, then open it from the portal's App button.
 4. **Connect the front ends:** the stream page and twin show the agent's verdict (`surroundings.update`) alongside live London data.
 5. **The "what if" in the twin:** on `reality:fork` / `streamer:location_leaked`, spawn the crowd converging on the streamer and show the danger, then the safer spot.
-6. **Record the backup demo by 15:30, freeze code at 15:45, submit before 16:30** (checklist in `AGENTS.md`). The demo should name each CAMP layer.
+6. **Judging needs** (`AGENTS.md`, "Judging criteria"):
+   - **README:** add the inputs, outputs and evaluation section.
+   - **A small evaluation run:** 5–10 test queries with expected clips, hit@k before and after our re-ingest prompt, logged in Weave (method in the `vast-camp` skill).
+   - **Demos:** rehearse a **2-minute** live demo for round 1, and a **3-minute** version for the 18:00 finals.
+7. **Record the backup demo by 15:30, freeze code at 15:45, and submit before 16:30, with every teammate on the submission** (checklist in `AGENTS.md`). The demo should name each CAMP layer.
 
 ## Owners (from `CLAUDE.md`)
 

@@ -5,7 +5,8 @@ description: >-
   Every feature must run on the event's CAMP stack: Cursor coding agent, VAST agent runtime,
   NVIDIA + CoreWeave model services, VAST platform. This skill covers the layer map, how to reach
   the team's VSS backend, GPU models and W&B inference from the lab VM, how to deploy our app on
-  the cluster, and the rules (pre-ingested footage only, no internet video into VAST).
+  the cluster, the organisers' judging criteria (including a small evaluation run), and the rules
+  (pre-ingested footage only, no internet video into VAST).
 ---
 
 # VAST CAMP stack for Classroom 47
@@ -32,18 +33,46 @@ Official guide (source of truth): https://github.com/vast-data/vast-builders-cha
 5. **Only 1–2 people run big re-ingests.** Try a few clips first.
 6. **Never print, commit or paste credentials.** They live in `/config/<team>.config` on the VM. This repo is public.
 
-## Access (once per person)
+## How we're judged (organisers' slides) and what to build for it
 
-1. **Sign in** at https://workshop.thecosmoslabs.com with the email you registered with, then pick the team number.
-2. **Create an SSH key:**
+| Criterion | Judges ask | Build or show |
+|---|---|---|
+| **Idea** | A compelling use of the **video search and summary stack provided**? | VSS search and Q&A at the heart of the agent, not a side call |
+| **Technical implementation** | High quality, easy to follow, reproduce and evaluate. **Inputs, outputs and evaluation steps documented**? | A README section on inputs, outputs and evaluation, and a small evaluation run (below) |
+| **Design** | Intuitive UX? | One flow: stream → "should I tell chat?" → verdict → safer spot |
+| **Impact** | Used **at least 3 sponsor tools** effectively? | Name and show each one: Cursor, VAST (VSS, VastDB, cluster), NVIDIA Cosmos and YOLO, W&B + Weave, CoreWeave |
+| **Presentation** | A **2-minute** live demo (demos > slides). The top 5 give 3 minutes at 18:00 | Rehearse both lengths, and keep a backup recording |
+
+**A minimal evaluation run** (covers the Technical criterion):
+1. Pick 5–10 test questions, for example "crowd gathering at the crossing", each paired with the clip or segment you expect it to find.
+2. Run them through VSS `/api/v1/search` before and after our re-ingest prompt.
+3. Record hit@k and the agent's verdicts.
+4. Log the whole run in **Weave** (`weave.Evaluation`, or traced calls plus a results table).
+5. Put the table and the command that reproduces it in the README.
+
+## CAMP principles from the organisers' slides
+
+- **Integration contract: no copied data pipelines, and permissions travel with the context.** Query VAST (VSS and VastDB) when a request comes in, instead of exporting the data into our own store.
+- **The agent runtime carries tools, context, state and traces.** Trace the agent loop in Weave, and keep its state on the cluster side.
+- **Model services can switch providers without rebuilding the app.** Keep model ids and endpoints in env vars, not in code.
+- **Context is built on demand from the platform:** data (files, objects, tables, logs), tool calls and results, plus retrieval (vector search, interaction history). VSS search plus VastDB is our context supply.
+
+## Access (once per person; the organisers' "Workshop quick start" slide)
+
+1. **Venue Wi-Fi:** `Halkin-WiFi Guest`. The password is on the slide or venue sign. Never commit it.
+2. **Cosmos:** join https://community.vastdata.com/c/workshop.
+3. **Workshop access:** sign in at https://workshop.thecosmoslabs.com with the email you registered with.
+4. **Launch VM:** enter the passcode from the quick-start slide (ask the team). Never commit it.
+5. **Team:** pick **Team-1…Team-50**, only once, using the number we were assigned.
+6. **Create an SSH key:**
    ```bash
    ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_cursor -C "cursor-vm"
    pbcopy < ~/.ssh/id_ed25519_cursor.pub
    ```
    Paste the public key on the lab page under **Option 1 - Key**, then follow the lab page to connect once from a terminal.
-3. **Connect from Cursor:** Connect via SSH → host `bc-<username>` → open `vast-builders-challenge`. Set the model to **Auto**.
-4. **Health check:** in Cursor, ask `run a git pull`, then `check that everything is working`. If it fails, run `/ask-cosmos` and post the note it writes in the Cosmos Community Workshop category.
-5. **See what's indexed:** open the Video Search & Summary UI from the lab page (Search, Explore and Dashboard tabs).
+7. **Connect from Cursor:** Connect via SSH → host `bc-<username>` → open `vast-builders-challenge`. Set the model to **Auto**.
+8. **Health check:** in Cursor, ask `run a git pull`, then `check that everything is working`. If it fails, run `/ask-cosmos` and post the note it writes in the Cosmos Community Workshop category.
+9. **See what's indexed:** open the Video Search & Summary UI from the lab page (Search, Explore and Dashboard tabs).
 
 ## What's on the VM (names only; values come from `/config/<team>.config`)
 
@@ -124,7 +153,7 @@ What this means for us:
 
 | Piece | Layer | On CAMP? |
 |---|---|---|
-| `apps/stream`: stream page, Around me (TfL cams, buses, disruptions, weather), `/api/around/*`, the `/twin` 3D mirror (real OSM Tower Hill) | front end | Runs locally. Fine as a front end |
+| `apps/stream`: stream page, Around me (TfL cams, buses, disruptions, weather), `/api/around/*`, the `/twin` 3D mirror (real OSM Tower Hill, real-vs-simulated CCTV compare, first-person streamer view, live weather, dev panel) | front end | Runs locally. Fine as a front end |
 | `services/yolo/server.py`: local YOLO on TfL JamCams (`npm run yolo`, port 8047) | M (extra) | **No.** It's local, on internet video. Treat it as a live-London bonus, not the VAST path |
 | `services/vision/`: Cosmos/W&B clients, London live-cam catalogue (YouTube via yt-dlp) | M | W&B client, yes. Cosmos via build.nvidia.com is outside the VAST env; prefer the VM's `COSMOS3_REASON_URL`. YouTube footage must **never** go into VAST |
 | `apps/web`: 3D city | front end | Runs locally. See `HANDOFF.md` for the build blocker |
@@ -132,7 +161,7 @@ What this means for us:
 
 ## Gotchas
 
-- **The name `YOLO_URL` means two different things.** In `apps/stream` it's our local server (default `http://127.0.0.1:8047`). On the VM it's the shared YOLO11 GPU endpoint, which has a different API. If `apps/stream` ever runs on the VM, rename ours.
+- **Two YOLO variables:** `JAMCAM_YOLO_URL` is our local TfL server (`apps/stream`, default `http://127.0.0.1:8047`, renamed in PR #7). `YOLO_URL` on the VM is the shared YOLO11 GPU endpoint, which has a different API. Don't mix them up.
 - An empty search usually means the ingest prompt never asked about that thing. Re-ingest; don't debug the search.
 - The VM can't build Docker images. Use the no-registry deploy only.
 - Only ever change things in your own team's namespace.

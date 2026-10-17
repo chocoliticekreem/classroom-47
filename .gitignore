@@ -8,3 +8,6 @@ out/
 next-env.d.ts
 runs/
 .playwright-mcp/
+
+# Organisers' slide deck: contains the venue Wi-Fi password and the lab VM passcode, and is All Rights Reserved. Keep it out of this public repo.
+Builders_Challenge_Slides.pdf

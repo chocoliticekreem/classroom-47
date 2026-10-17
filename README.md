@@ -11,6 +11,11 @@ Built at the **[Real-Time Video Agents Hack, London](https://luma.com/vastlondon
 
 - **Brief:** build agents that unlock the value of video. They should make footage searchable and queryable, and act on it.
 - **Deadline:** **16:30 BST**, submitted at [tokensand.com/vastlondon/submit](https://tokensand.com/vastlondon/submit). Our own code freeze is 15:45.
+- **Judging:**
+  - Criteria: Idea, Technical implementation, Design, Impact (3 or more sponsor tools) and Presentation.
+  - 16:45: a 2-minute live demo.
+  - 18:00: the top 5 give a 3-minute demo.
+  - Details are in [`AGENTS.md`](AGENTS.md#judging-criteria-from-the-organisers-slides).
 - **Infrastructure:** VAST's **CAMP** stack, required by the challenge.
   - **C**ursor (SpaceXAI) is the coding agent.
   - **A**: the agent runs on the VAST cluster.
@@ -22,6 +27,24 @@ Built at the **[Real-Time Video Agents Hack, London](https://luma.com/vastlondon
   - [`HANDOFF.md`](HANDOFF.md): what works today, what's broken, next steps.
   - [`TODO.md`](TODO.md): to-dos.
   - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): the stream ↔ city event bus.
+
+---
+
+## Inputs, outputs and evaluation
+
+*The judges score this under "Technical implementation". We update it as the CAMP agent lands.*
+
+- **Inputs:**
+  - Our team's VSS index of the footage the organisers provided, re-ingested with our crowd-focused Cosmos prompt.
+  - Live London context: TfL JamCams with YOLO tracks, buses, road disruptions and Open-Meteo weather.
+  - The streamer's location and viewer count from the stream page.
+- **Outputs:**
+  - A `calm | busy | danger` verdict with a plain-language reason.
+  - The evidence clips, as VSS segments with timestamps.
+  - A safer spot to move to.
+
+  These show on the stream page and in the 3D twin.
+- **Evaluation:** *in progress.* 5–10 test queries, each with the clip we expect, scored as hit@k before and after our re-ingest prompt, together with the agent's verdicts, all logged in W&B Weave. The command to reproduce it will go here.
 
 ---
 

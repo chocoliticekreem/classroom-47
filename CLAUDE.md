@@ -16,11 +16,15 @@ Speed and a demo that works live matter more than process.
 ## Hard deadline and timeline (BST)
 | Time | What |
 |---|---|
-| 09:30 | Build starts |
+| 09:30 | Keynote and opening remarks |
+| 10:00 | Hacking begins |
 | 12:30 | Lunch |
 | **16:30** | **Hacking ends, submissions cut off. Late = rejected.** |
-| 16:30 | Demos |
-| 18:30 | Closing + awards |
+| 16:45 | Judging round 1: 2-minute demos |
+| 18:00 | Top 5: 3-minute demos in front of everyone |
+| 18:30 | Awards |
+
+This is the organisers' schedule from their slides. The judging criteria are in `AGENTS.md`.
 
 The invite says "9:30 AM ET". That's a typo; the event runs on London time.
 Plan for code freeze at **~15:45** so the demo recording and submission are done by 16:30.
@@ -29,7 +33,7 @@ Plan for code freeze at **~15:45** so the demo recording and submission are done
 - **Use at least 3 sponsor tools** (list below). Make each one visible in the demo and README.
 - **Public GitHub repo** submitted: `chocoliticekreem/classroom-47`.
 - **No previous projects.** Everything gets built today.
-- **3-minute demo, recorded**, and ready to present live.
+- **A recorded demo**, plus a **2-minute live demo** in judging round 1 and a **3-minute** one if we reach the top 5 (demos > slides).
 - Team size: max 4.
 
 ## Sponsor stack (pick ≥3, more is better)

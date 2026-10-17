@@ -15,22 +15,24 @@ Sponsors: VAST Data, NVIDIA, CoreWeave, SpaceXAI (Cursor), Weights & Biases.
 
 - **When:** Saturday 17 October 2026, London time (BST).
 - **Where:** Halkin, 1–2 Paris Garden, London SE1 8ND.
-- **Brief:** "Spend the day building agents to unlock the value of video." Build a video agent that searches footage, answers questions, detects events or takes action.
+- **Host:** Francisco Terpolilli (Growth Engineer, SpaceXAI ambassador).
+- **Brief** (from the organisers' slides): "Build agents that unlock the value of video. Ship a real-time video agent that understands footage and acts on it: search hours of video in plain language, ask what happened, spot events, or trigger an action when something matters. **Use 3+ sponsor tools.** One idea. Working. Shipped by end of day."
   - Pick a **narrow** use case.
   - Adapt it to the footage available on build day.
 
-### Timeline (BST)
+### Timeline (BST, from the organisers' slides)
 
 | Time | What |
 |---|---|
-| 08:30 | Doors open, breakfast |
-| 09:00 | Opening keynotes |
-| 09:30 | Build starts |
+| 09:30 | Keynote and opening remarks |
+| 10:00 | Hacking begins |
 | 12:30 | Lunch |
 | 15:30 | **Team: backup demo video recorded** |
 | 15:45 | **Team: code freeze** |
-| **16:30** | **Submission deadline (late = rejected), then demos** |
-| 18:30 | Closing and awards |
+| **16:30** | **Submission deadline (late = rejected)** |
+| 16:45 | Judging round 1: **2-minute demo** to the judges at a designated area |
+| 18:00 | Finalists (top 5): **3-minute demo** in front of everyone |
+| 18:30 | Awards ceremony |
 
 ### Submission checklist
 
@@ -39,19 +41,30 @@ Submit at **https://tokensand.com/vastlondon/submit**:
 - [ ] GitHub repo reviewers can open: `chocoliticekreem/classroom-47` (public)
 - [ ] Short demo video, as a **shareable link**
 - [ ] What we built, and **which tools we used** (name each sponsor tool and where it's used)
-- [ ] Every team member's name and contact email (enter these in the form, never in this repo)
+- [ ] **Every team member is on the submission** (the organisers' slides: "Make sure everyone is on it"). Names and contact emails go in the form, never in this repo
 - [ ] Optional: a working website and a screenshot
-- [ ] README up to date: what it does, sponsor tools and where, how to run it, demo link
+- [ ] README up to date: what it does, sponsor tools and where, how to run it, demo link, and **inputs, outputs and evaluation steps** (a judging criterion)
 
-**Team rules to confirm.** These are in our notes (`CLAUDE.md`) but not on the public event pages; check them on Discord.
+The judging slide links `tokensand.com/vastnyc`, copied over from the NYC event. **Ours is `/vastlondon`.**
 
-- At least 3 sponsor tools, each visible in the demo and the README.
-- 3-minute demo.
-- **No previous projects: everything built today.** `HANDOFF.md` explains why this matters for `apps/web`.
+**Rules.**
+- **3 or more sponsor tools.** Confirmed on the organisers' slides; it's the Impact criterion.
+- **Demo lengths:** 2 minutes in round 1, and 3 minutes if we reach the top 5. Show a live demo, not a slide deck.
+- **"No previous projects: everything built today"** is still unconfirmed. It comes from our notes, not the organisers' slides. `HANDOFF.md` explains why it matters for `apps/web`.
 
-### Judges, criteria, prizes
+### Judging criteria (from the organisers' slides)
 
-- **Judges** (no criteria published; the "what they want" column is our guess):
+| Criterion | What the judges ask | What it means for us |
+|---|---|---|
+| **Idea** | Does the solution show a compelling use of the **video search and summary stack provided**? | Put VSS search and Q&A at the centre of the product, not off to one side |
+| **Technical implementation** | Is the code high quality and easy to follow, reproduce and evaluate? Are the **inputs, outputs and evaluation steps** clearly documented? | Write a README section on inputs, outputs and evaluation, plus a small evaluation run (example queries → expected clips → results) |
+| **Design** | Is the design and user experience well thought out and intuitive? | One clear flow: stream → "should I tell chat?" → verdict → safer spot |
+| **Impact** | Did it use **at least 3 sponsor tools** effectively? | Show each layer: Cursor, VAST (VSS, VastDB, the cluster), NVIDIA Cosmos and YOLO, W&B inference + Weave, CoreWeave GPUs |
+| **Presentation** | A demo of the solution in **2 minutes** (demos > slides) | Rehearse a 2-minute live run, and keep a 3-minute version ready for the finals |
+
+### Judges and prizes
+
+- **Judges** (the "what they want" column is our guess):
 
   | Judge | Role | What they want |
   |---|---|---|
@@ -63,7 +76,7 @@ Submit at **https://tokensand.com/vastlondon/submit**:
 - **Prizes:**
   - 1st place: NVIDIA DGX Spark
   - 2nd place: Hugging Face Microduck
-  - Cursor credits and cash gift cards, split across team members
+  - Each top-5 presenting team: a $100 Amazon gift card
 - **Teams:** up to 4 people, one project per team.
 
 ## CAMP: the infrastructure we must build on
@@ -88,12 +101,16 @@ linked into `.claude/skills/` and `.cursor/skills/`. Source of truth:
 - Only 1–2 people run large re-ingests.
 - Credentials stay in `/config/<team>.config` on the VM. Never commit them.
 
-**Getting access** (each person):
-1. Sign in at **https://workshop.thecosmoslabs.com** with your registration email, then pick the team number.
-2. `ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_cursor -C "cursor-vm"`, then paste the `.pub` key on the lab page under **Option 1 - Key**.
-3. In Cursor: Connect via SSH → `bc-<username>` → open `vast-builders-challenge` → `/build-day-quickstart`.
+**Getting access** (each person; the organisers' "Workshop quick start" slide):
+1. **Venue Wi-Fi:** `Halkin-WiFi Guest`. The password is on the venue sign and the quick-start slide; it isn't in this repo because the repo is public.
+2. **Cosmos:** join https://community.vastdata.com/c/workshop.
+3. **Workshop access:** sign in at **https://workshop.thecosmoslabs.com** with your registration email.
+4. **Launch VM:** enter the passcode from the quick-start slide. Ask a teammate; it isn't in this repo.
+5. **Team:** pick our team number (**Team-1…Team-50**). You can only do this once, so use the number we were assigned.
+6. `ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_cursor -C "cursor-vm"`, then paste the `.pub` key on the lab page under **Option 1 - Key**.
+7. In Cursor: Connect via SSH → `bc-<username>` → open `vast-builders-challenge` → `/build-day-quickstart`.
 
-Help: the [Cosmos Community](https://community.vastdata.com) Workshop category, or `/ask-cosmos` on the VM.
+Help: the [Cosmos Community](https://community.vastdata.com/c/workshop) Workshop category, or `/ask-cosmos` on the VM.
 Cursor credits: check that requests show `Free` at cursor.com/dashboard/usage. If not, use the credit request form in the official README.
 
 ### Links
@@ -103,6 +120,9 @@ Cursor credits: check that requests show `Free` at cursor.com/dashboard/usage. I
 - Submit: https://tokensand.com/vastlondon/submit
 - Other teams' projects: https://tokensand.com/vastlondon/projects
 - Discord (find help and teammates): https://discord.gg/rPBMhMzRU
+- Cosmos Community workshop (help, infra Q&A): https://community.vastdata.com/c/workshop
+- Lab portal (VM, VSS UI, our deployed App): https://workshop.thecosmoslabs.com
+- Official build guide and Cursor skills: https://github.com/vast-data/vast-builders-challenge
 
 ## Working in this repo
 
@@ -134,7 +154,7 @@ Cursor credits: check that requests show `Free` at cursor.com/dashboard/usage. I
   - No personal emails or contact details in files.
 - **Many people and agents push at once:**
   - `git pull --rebase` before you push, and keep commits small.
-  - Work on a branch and open a PR. PRs #1–#4 went to `main` this way.
+  - Work on a branch and open a PR. PRs #1–#7 went to `main` this way.
   - Don't rewrite another person's files without telling them.
   - Commit or push only when your human asks.
 - **Pre-compute and cache** every network-dependent result the demo needs, and put a timeout on every external call. The demo can't depend on venue wifi.
