@@ -1,0 +1,205 @@
+"use client";
+
+import { Label } from "./Label";
+import { useFrame } from "@react-three/fiber";
+import { useMemo, useRef, useState } from "react";
+import type * as THREE from "three";
+import type { AroundBusStop, BusArrival } from "@/platform/around/types";
+import type { TwinGeometry } from "../config";
+import { toLocal } from "../config";
+import { useLive, useNow } from "./store";
+
+const APPROACH_S = 90;
+const APPROACH_M = 110;
+const DWELL_S = 25;
+const BUS_L = 10.5;
+const BUS_W = 2.5;
+const BUS_H = 4.4;
+
+interface StopPlace {
+  stop: AroundBusStop;
+  x: number;
+  z: number;
+  dirX: number;
+  dirZ: number;
+}
+
+function nearestRoadDir(x: number, z: number, roads: TwinGeometry["roads"]): [number, number] {
+  let best = Infinity;
+  let dir: [number, number] = [1, 0];
+  for (const road of roads) {
+    const line = road.line;
+    for (let i = 1; i < line.length; i++) {
+      const [ax, az] = line[i - 1];
+      const [bx, bz] = line[i];
+      const vx = bx - ax;
+      const vz = bz - az;
+      const len2 = vx * vx + vz * vz;
+      if (len2 < 1e-6) continue;
+      let t = ((x - ax) * vx + (z - az) * vz) / len2;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const dx = ax + vx * t - x;
+      const dz = az + vz * t - z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < best) {
+        best = d2;
+        const len = Math.sqrt(len2);
+        dir = [vx / len, vz / len];
+      }
+    }
+  }
+  return dir;
+}
+
+function remainingSeconds(stop: AroundBusStop, a: BusArrival, nowMs: number) {
+  return a.seconds - (nowMs - stop.at) / 1000;
+}
+
+function formatDue(seconds: number) {
+  if (seconds <= 30) return "due";
+  return `${Math.max(1, Math.round(seconds / 60))} min`;
+}
+
+function Bus({ place, arrival }: { place: StopPlace; arrival: BusArrival }) {
+  const group = useRef<THREE.Group>(null);
+  const [label, setLabel] = useState("");
+  const lastLabel = useRef(0);
+  const yaw = Math.atan2(place.dirX, place.dirZ);
+
+  useFrame(() => {
+    const g = group.current;
+    if (!g) return;
+    const now = Date.now();
+    const rem = remainingSeconds(place.stop, arrival, now);
+    const k = Math.min(1, Math.max(0, rem / APPROACH_S));
+    const eased = k * k;
+    const dist = eased * APPROACH_M;
+    g.position.set(place.x - place.dirX * dist, 0, place.z - place.dirZ * dist);
+    g.visible = rem > -DWELL_S;
+    if (now - lastLabel.current > 1000) {
+      lastLabel.current = now;
+      setLabel(formatDue(rem));
+    }
+  });
+
+  return (
+    <group ref={group} rotation={[0, yaw, 0]}>
+      <mesh position={[0, BUS_H / 2 + 0.3, 0]} castShadow>
+        <boxGeometry args={[BUS_W, BUS_H, BUS_L]} />
+        <meshStandardMaterial color="#c8102e" roughness={0.45} metalness={0.15} />
+      </mesh>
+      <mesh position={[0, BUS_H * 0.72, 0]}>
+        <boxGeometry args={[BUS_W + 0.05, 0.9, BUS_L - 0.6]} />
+        <meshStandardMaterial color="#ffe3b0" emissive="#ffd08a" emissiveIntensity={1.2} />
+      </mesh>
+      <mesh position={[0, BUS_H * 0.32, 0]}>
+        <boxGeometry args={[BUS_W + 0.05, 0.9, BUS_L - 0.6]} />
+        <meshStandardMaterial color="#ffe3b0" emissive="#ffd08a" emissiveIntensity={1.2} />
+      </mesh>
+      <mesh position={[0, 1.1, BUS_L / 2 + 0.02]}>
+        <planeGeometry args={[BUS_W - 0.4, 0.5]} />
+        <meshStandardMaterial color="#ffffff" emissive="#dfefff" emissiveIntensity={3} />
+      </mesh>
+      <Label position={[0, BUS_H + 2.4, 0]}>
+        <div
+          style={{
+            fontFamily: "var(--font-figtree), system-ui, sans-serif",
+            background: "rgba(200,16,46,0.9)",
+            color: "#fff",
+            borderRadius: 8,
+            padding: "4px 9px",
+            fontSize: 12,
+            fontWeight: 600,
+            whiteSpace: "nowrap",
+            boxShadow: "0 0 14px rgba(200,16,46,0.5)",
+          }}
+        >
+          {arrival.line} · {label}
+        </div>
+      </Label>
+    </group>
+  );
+}
+
+function StopMarker({ place, now }: { place: StopPlace; now: number }) {
+  const next = place.stop.arrivals[0];
+  return (
+    <group position={[place.x, 0, place.z]}>
+      <mesh position={[0, 1.6, 0]}>
+        <cylinderGeometry args={[0.08, 0.08, 3.2, 6]} />
+        <meshStandardMaterial color="#2c2c36" metalness={0.5} />
+      </mesh>
+      <mesh position={[0, 3.3, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.7, 0.7, 0.12, 20]} />
+        <meshStandardMaterial color="#c8102e" emissive="#c8102e" emissiveIntensity={0.6} />
+      </mesh>
+      <mesh position={[0, 3.3, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.34, 0.34, 0.14, 20]} />
+        <meshStandardMaterial color="#f4f3f0" emissive="#f4f3f0" emissiveIntensity={0.4} />
+      </mesh>
+      <Label position={[0, 4.6, 0]}>
+        <div
+          style={{
+            fontFamily: "var(--font-figtree), system-ui, sans-serif",
+            background: "rgba(12,12,16,0.72)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            padding: "3px 8px",
+            color: "var(--text)",
+            fontSize: 11,
+            whiteSpace: "nowrap",
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>{place.stop.indicator || "Stop"}</span>
+          {next ? (
+            <span style={{ color: "var(--muted)" }}>
+              {" · "}
+              {next.line} {formatDue(remainingSeconds(place.stop, next, now))}
+            </span>
+          ) : null}
+        </div>
+      </Label>
+    </group>
+  );
+}
+
+export function Buses() {
+  const stops = useLive((s) => s.stops);
+  const roads = useLive((s) => s.roads);
+  const now = useNow();
+
+  const places = useMemo<StopPlace[]>(
+    () =>
+      stops.map((stop) => {
+        const [x, z] = toLocal(stop.lat, stop.lon);
+        const [dirX, dirZ] = nearestRoadDir(x, z, roads);
+        return { stop, x, z, dirX, dirZ };
+      }),
+    [stops, roads],
+  );
+
+  const due = useMemo(() => {
+    if (!now) return [];
+    const out: { place: StopPlace; arrival: BusArrival; key: string }[] = [];
+    for (const place of places) {
+      for (const a of place.stop.arrivals) {
+        const rem = remainingSeconds(place.stop, a, now);
+        if (rem < APPROACH_S && rem > -DWELL_S) {
+          out.push({ place, arrival: a, key: `${place.stop.id}:${a.line}:${a.destination}` });
+        }
+      }
+    }
+    return out;
+  }, [places, now]);
+
+  return (
+    <group>
+      {places.map((p) => (
+        <StopMarker key={p.stop.id} place={p} now={now} />
+      ))}
+      {due.map((d) => (
+        <Bus key={d.key} place={d.place} arrival={d.arrival} />
+      ))}
+    </group>
+  );
+}
