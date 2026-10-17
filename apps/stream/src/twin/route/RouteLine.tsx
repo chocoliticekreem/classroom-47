@@ -4,17 +4,32 @@ import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { subscribe, type BusEvent } from "@/platform/bus";
+import { SNAP_ENABLED, snapPerson, snapVehicle, useSnapIndex, type PersonSnap, type SnapIndex, type VehicleSnap } from "../network/snap";
 
 type Suggested = Extract<BusEvent, { type: "route.suggested" }>;
 
 const RIBBON_W = 2.2;
 const GLOW_W = 9;
 const Y = 0.12;
+/** A route vertex this close to a pavement (or, failing that, a lane) is pulled onto it so the ribbon hugs the street. */
+const ROUTE_SNAP_M = 25;
+const _ps: PersonSnap = { x: 0, z: 0, footwayId: -1, s: 0, dist: 0 };
+const _vs: VehicleSnap = { x: 0, z: 0, heading: 0, laneId: -1, s: 0, dist: 0 };
+
+function snapRoute(xz: [number, number][], snap: SnapIndex | null): [number, number][] {
+  if (!snap || !SNAP_ENABLED) return xz;
+  return xz.map(([x, z]) => {
+    if (snapPerson(snap, x, z, _ps, ROUTE_SNAP_M)) return [_ps.x, _ps.z];
+    if (snapVehicle(snap, x, z, NaN, _vs, ROUTE_SNAP_M)) return [_vs.x, _vs.z];
+    return [x, z];
+  });
+}
 
 /** Draws the calmer route published on the bus as a glowing ember ribbon on the ground. */
 export function RouteLine() {
   const [route, setRoute] = useState<Suggested | null>(null);
   const glow = useRef<THREE.Mesh>(null);
+  const snap = useSnapIndex();
 
   useEffect(
     () =>
@@ -24,12 +39,13 @@ export function RouteLine() {
     [],
   );
 
+  const xz = useMemo(() => (route ? snapRoute(route.xz, snap) : []), [route, snap]);
+
   const pieces = useMemo(() => {
-    if (!route) return [];
     const out: { x: number; z: number; len: number; yaw: number }[] = [];
-    for (let i = 1; i < route.xz.length; i++) {
-      const [ax, az] = route.xz[i - 1];
-      const [bx, bz] = route.xz[i];
+    for (let i = 1; i < xz.length; i++) {
+      const [ax, az] = xz[i - 1];
+      const [bx, bz] = xz[i];
       const dx = bx - ax;
       const dz = bz - az;
       const len = Math.hypot(dx, dz);
@@ -37,7 +53,7 @@ export function RouteLine() {
       out.push({ x: (ax + bx) / 2, z: (az + bz) / 2, len: len + RIBBON_W * 0.5, yaw: Math.atan2(dx, dz) });
     }
     return out;
-  }, [route]);
+  }, [xz]);
 
   useFrame(({ clock }) => {
     if (!glow.current) return;
@@ -49,7 +65,7 @@ export function RouteLine() {
   });
 
   if (!route) return null;
-  const end = route.xz.at(-1);
+  const end = xz.at(-1);
   return (
     <group>
       {pieces.map((p, i) => (

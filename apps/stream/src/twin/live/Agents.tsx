@@ -10,6 +10,17 @@ import { personBody, personHead, personMaterial, SKIN } from "./models/people";
 import { bikeBody, CAR_LENGTH, carBody, lampMaterial, lamps, paintMaterial, VAN_LENGTH, vanBody } from "./models/vehicles";
 import { camFrame, projectInto, sampleInto, usePoseVersion, type CamFrame } from "./project";
 import { syncClock } from "../compare/store";
+import {
+  ON_LANE_M,
+  SNAP_ENABLED,
+  SNAP_STATS,
+  snapPerson,
+  snapVehicle,
+  useSnapIndex,
+  type PersonSnap,
+  type SnapIndex,
+  type VehicleSnap,
+} from "../network/snap";
 import { useLive } from "./store";
 
 const MAX_PEOPLE = 400;
@@ -22,6 +33,8 @@ const BIKE_HEIGHT = 1.2;
 /** Walking pace at which the figure's bob reaches full amplitude. */
 const STRIDE_MS = 1.4;
 const GLOW = { value: 0.4 };
+/** Smoothing rate (1/s) toward the snapped pose, so a track settling between two lanes glides rather than flips. */
+const SNAP_RATE = 6;
 
 /** Real-world footprint per YOLO class: [width, height, length] in metres. */
 const DIMS: Record<Exclude<TrackedClass, "person">, [number, number, number]> = {
@@ -87,6 +100,27 @@ const _uv = new Float32Array(2);
 const _xz = new Float32Array(2);
 const _prevXz = new Float32Array(2);
 const UP = new THREE.Vector3(0, 1, 0);
+const _vs: VehicleSnap = { x: 0, z: 0, heading: 0, laneId: -1, s: 0, dist: 0 };
+const _ps: PersonSnap = { x: 0, z: 0, footwayId: -1, s: 0, dist: 0 };
+
+/** Per-track smoothed pose; `t` is the clip time it was last written at (a loop restart resets it). */
+interface Smooth {
+  x: Float32Array;
+  z: Float32Array;
+  yaw: Float32Array;
+  t: Float32Array;
+}
+
+/** Share of tracked vehicles within ON_LANE_M of a lane line and people within ON_LANE_M of a footway, raw vs snapped. Read via `window.__snapStats` with `?snapstats`. */
+const stats = { vehicles: 0, vehiclesOnLaneRaw: 0, vehiclesOnLane: 0, people: 0, peopleOnPavementRaw: 0, peopleOnPavement: 0 };
+if (SNAP_STATS) (window as unknown as { __snapStats: typeof stats }).__snapStats = stats;
+
+function lerpAngle(a: number, b: number, k: number) {
+  let d = b - a;
+  while (d > Math.PI) d -= 2 * Math.PI;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  return a + d * k;
+}
 
 const PERSON = new THREE.Color("#ffb37a");
 const PERSON_DIM = new THREE.Color("#8a4a2a");
@@ -111,10 +145,12 @@ interface Scene {
   col: Float32Array;
 }
 
-function animate(scene: Scene, tracks: FlatTrack[], now: number, syncT: number) {
+function animate(scene: Scene, tracks: FlatTrack[], now: number, syncT: number, snap: SnapIndex | null, smooth: Smooth, dt: number) {
   const { tl, pos, col } = scene;
   scene.person.n = scene.car.n = scene.van.n = scene.bus.n = scene.bike.n = 0;
   let seg = 0;
+  const lerpK = 1 - Math.exp(-SNAP_RATE * dt);
+  if (SNAP_STATS) stats.vehicles = stats.vehiclesOnLaneRaw = stats.vehiclesOnLane = stats.people = stats.peopleOnPavementRaw = stats.peopleOnPavement = 0;
 
   for (let i = 0; i < tracks.length; i++) {
     const tr = tracks[i];
@@ -144,8 +180,30 @@ function animate(scene: Scene, tracks: FlatTrack[], now: number, syncT: number) 
     }
     _q.setFromAxisAngle(UP, yaw);
 
+    // The compared camera stays 1:1 with its pixels; everything else is pulled onto Arvin's network.
+    const snapTo = SNAP_ENABLED && tr.camId !== syncClock.camId ? snap : null;
+    // A looping or freshly synced track restarts its smoothing instead of gliding across the scene.
+    const fresh = t < smooth.t[i] || t - smooth.t[i] > 1;
+    smooth.t[i] = t;
+
     const body = slot.meshes[0];
     if (isPerson) {
+      if (SNAP_STATS && snap) {
+        stats.people++;
+        if (snapPerson(snap, _xz[0], _xz[1], _ps, ON_LANE_M)) stats.peopleOnPavementRaw++;
+      }
+      if (snapTo && snapPerson(snapTo, _xz[0], _xz[1], _ps)) {
+        if (fresh) {
+          smooth.x[i] = _ps.x;
+          smooth.z[i] = _ps.z;
+        } else {
+          smooth.x[i] += (_ps.x - smooth.x[i]) * lerpK;
+          smooth.z[i] += (_ps.z - smooth.z[i]) * lerpK;
+        }
+        _xz[0] = smooth.x[i];
+        _xz[1] = smooth.z[i];
+      }
+      if (SNAP_STATS && snap && snapPerson(snap, _xz[0], _xz[1], _ps, ON_LANE_M)) stats.peopleOnPavement++;
       const pace = Math.min(1, speed / STRIDE_MS);
       const bob = Math.abs(Math.sin(now * (4 + 6 * pace) + tr.seed * 20)) * 0.04 * pace;
       _p.set(_xz[0], bob * fade, _xz[1]);
@@ -164,9 +222,31 @@ function animate(scene: Scene, tracks: FlatTrack[], now: number, syncT: number) 
       _q.setFromAxisAngle(UP, yaw);
       const along = Math.abs((rx / rl) * Math.sin(yaw) + (rz / rl) * Math.cos(yaw));
       const push = 0.5 * (along * l + Math.sqrt(1 - Math.min(1, along * along)) * w);
-      _p.set(_xz[0] + (rx / rl) * push, 0, _xz[1] + (rz / rl) * push);
-      const k = fade * (MODEL_SCALE[tr.cls as keyof typeof MODEL_SCALE] ?? MODEL_SCALE.car);
-      _s.set(k, k, k);
+      let cx = _xz[0] + (rx / rl) * push;
+      let cz = _xz[1] + (rz / rl) * push;
+      if (SNAP_STATS && snap) {
+        stats.vehicles++;
+        if (snapVehicle(snap, cx, cz, NaN, _vs, ON_LANE_M)) stats.vehiclesOnLaneRaw++;
+      }
+      if (snapTo && snapVehicle(snapTo, cx, cz, moving ? yaw : NaN, _vs)) {
+        if (fresh) {
+          smooth.x[i] = _vs.x;
+          smooth.z[i] = _vs.z;
+          smooth.yaw[i] = _vs.heading;
+        } else {
+          smooth.x[i] += (_vs.x - smooth.x[i]) * lerpK;
+          smooth.z[i] += (_vs.z - smooth.z[i]) * lerpK;
+          smooth.yaw[i] = lerpAngle(smooth.yaw[i], _vs.heading, lerpK);
+        }
+        cx = smooth.x[i];
+        cz = smooth.z[i];
+        yaw = smooth.yaw[i];
+        _q.setFromAxisAngle(UP, yaw);
+      }
+      if (SNAP_STATS && snap && snapVehicle(snap, cx, cz, NaN, _vs, ON_LANE_M)) stats.vehiclesOnLane++;
+      _p.set(cx, 0, cz);
+      const sc = fade * (MODEL_SCALE[tr.cls as keyof typeof MODEL_SCALE] ?? MODEL_SCALE.car);
+      _s.set(sc, sc, sc);
       body.setMatrixAt(slot.n, _m.compose(_p, _q, _s));
       // A London bus is red on the CCTV too; keep Arvin's livery rather than the camera's dim median.
       body.setColorAt(slot.n, tr.model === "bus" ? BUS_WHITE : tr.color);
@@ -175,8 +255,8 @@ function animate(scene: Scene, tracks: FlatTrack[], now: number, syncT: number) 
 
     const base = isPerson ? PERSON : CAR;
     const dim = isPerson ? PERSON_DIM : CAR_DIM;
-    let px = _xz[0];
-    let pz = _xz[1];
+    let px = _p.x;
+    let pz = _p.z;
     for (let k = 1; k <= TRAIL_N; k++) {
       const ts = t - k * TRAIL_STEP_S;
       if (!sampleInto(tr.pts, ts, _uv)) break;
@@ -233,6 +313,7 @@ export function Agents() {
   const cams = useLive((s) => s.cams);
   const clips = useLive((s) => s.clips);
   const poseVersion = usePoseVersion((s) => s.v);
+  const snap = useSnapIndex();
 
   const tracks = useMemo<FlatTrack[]>(() => {
     const out: FlatTrack[] = [];
@@ -265,6 +346,16 @@ export function Agents() {
   }, [cams, clips, poseVersion]);
 
   const trails = useRef<THREE.LineSegments>(null);
+
+  const smooth = useMemo<Smooth>(
+    () => ({
+      x: new Float32Array(tracks.length),
+      z: new Float32Array(tracks.length),
+      yaw: new Float32Array(tracks.length),
+      t: new Float32Array(tracks.length).fill(Infinity),
+    }),
+    [tracks],
+  );
 
   const trailBuffers = useMemo(() => {
     const n = (MAX_PEOPLE + MAX_VEHICLES) * TRAIL_N * 2;
@@ -333,7 +424,7 @@ export function Agents() {
 
   const scene = useRef<Scene | null>(null);
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, dt) => {
     if (!scene.current) {
       const tl = trails.current;
       if (!tl) return;
@@ -354,7 +445,7 @@ export function Agents() {
     const night = ATMOS.windowGlow;
     rig.lights.color.setScalar(0.3 + 0.7 * night);
     GLOW.value = 0.1 + 0.35 * night;
-    animate(scene.current, tracks, clock.elapsedTime, syncT);
+    animate(scene.current, tracks, clock.elapsedTime, syncT, snap, smooth, Math.min(dt, 0.1));
   });
 
   return (
