@@ -11,6 +11,7 @@ import { StreamerBar } from "@/components/stream/StreamerBar";
 import { SurroundingsCard } from "@/components/stream/SurroundingsCard";
 import { LOCATIONS } from "@/lib/locations";
 import type { StreamContext, StreamLocation, StreamSource } from "@/lib/types";
+import { useSurroundings } from "@/platform/around/useSurroundings";
 import { publish } from "@/platform/bus";
 
 const BASE_VIEWERS = 1840;
@@ -36,6 +37,8 @@ export function StreamShell() {
   const [location, setLocation] = useState<StreamLocation>(LOCATIONS[0]);
   const [viewers, setViewers] = useState(0);
   const [revealedAt, setRevealedAt] = useState<number | null>(null);
+  const [tab, setTab] = useState<View>("live");
+  const [mirrorUrl, setMirrorUrl] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const desktop = useIsDesktop();
   const live = source.kind !== "idle";
@@ -49,6 +52,7 @@ export function StreamShell() {
     locationRevealedAt: revealedAt,
   };
   const { messages, send } = useChatCrowd(ctx);
+  useSurroundings(location, live);
 
   useEffect(() => {
     if (!live) return;
@@ -100,7 +104,8 @@ export function StreamShell() {
     url.searchParams.set("scenario", "leak_location_50");
     url.searchParams.set("location", location.id);
     url.searchParams.set("viewers", String(viewers));
-    window.open(url, "_blank", "noopener");
+    setMirrorUrl(url.pathname + url.search);
+    setTab("3d");
     publish({
       type: "reality:fork",
       scenario: "leak_location_50",
@@ -118,15 +123,22 @@ export function StreamShell() {
       <TopBar live={live} />
       <div className="relative flex min-h-0 flex-1">
         <main className="scrollbar-thin flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-3 pb-20 sm:p-4 md:pb-4 lg:gap-5 lg:p-6">
-          <Player source={source} onSourceChange={changeSource} ctx={ctx} />
-          <StreamerBar
-            ctx={ctx}
-            onLocationChange={changeLocation}
-            onReveal={reveal}
-            onSimulate={mirror}
-          />
-          <AroundMe location={location} activeCamUrl={source.kind === "url" ? source.url : null} />
-          <SurroundingsCard />
+          <ViewTabs tab={tab} onChange={setTab} />
+          {/* The player stays mounted across tabs so the stream never drops. */}
+          <div className={tab === "live" ? "flex flex-col gap-4 lg:gap-5" : "hidden"}>
+            <Player source={source} onSourceChange={changeSource} ctx={ctx} />
+            <StreamerBar
+              ctx={ctx}
+              onLocationChange={changeLocation}
+              onReveal={reveal}
+              onSimulate={mirror}
+            />
+            <SurroundingsCard />
+          </div>
+          {tab === "around" && (
+            <AroundMe location={location} activeCamUrl={source.kind === "url" ? source.url : null} />
+          )}
+          {tab === "3d" && <TwinView src={mirrorUrl ?? `/twin?lat=${location.lat}&lon=${location.lon}`} />}
         </main>
 
         {desktop ? (
@@ -185,5 +197,49 @@ export function StreamShell() {
         )}
       </div>
     </div>
+  );
+}
+
+type View = "live" | "around" | "3d";
+
+const VIEWS: { id: View; label: string }[] = [
+  { id: "live", label: "Live" },
+  { id: "around", label: "Around me" },
+  { id: "3d", label: "3D mirror" },
+];
+
+function ViewTabs({ tab, onChange }: { tab: View; onChange: (v: View) => void }) {
+  return (
+    <nav className="flex w-fit gap-1 rounded-xl border border-line bg-surface p-1" aria-label="Views">
+      {VIEWS.map((v) => (
+        <button
+          key={v.id}
+          type="button"
+          onClick={() => onChange(v.id)}
+          aria-current={tab === v.id ? "page" : undefined}
+          className={`rounded-lg px-3.5 py-1.5 text-[13px] font-semibold transition-colors ${
+            tab === v.id ? "bg-text text-bg" : "text-muted hover:text-text"
+          }`}
+        >
+          {v.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function TwinView({ src }: { src: string }) {
+  return (
+    <section className="relative min-h-[520px] flex-1 overflow-hidden rounded-xl border border-line bg-black">
+      <iframe src={src} title="3D mirror" className="absolute inset-0 size-full" allow="fullscreen" />
+      <a
+        href={src}
+        target="_blank"
+        rel="noopener"
+        className="absolute right-3 top-3 rounded-lg border border-line-strong bg-surface/90 px-2.5 py-1 text-[12px] font-semibold text-text backdrop-blur hover:border-text/40"
+      >
+        Open full screen
+      </a>
+    </section>
   );
 }
