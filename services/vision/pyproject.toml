@@ -1,0 +1,27 @@
+[project]
+name = "vision"
+version = "0.1.0"
+description = "Live London camera catalogue + model clients (YOLO, Cosmos, W&B)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "ultralytics>=8.4",
+  "torch",
+  "torchvision",
+  "yt-dlp",
+  "streamlink",
+  "openai",
+  "wandb",
+  "weave",
+  "huggingface_hub",
+  "requests",
+  "beautifulsoup4",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
