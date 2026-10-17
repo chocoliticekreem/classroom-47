@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StreamLocation } from "@/lib/types";
 import type { AroundCam, CamReading } from "@/platform/around/types";
-import { publish } from "@/platform/bus";
 import type { Assessment, AssessRequest } from "./types";
 
 const REFRESH_MS = 60_000;
@@ -38,12 +37,19 @@ export interface AdvisorState {
 export function useAdvisor(location: StreamLocation, live: boolean) {
   const [state, setState] = useState<AdvisorState>({ assessment: null, error: null, loading: false, question: "" });
   const inflight = useRef<AbortController | null>(null);
+  // Read through a ref: a new location object every relay tick must not restart (and abort) a 15-20 s assessment.
+  const locationRef = useRef(location);
+  useEffect(() => {
+    locationRef.current = location;
+  }, [location]);
 
   const assess = useCallback(
-    async (question = DEFAULT_QUESTION) => {
+    async (question = DEFAULT_QUESTION, background = false) => {
+      if (background && inflight.current) return;
       inflight.current?.abort();
       const ctrl = new AbortController();
       inflight.current = ctrl;
+      const location = locationRef.current;
       setState((s) => ({ ...s, loading: true, question: question === DEFAULT_QUESTION ? "" : question }));
       const yolo = await nearestYolo(location);
       const body: AssessRequest = { question, location: { name: location.name, lat: location.lat, lon: location.lon }, yolo };
@@ -54,6 +60,7 @@ export function useAdvisor(location: StreamLocation, live: boolean) {
         signal: ctrl.signal,
       }).catch(() => null);
       if (ctrl.signal.aborted) return;
+      inflight.current = null;
       if (!res) {
         setState((s) => ({ ...s, loading: false, error: "Advisor offline" }));
         return;
@@ -64,21 +71,23 @@ export function useAdvisor(location: StreamLocation, live: boolean) {
         return;
       }
       setState({ assessment: data, error: null, loading: false, question: question === DEFAULT_QUESTION ? "" : question });
-      publish({ type: "surroundings.update", summary: data.advice, level: data.level });
     },
-    [location],
+    [],
   );
 
+  // Re-assess only when the streamer has really moved (~100 m grid) or the place name changes.
+  const placeKey = `${location.name}|${location.lat.toFixed(3)}|${location.lon.toFixed(3)}`;
   useEffect(() => {
     if (!live) return;
-    const first = setTimeout(() => void assess(), LOCATION_DEBOUNCE_MS);
-    const id = setInterval(() => void assess(), REFRESH_MS);
+    const first = setTimeout(() => void assess(DEFAULT_QUESTION, true), LOCATION_DEBOUNCE_MS);
+    const id = setInterval(() => void assess(DEFAULT_QUESTION, true), REFRESH_MS);
     return () => {
       clearTimeout(first);
       clearInterval(id);
-      inflight.current?.abort();
     };
-  }, [live, assess]);
+  }, [live, assess, placeKey]);
+
+  useEffect(() => () => inflight.current?.abort(), []);
 
   return { ...state, assess };
 }

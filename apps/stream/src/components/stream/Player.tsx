@@ -135,7 +135,7 @@ export function Player({ source, onSourceChange, ctx, positionBadge, sync, remot
       ? "h-full rounded-none"
       : size === "wide"
         ? "mx-auto aspect-video w-[min(100%,calc((100dvh-13rem)*16/9))] rounded-[28px]"
-        : `rounded-[28px] ${walking ? "aspect-[3/4] sm:aspect-video" : "aspect-video"}`;
+        : `rounded-[28px] ${walking || source.kind === "idle" ? "aspect-[3/4] sm:aspect-video" : "aspect-video"}`;
 
   return (
     <div
