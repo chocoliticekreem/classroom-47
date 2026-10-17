@@ -1,5 +1,6 @@
 import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
+import { cached, TTL } from "@/lib/server/cache";
 import { ORIGIN, toLocal, WORLD_RADIUS_M, type Ring, type TwinGeometry, type TwinPoi } from "@/twin/config";
 
 /** Server-side loader for the real OSM geometry around the origin (OpenFreeMap z14 vector tiles). */
@@ -20,8 +21,9 @@ const OSM_COLOURS: Record<string, string> = {
   cream: "#fffdd0",
 };
 
-let cache: TwinGeometry | null = null;
-let inflight: Promise<TwinGeometry> | null = null;
+/** Bump when the extraction changes shape so a stale `.cache/` file is not served. */
+const GEOMETRY_VERSION = 2;
+const CACHE_KEY = `twin-osm-v${GEOMETRY_VERSION}-z${ZOOM}-${ORIGIN.lat}_${ORIGIN.lon}-r${WORLD_RADIUS_M}`;
 /** Polygons whose courtyard hole we dropped: they must not be used to hide buildings inside them. */
 const holed = new WeakSet<Ring>();
 
@@ -354,24 +356,31 @@ function dropHiddenBuildings(buildings: TwinGeometry["buildings"]) {
   });
 }
 
-/** Loads and caches the geometry for the process lifetime; concurrent callers share one fetch. */
+/** Local metres to the centimetre: 13 significant digits of float per vertex is a third of the payload. */
+const round2 = (v: number) => Math.round(v * 100) / 100;
+const roundRing = (ring: Ring): Ring => ring.map(([x, z]) => [round2(x), round2(z)]);
+
+async function fetchGeometry(): Promise<TwinGeometry> {
+  const { tiles } = (await (await fetch(TILEJSON, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })).json()) as { tiles: string[] };
+  const out: Collected = { buildings: [], roads: [], water: [], parks: [], pois: [], stations: [], waterways: [] };
+  const lightRail: Ring[] = [];
+  await Promise.all(tilesAround(WORLD_RADIUS_M).map(({ x, y }) => loadTile(tiles[0], x, y, out, lightRail)));
+  out.buildings = dropHiddenBuildings(out.buildings);
+  out.water.push(...uncoveredWaterways(out.waterways, out.water));
+  for (const s of out.stations) {
+    if (s.kind === "rail" && lightRail.some((l) => l.some(([x, z]) => Math.hypot(x - s.pos[0], z - s.pos[1]) < 60))) s.kind = "light_rail";
+  }
+  return {
+    buildings: out.buildings.map((b) => ({ ...b, ring: roundRing(b.ring) })),
+    roads: out.roads.map((r) => ({ ...r, line: roundRing(r.line) })),
+    water: out.water.map(roundRing),
+    parks: out.parks.map(roundRing),
+    pois: out.pois.map((p) => ({ ...p, x: round2(p.x), z: round2(p.z) })),
+    stations: out.stations.map((s) => ({ ...s, pos: [round2(s.pos[0]), round2(s.pos[1])] })),
+  };
+}
+
+/** Geometry for the process lifetime and, via `.cache/`, across restarts; concurrent callers share one fetch. */
 export function loadGeometry(): Promise<TwinGeometry> {
-  if (cache) return Promise.resolve(cache);
-  if (inflight) return inflight;
-  inflight = (async () => {
-    const { tiles } = (await (await fetch(TILEJSON, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })).json()) as { tiles: string[] };
-    const out: Collected = { buildings: [], roads: [], water: [], parks: [], pois: [], stations: [], waterways: [] };
-    const lightRail: Ring[] = [];
-    await Promise.all(tilesAround(WORLD_RADIUS_M).map(({ x, y }) => loadTile(tiles[0], x, y, out, lightRail)));
-    out.buildings = dropHiddenBuildings(out.buildings);
-    out.water.push(...uncoveredWaterways(out.waterways, out.water));
-    for (const s of out.stations) {
-      if (s.kind === "rail" && lightRail.some((l) => l.some(([x, z]) => Math.hypot(x - s.pos[0], z - s.pos[1]) < 60))) s.kind = "light_rail";
-    }
-    cache = { buildings: out.buildings, roads: out.roads, water: out.water, parks: out.parks, pois: out.pois, stations: out.stations };
-    return cache;
-  })().finally(() => {
-    inflight = null;
-  });
-  return inflight;
+  return cached(CACHE_KEY, { ttlMs: TTL.week }, fetchGeometry);
 }

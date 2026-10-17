@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
+import { cachedFetch } from "@/lib/client/cachedFetch";
 import type { TwinGeometry } from "../config";
 
 export type GeometryState =
@@ -18,7 +19,7 @@ export function useGeometryLoader(): GeometryState {
   useEffect(() => {
     if (cached) return;
     const ctrl = new AbortController();
-    fetch("/api/twin/osm", { signal: ctrl.signal })
+    cachedFetch("/api/twin/osm", ctrl.signal)
       .then(async (res) => {
         if (!res.ok) throw new Error(`/api/twin/osm responded ${res.status}`);
         return (await res.json()) as TwinGeometry;
