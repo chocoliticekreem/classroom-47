@@ -4,17 +4,18 @@ IRL streaming platform + London awareness layer + parallel-reality 3D city sim w
 Hard deadline: **16:30 BST** submission. Code freeze **15:45**. Backup recording by **15:30**.
 
 ## Streaming platform — Sonion / Claude
-Being built this session:
-- [ ] Next.js app scaffold, CAMP-layered (`apps/stream/src/agents`, `apps/stream/src/platform`, `apps/stream/src/components`)
-- [ ] Player: webcam, TfL JamCam clip, or uploaded/URL video, with LIVE pill, viewer count, location chip
-- [ ] Mock chat crowd (`apps/stream/src/agents/chat-crowd`): personas, archetype lines, London IRL slang, rate scaled to viewers
-- [ ] Location-signal flagging in chat (messages that leak or react to the streamer's location)
-- [ ] Streamer bar: location picker, "Tell chat my location" (reveal), "Mirror" (sim request)
-- [ ] Surroundings card, fed by `surroundings.update` on the bus
-- [ ] Cross-tab event bus (`apps/stream/src/platform/bus.ts`, BroadcastChannel `classroom-47`)
+Done:
+- [x] Next.js app, CAMP-layered (`apps/stream/src/agents`, `apps/stream/src/platform`, `apps/stream/src/components`)
+- [x] Player: webcam, TfL JamCam clip, or uploaded video, with LIVE pill, viewer count, location chip
+- [x] Mock chat crowd (`apps/stream/src/agents/chat-crowd`) with location-signal flagging
+- [x] Streamer bar: location picker (switches to that spot's nearest JamCam), "Tell chat my location", "Mirror" (opens the city)
+- [x] "Around me" data routes, all real: `/api/around/cams` (TfL JamCams), `/api/around/disruptions` (TfL road), `/api/around/buses` (TfL stops + live arrivals), `/api/around/counts` + `/api/around/frame` (YOLO, `npm run yolo`)
+
+**Main goal (Sonion): the streamer streams from their own camera, we find their location from the browser, and map everything around them.**
+- [ ] Webcam stream as the default path; `navigator.geolocation.watchPosition` → live streamer position (replaces the location picker as the source of truth)
+- [ ] "Around me" map centred on the real position: nearest cams + YOLO counts, buses, disruptions, POIs, re-queried as they walk
 
 Next:
-- [ ] Real streamer location: phone GPS via a companion page posting `stream.location`
 - [ ] Real stream ingest: phone/OBS → WebRTC or HLS into the player
 - [ ] Chat lines from W&B inference (LLM), conditioned on the scene description and location
 - [ ] Stretch: stream-sniper detection (same person re-appearing across the stream; chat-reported snipers)

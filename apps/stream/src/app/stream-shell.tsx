@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, MessageSquare } from "lucide-react";
 import { useChatCrowd } from "@/agents/chat-crowd/useChatCrowd";
+import { AroundMe } from "@/components/around/AroundMe";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { TopBar } from "@/components/TopBar";
 import { Player } from "@/components/stream/Player";
@@ -13,8 +14,8 @@ import type { StreamContext, StreamLocation, StreamSource } from "@/lib/types";
 import { publish } from "@/platform/bus";
 
 const BASE_VIEWERS = 1840;
-// Arvin's parallel-reality city (apps/web, /city).
-const MIRROR_URL = process.env.NEXT_PUBLIC_MIRROR_URL ?? "http://localhost:3000/city";
+// The 3D twin of the streamer's surroundings (/twin).
+const MIRROR_URL = process.env.NEXT_PUBLIC_MIRROR_URL ?? "/twin";
 const DESKTOP_QUERY = "(min-width: 768px)";
 
 // Why: ChatPanel owns scroll/draft state, so it must be mounted exactly once —
@@ -93,7 +94,9 @@ export function StreamShell() {
   }
 
   function mirror() {
-    const url = new URL(MIRROR_URL);
+    const url = new URL(MIRROR_URL, window.location.origin);
+    url.searchParams.set("lat", String(location.lat));
+    url.searchParams.set("lon", String(location.lon));
     url.searchParams.set("scenario", "leak_location_50");
     url.searchParams.set("location", location.id);
     url.searchParams.set("viewers", String(viewers));
@@ -122,6 +125,7 @@ export function StreamShell() {
             onReveal={reveal}
             onSimulate={mirror}
           />
+          <AroundMe location={location} activeCamUrl={source.kind === "url" ? source.url : null} />
           <SurroundingsCard />
         </main>
 
