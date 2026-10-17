@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { useThree } from "@react-three/fiber";//DBG
 import * as THREE from "three";
 import { ROAD_Y, layoutOf, offsetPolyline, subPolyline } from "../network/layout";
 import type { RoadNetwork, XZ } from "../network/types";
@@ -143,7 +142,6 @@ function NodeDebug({ net }: { net: RoadNetwork }) {
 export function Roads() {
   const net = useNetwork();
   useSurfaceUniforms();
-  (window as any).__three = useThree();//DBG
 
   const { asphalt, markings } = useMemo(
     () => ({ asphalt: buildAsphalt(net), markings: buildMarkings(net) }),

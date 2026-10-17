@@ -124,10 +124,7 @@ function signage(k: Kit, signs: SignSpec[]) {
 }
 
 function street(k: Kit) {
-  k.box("body", 0, -0.03, 6, 150, 0.1, 100, "#2b2e36");
-  k.box("body", 0, 0, -D / 2 - 16, 150, 0.06, 7, "#3a3d44");
-  for (let x = -60; x <= 60; x += 15) lamp(k, x, -D / 2 - 12, 5.4);
-  for (let z = -4; z <= 36; z += 14) lamp(k, W / 2 + 12, z, 5.4);
+  for (let x = -24; x <= 24; x += 16) lamp(k, x, -D / 2 - 4, 5.4);
 }
 
 export function buildHalkin(): SiteModel {

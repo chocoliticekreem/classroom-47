@@ -19,6 +19,8 @@ const SNAP_M = 1.5;
 const MIN_ROAD_COMPONENT_M = 120;
 const MIN_PATH_COMPONENT_M = 20;
 const LINK_M = 6;
+/** A free dead end this close to another road is joined to it. */
+const BRIDGE_GAP_M = 6;
 
 interface Way {
   pts: XZ[];
@@ -100,9 +102,10 @@ function polyLength(pts: XZ[]): number {
 /**
  * Turns overlapping polylines into a proper graph: crossings and T-junctions get a vertex in both
  * ways, vertices of different ways within SNAP_M merge into one node, and every way is cut at nodes
- * shared with another way (or at its own ends).
+ * shared with another way (or at its own ends). With `bridgeM` > 0, a free dead end within that many
+ * metres of another way is extended onto it (T-junction) or onto its free end.
  */
-function planarise(input: Way[]): Planar {
+function planarise(input: Way[], bridgeM = 0): Planar {
   const ways = input
     .map((w) => ({ pts: dedupePoints(w.pts), layer: w.layer, src: w.src }))
     .filter((w) => w.pts.length >= 2);
@@ -169,6 +172,53 @@ function planarise(input: Way[]): Planar {
     });
   });
 
+  const extensions: { atStart: XZ[]; atEnd: XZ[] }[] = ways.map(() => ({ atStart: [], atEnd: [] }));
+  if (bridgeM > 0) {
+    const endsFree = (ai: number, v: XZ): boolean => {
+      for (const ref of grid.query(v[0] - SNAP_M, v[1] - SNAP_M, v[0] + SNAP_M, v[1] + SNAP_M)) {
+        const bi = Math.floor(ref / 65536);
+        if (bi === ai) continue;
+        const j = ref % 65536;
+        const [cx, cz] = ways[bi].pts[j];
+        const [dx, dz] = ways[bi].pts[j + 1];
+        const ex = dx - cx;
+        const ez = dz - cz;
+        const t = Math.min(1, Math.max(0, ((v[0] - cx) * ex + (v[1] - cz) * ez) / (ex * ex + ez * ez || 1)));
+        if (Math.hypot(v[0] - cx - ex * t, v[1] - cz - ez * t) <= SNAP_M) return false;
+      }
+      return true;
+    };
+    ways.forEach((a, ai) => {
+      for (const atStart of [true, false]) {
+        const v = atStart ? a.pts[0] : a.pts[a.pts.length - 1];
+        if (!endsFree(ai, v)) continue;
+        let best: { d: number; x: number; z: number; bi: number; j: number; t: number } | null = null;
+        for (const ref of grid.query(v[0] - bridgeM, v[1] - bridgeM, v[0] + bridgeM, v[1] + bridgeM)) {
+          const bi = Math.floor(ref / 65536);
+          const j = ref % 65536;
+          if (bi === ai || ways[bi].layer !== a.layer) continue;
+          const [cx, cz] = ways[bi].pts[j];
+          const [dx, dz] = ways[bi].pts[j + 1];
+          const ex = dx - cx;
+          const ez = dz - cz;
+          const t = Math.min(1, Math.max(0, ((v[0] - cx) * ex + (v[1] - cz) * ez) / (ex * ex + ez * ez || 1)));
+          const x = cx + ex * t;
+          const z = cz + ez * t;
+          const d = Math.hypot(v[0] - x, v[1] - z);
+          if (d > bridgeM || (best && d >= best.d)) continue;
+          best = { d, x, z, bi, j, t };
+        }
+        if (!best) continue;
+        const target = ways[best.bi];
+        const last = target.pts.length - 1;
+        const atEndpoint = (best.t <= 0 && best.j === 0) || (best.t >= 1 && best.j === last - 1);
+        if (best.t > 0 && best.t < 1) inserts[best.bi].push({ seg: best.j, t: best.t, x: best.x, z: best.z });
+        else if (!atEndpoint && best.t <= 0) best.x = target.pts[best.j][0];
+        (atStart ? extensions[ai].atStart : extensions[ai].atEnd).push([best.x, best.z]);
+      }
+    });
+  }
+
   ways.forEach((w, wi) => {
     if (!inserts[wi].length) return;
     const bySeg = new Map<number, { t: number; x: number; z: number }[]>();
@@ -186,6 +236,12 @@ function planarise(input: Way[]): Planar {
       for (const ins of list) pts.push([ins.x, ins.z]);
     }
     w.pts = dedupePoints(pts);
+  });
+
+  ways.forEach((w, wi) => {
+    const ext = extensions[wi];
+    if (ext.atStart.length) w.pts = dedupePoints([ext.atStart[0], ...w.pts]);
+    if (ext.atEnd.length) w.pts = dedupePoints([...w.pts, ext.atEnd[0]]);
   });
 
   interface Cluster {
@@ -288,8 +344,11 @@ function planarise(input: Way[]): Planar {
   return { nodes: clusters.map((c) => [c.x, c.z] as XZ), edges: unique };
 }
 
-/** Keeps only connected components whose total length reaches `minLen`; node ids are re-numbered. */
-function compact(planar: Planar, minLen: number): { nodes: XZ[]; edges: RawEdge[] } {
+/**
+ * Keeps only connected components whose total length reaches `minLen` (or just the longest one with
+ * `largestOnly`, so traffic never spawns on an island); node ids are re-numbered.
+ */
+function compact(planar: Planar, minLen: number, largestOnly = false): { nodes: XZ[]; edges: RawEdge[] } {
   const parent = planar.nodes.map((_, i) => i);
   const find = (i: number): number => {
     while (parent[i] !== i) {
@@ -301,7 +360,11 @@ function compact(planar: Planar, minLen: number): { nodes: XZ[]; edges: RawEdge[
   for (const e of planar.edges) parent[find(e.from)] = find(e.to);
   const total = new Map<number, number>();
   for (const e of planar.edges) total.set(find(e.from), (total.get(find(e.from)) ?? 0) + e.length);
-  const kept = planar.edges.filter((e) => (total.get(find(e.from)) ?? 0) >= minLen);
+  const longest = Math.max(0, ...total.values());
+  const kept = planar.edges.filter((e) => {
+    const len = total.get(find(e.from)) ?? 0;
+    return largestOnly ? len === longest : len >= minLen;
+  });
 
   const remap = new Map<number, number>();
   const nodes: XZ[] = [];
@@ -354,8 +417,12 @@ export function buildNetwork(geometry: TwinGeometry): RoadNetwork {
     (r) => (r.kind === "major" || r.kind === "minor") && !r.tunnel && r.line.length >= 2,
   );
   const planar = compact(
-    planarise(sources.map((r, i) => ({ pts: r.line, layer: r.bridge ? 1 : 0, src: i }))),
+    planarise(
+      sources.map((r, i) => ({ pts: r.line, layer: r.bridge ? 1 : 0, src: i })),
+      BRIDGE_GAP_M,
+    ),
     MIN_ROAD_COMPONENT_M,
+    true,
   );
 
   const nodes: RoadNode[] = planar.nodes.map((p, id) => ({ id, x: p[0], z: p[1], edges: [], junction: false }));

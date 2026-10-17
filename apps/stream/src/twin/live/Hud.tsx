@@ -4,6 +4,8 @@ import { useCompare } from "../compare/store";
 import { useFieldStore } from "../sim/useField";
 import { distanceM } from "@/platform/around/geo";
 import { ORIGIN, WORLD_RADIUS_M } from "../config";
+import { useScenario } from "./scenario";
+import { useTwinCounts } from "./sim/counts";
 import { useLive, useLiveFeeds, useNow } from "./store";
 
 const DUE_SOON_S = 300;
@@ -71,6 +73,8 @@ export function Hud() {
   const now = useNow();
   const comparing = useCompare((s) => s.camId !== null);
   const field = useFieldStore();
+  const twin = useTwinCounts();
+  const scenario = useScenario((s) => s.scenario);
   if (comparing) return null;
 
   let people = 0;
@@ -92,11 +96,12 @@ export function Hud() {
   const analysed = cams.filter((c) => clips[c.id]).length;
 
   const rows: { label: string; value: string; color: string }[] = [
-    { label: "People tracked", value: String(people), color: "#ffb37a" },
-    { label: "Vehicles tracked", value: String(vehicles), color: "#9fd3ff" },
+    { label: "People tracked (cameras)", value: String(people), color: "#ffb37a" },
+    { label: "Vehicles tracked (cameras)", value: String(vehicles), color: "#9fd3ff" },
     { label: "Cameras", value: cams.length ? `${analysed}/${cams.length} analysed` : "—", color: "var(--live)" },
-    { label: "Buses due < 5 min", value: String(busesDue), color: "#c8102e" },
-    { label: "Disruptions", value: String(uniqueDisruptions), color: "var(--warn)" },
+    { label: "Buses due < 5 min (TfL)", value: String(busesDue), color: "#c8102e" },
+    { label: "Disruptions (TfL)", value: String(uniqueDisruptions), color: "var(--warn)" },
+    { label: "Twin agents", value: `${twin.people} people · ${twin.vehicles} vehicles`, color: "#e8d6c2" },
   ];
   const estimate = field
     ? `${Math.round(field.people * field.crowd)} people · ${Math.round(field.vehicles * field.crowd)} vehicles`
@@ -151,6 +156,23 @@ export function Hud() {
         <div style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums", paddingLeft: 17 }}>{estimate}</div>
         {basis && <div style={{ color: "var(--muted)", fontSize: 11, paddingLeft: 17 }}>{basis}</div>}
       </div>
+      {scenario && (
+        <div
+          style={{
+            marginTop: 10,
+            paddingTop: 8,
+            borderTop: "1px solid var(--border)",
+            fontSize: 12,
+            color: scenario.source === "demo" ? "var(--warn)" : "var(--text)",
+          }}
+        >
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Swatch color={scenario.source === "demo" ? "var(--warn)" : "#4f7cff"} glow />
+            <span style={{ fontWeight: 600 }}>{scenario.source === "demo" ? "Demo scenario" : "Responding to real incident"}</span>
+          </div>
+          <div style={{ paddingLeft: 17 }}>{scenario.label}</div>
+        </div>
+      )}
       <StreamerStatus />
       <div
         style={{
@@ -171,6 +193,9 @@ export function Hud() {
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Swatch color="var(--live)" /> Closed road · <Swatch color="var(--warn)" /> works
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Swatch color="#9fd3ff" /> Boats · illustrative river traffic, not live data
         </div>
       </div>
     </div>

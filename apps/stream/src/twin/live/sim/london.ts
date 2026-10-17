@@ -954,7 +954,7 @@ export class LondonDirector {
     if (tour) {
       const show = this.on.has("tourists") && s.tourists;
       let arrived = true;
-      tour.people.forEach((p, i) => {
+      tour.people.forEach((p) => {
         const a = p.a;
         const d = p.d;
         a.live = show;

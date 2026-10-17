@@ -9,8 +9,9 @@ const PAUSE_CHANCE = 0.04;
 const FAR_RESPAWN_CHANCE = 0.3;
 const YAW_RATE = 8;
 const CADENCE = 8;
-const STREAMER_SIGMA_M = 150;
-const STATION_SIGMA_M = 80;
+/** Active head-count eases toward the field target at this share of the gap per second. */
+const COUNT_RATE = 0.25;
+const COUNT_MIN_RATE = 3;
 
 export class Pedestrian {
   /** Walk key: footway index * 2, plus 1 when walking from the footway's end to its start. */
@@ -37,7 +38,11 @@ export class Pedestrian {
   }
 }
 
-/** Pedestrians that walk along the network's footways, linger in small groups, and are denser near hotspots. */
+/**
+ * Pedestrians that walk along the network's footways and linger in small groups. Where they spawn and
+ * how many are out is driven by `setDensities` (people per footway from the live field); `active`
+ * eases toward `target` so the head-count never jumps.
+ */
 export class PedSim {
   readonly peds: Pedestrian[] = [];
   private readonly rng: () => number;
@@ -47,16 +52,21 @@ export class PedSim {
   private readonly yawEnd: Float32Array;
   private readonly exits: Int32Array[];
   private readonly exitCum: Float64Array[];
-  private readonly mids: Float32Array;
+  /** Footway midpoints as x, z pairs (local metres), for snapping onto the field. */
+  readonly mids: Float32Array;
+  private readonly exitBase: Float64Array[];
   private spawnCum: Float64Array = new Float64Array(0);
+  private weight: Float32Array;
   private usable = 0;
+  /** Pedestrians currently out; the renderer draws `peds[0..active)`. */
+  active = 0;
+  private target = 0;
+  private countAcc = 0;
 
   constructor(
     private readonly net: RoadNetwork,
-    count: number,
+    capacity: number,
     seed: number,
-    streamer: XZ | null,
-    stations: XZ[],
   ) {
     this.rng = mulberry32(seed);
     const fws = net.footways;
@@ -66,6 +76,8 @@ export class PedSim {
     this.yawEnd = new Float32Array(keys);
     this.exits = new Array<Int32Array>(keys);
     this.exitCum = new Array<Float64Array>(keys);
+    this.exitBase = new Array<Float64Array>(keys);
+    this.weight = new Float32Array(fws.length).fill(1);
     this.mids = new Float32Array(fws.length * 2);
     const idIndex = new Map(fws.map((f, i) => [f.id, i] as const));
     const out = this.out;
@@ -90,6 +102,7 @@ export class PedSim {
     for (let w = 0; w < keys; w++) {
       this.exits[w] = empty;
       this.exitCum[w] = new Float64Array(0);
+      this.exitBase[w] = new Float64Array(0);
       const i = w >> 1;
       const f = fws[i];
       if (f.length < 1) continue;
@@ -108,48 +121,60 @@ export class PedSim {
         cands.push(ds <= de ? j * 2 : j * 2 + 1);
       }
       if (!cands.length) cands.push(w ^ 1);
-      const cum = new Float64Array(cands.length);
-      let total = 0;
+      const base = new Float64Array(cands.length);
       for (let k = 0; k < cands.length; k++) {
         const turn = Math.abs(wrapAngle(this.yawStart[cands[k]] - this.yawEnd[w]));
-        total += Math.exp(-((turn / 1.2) ** 2)) + 0.15;
-        cum[k] = total;
+        base[k] = Math.exp(-((turn / 1.2) ** 2)) + 0.15;
       }
       this.exits[w] = Int32Array.from(cands);
-      this.exitCum[w] = cum;
+      this.exitBase[w] = base;
+      this.exitCum[w] = new Float64Array(cands.length);
     }
 
-    this.setHotspots(streamer, stations);
-    for (let i = 0; i < count && this.usable > 0; i++) this.peds.push(new Pedestrian(this.rng));
+    this.setDensities(this.weight, 0);
+    for (let i = 0; i < capacity && this.usable > 0; i++) this.peds.push(new Pedestrian(this.rng));
     this.seedPeds();
   }
 
-  /** Reweights where people spawn: denser around the streamer and stations (local metres). */
-  setHotspots(streamer: XZ | null, stations: XZ[]) {
+  /**
+   * People per footway (any non-negative scale; 0 = nobody walks or spawns there, e.g. inside a
+   * calibrated camera cone that real tracks already fill) and the total head-count to ease toward.
+   */
+  setDensities(weight: Float32Array, target: number) {
     const fws = this.net.footways;
+    this.weight = weight;
+    this.target = Math.min(this.peds.length, Math.max(0, Math.round(target)));
     const cum = new Float64Array(fws.length);
     let total = 0;
     let usable = 0;
     for (let i = 0; i < fws.length; i++) {
-      if (fws[i].length >= 1) {
-        const x = this.mids[i * 2];
-        const z = this.mids[i * 2 + 1];
-        let density = 0.3;
-        if (streamer) {
-          const d2 = (x - streamer[0]) ** 2 + (z - streamer[1]) ** 2;
-          density += 3 * Math.exp(-d2 / (2 * STREAMER_SIGMA_M ** 2));
-        }
-        for (const st of stations) {
-          const d2 = (x - st[0]) ** 2 + (z - st[1]) ** 2;
-          density += 1.5 * Math.exp(-d2 / (2 * STATION_SIGMA_M ** 2));
-        }
-        total += fws[i].length * density;
+      if (fws[i].length >= 1 && weight[i] > 0) {
+        total += fws[i].length * weight[i];
         usable++;
       }
       cum[i] = total;
     }
+    if (total === 0) {
+      for (let i = 0; i < fws.length; i++) {
+        if (fws[i].length >= 1) {
+          total += fws[i].length;
+          usable++;
+        }
+        cum[i] = total;
+      }
+    }
     this.spawnCum = cum;
     this.usable = usable;
+    for (let w = 0; w < this.exits.length; w++) {
+      const exits = this.exits[w];
+      const base = this.exitBase[w];
+      const out = this.exitCum[w];
+      let acc = 0;
+      for (let k = 0; k < exits.length; k++) {
+        acc += base[k] * (0.02 + weight[exits[k] >> 1]);
+        out[k] = acc;
+      }
+    }
   }
 
   private seedPeds() {
@@ -186,6 +211,29 @@ export class PedSim {
     }
   }
 
+  private easeCount(dt: number) {
+    const gap = this.target - this.active;
+    if (gap === 0) return;
+    this.countAcc += Math.max(COUNT_MIN_RATE, Math.abs(gap) * COUNT_RATE) * dt;
+    const n = Math.min(Math.abs(gap), Math.floor(this.countAcc));
+    if (n === 0) return;
+    this.countAcc -= n;
+    if (gap > 0) {
+      for (let k = 0; k < n; k++) {
+        const p = this.peds[this.active + k];
+        p.w = this.randomWalk();
+        p.s = this.rng() * this.fwLen[p.w >> 1];
+        p.stand = 0;
+        p.fresh = true;
+        this.pose(p, 0, true);
+        p.dirty = true;
+      }
+      this.active += n;
+    } else {
+      this.active -= n;
+    }
+  }
+
   private randomWalk(): number {
     const i = pickCumulative(this.spawnCum, this.rng());
     return i * 2 + (this.rng() < 0.5 ? 0 : 1);
@@ -213,7 +261,8 @@ export class PedSim {
     const peds = this.peds;
     const rng = this.rng;
     const near2 = NEAR_M * NEAR_M;
-    for (let i = 0; i < peds.length; i++) {
+    this.easeCount(dt);
+    for (let i = 0; i < this.active; i++) {
       const p = peds[i];
       p.acc += Math.min(dt, 0.1);
       if (p.stand > 0) {
