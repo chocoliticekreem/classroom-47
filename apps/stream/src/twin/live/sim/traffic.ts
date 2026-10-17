@@ -40,7 +40,6 @@ const RELAX_CONFLICT_S = 12;
 const RELAX_ROOM_S = 45;
 const RECYCLE_WAIT_S = 30;
 const STUCK_S = 45;
-const STUCK_FORCE_S = 120;
 const NODE_CAP = 12;
 /** Junction nodes joined by an edge this short share one junction box (split carriageways, offset crossings). */
 const CLUSTER_EDGE_M = 18;
@@ -54,9 +53,19 @@ const COUNT_MIN_RATE = 1.5;
 const RESPONDER_PACE = 2.1;
 const FOCUS_SIGMA_M = 260;
 const RECYCLE_FOCUS_M = 380;
-const RECYCLE_CAMERA_M = 150;
-const SPAWN_CAMERA_M = 60;
 const RECYCLE_CHANCE = 0.35;
+/** A car may only be removed or re-seeded when it is outside the camera frustum (plus this padding) and at least SAFE_DIST_M away. */
+const SEEN_PAD_M = 14;
+const SAFE_DIST_M = 60;
+/** Beyond this distance a car is a sub-pixel dot and counts as unseen. With no frustum supplied, nothing past FALLBACK_SIGHT_M is seen. */
+const VISIBLE_FAR_M = 700;
+const FALLBACK_SIGHT_M = 150;
+/** Waiting this long at the head of a queue, try another exit; no more than REROUTE_MAX times. */
+const REROUTE_S = 10;
+const REROUTE_MAX = 3;
+/** Cars stay this far inside the carriageway edge: half the widest body plus a little. */
+const KERB_CLEARANCE_M = 1.1;
+const ENTRY_RUN_M = 4;
 const SIREN_RANGE_M = 60;
 const SIREN_MIN_SPEED = 3;
 const SIREN_CORRIDOR_M = 9;
@@ -111,6 +120,15 @@ export class Vehicle {
   z = 0;
   yaw = 0;
   fresh = true;
+  /** Surplus car heading for the nearest exit; it is only removed once nobody can see it (or at a dead end out of frame). */
+  retiring = false;
+  /** Inside the camera frustum (padded) as of this frame's update. */
+  seen = false;
+  /** Times this car has swapped its next exit while queued, and the `gridWait` reading at the last swap. */
+  reroutes = 0;
+  rerouteAt = 0;
+  /** True once a retiring car has replanned its next exit toward the nearest sink. */
+  replanned = false;
   /** Parked vehicles are off the road (lane -1) and drawn at zero scale until the field asks for them. */
   parked = true;
   role = ROLE_NONE;
@@ -183,6 +201,14 @@ export class TrafficSim {
   private readonly laneExitBase: Float64Array[];
   private readonly laneBase: Float32Array;
   private readonly spawnable: Uint8Array;
+  /** 1 on lanes that end at a map edge or dead end; `exitDist` is the metres to the nearest one along the cheapest route. */
+  private readonly laneSink: Uint8Array;
+  private readonly exitDist: Float32Array;
+  /** Spawnable lanes that start at a map-edge node: where new cars drive in from. */
+  private entryLanes: Int32Array = new Int32Array(0);
+  private planes: Float32Array | null = null;
+  private camX = 0;
+  private camZ = 0;
   private readonly nodeStamp: Int32Array;
   private readonly nodeOccN: Uint8Array;
   private readonly nodeOcc: Int16Array;
@@ -206,7 +232,7 @@ export class TrafficSim {
   private vcell: Int32Array;
   private hashItems: Int32Array;
   private readonly enableOrder: Int32Array;
-  /** Vehicles currently on the road. */
+  /** Vehicles on the road that count toward the target (retiring ones still driving off are not included). */
   active = 0;
   private target = 0;
   private countAcc = 0;
@@ -221,6 +247,10 @@ export class TrafficSim {
   yields = 0;
   /** Moves refused by the overlap guard (the car held instead). */
   holds = 0;
+  /** Cars removed or teleported while inside the frustum. Always 0: removals wait for the car to be out of sight. */
+  pops = 0;
+  /** Spawns or retirements postponed because every candidate spot was in view. */
+  deferred = 0;
   private readonly paths = new Map<number, Float32Array>();
   private readonly crossCache = new Map<number, boolean>();
   private readonly born = new Int16Array(BORN_CAP);
@@ -231,6 +261,8 @@ export class TrafficSim {
     counts: number[],
     seed: number,
     focus: XZ | null = null,
+    /** Edge ids cars must not spawn on, e.g. edges hidden under a landmark's own deck. They can still drive through. */
+    noSpawn: ArrayLike<boolean> | null = null,
   ) {
     this.rng = mulberry32(seed);
     this.focus = focus;
@@ -255,6 +287,8 @@ export class TrafficSim {
     this.laneExitBase = new Array<Float64Array>(lanes);
     this.laneBase = new Float32Array(lanes);
     this.spawnable = new Uint8Array(lanes);
+    this.laneSink = new Uint8Array(lanes);
+    this.exitDist = new Float32Array(lanes).fill(Infinity);
     this.edgeMid = new Float32Array(edges.length * 2);
     this.edgeWeight = new Float32Array(edges.length).fill(1);
     this.edgeSpeed = new Float32Array(edges.length).fill(1);
@@ -274,9 +308,11 @@ export class TrafficSim {
       const rev = fwd + 1;
       this.edgeId[fwd] = this.edgeId[rev] = e.id;
       this.laneLen[fwd] = this.laneLen[rev] = e.length;
-      this.laneLat[fwd] = Math.min(2, Math.max(1.1, e.width * 0.25));
+      // The left-lane offset and any pull-over or overtake swing stay inside the carriageway, a body half-width from the kerb.
+      const room = Math.max(0, e.width / 2 - KERB_CLEARANCE_M);
+      this.laneLat[fwd] = Math.min(room, Math.min(2, Math.max(1.1, e.width * 0.25)));
       this.laneLat[rev] = -this.laneLat[fwd];
-      this.lanePull[fwd] = this.lanePull[rev] = Math.max(0.2, Math.min(1.4, e.width / 2 - this.laneLat[fwd] - 1));
+      this.lanePull[fwd] = this.lanePull[rev] = Math.max(0, Math.min(1.4, room - this.laneLat[fwd]));
       this.laneFree[fwd] = this.laneFree[rev] = e.kind === "major" ? MAJOR_SPEED : MINOR_SPEED;
       this.laneMajor[fwd] = this.laneMajor[rev] = e.kind === "major" ? 1 : 0;
       this.laneBase[fwd] = this.laneBase[rev] = this.laneFree[fwd];
@@ -350,8 +386,18 @@ export class TrafficSim {
       this.laneExitBase[L] = base;
       this.laneExitCum[L] = new Float64Array(cands.length);
     }
-
-    this.buildSpawnTable(valid, nodeById);
+    // Prefer exits that lead somewhere: a one-way stub with no way on is only taken when nothing else is on offer.
+    for (let L = 0; L < lanes; L++) {
+      const exits = this.laneExits[L];
+      const keep: number[] = [];
+      for (let k = 0; k < exits.length; k++) if (this.laneExits[exits[k]].length) keep.push(k);
+      if (!keep.length || keep.length === exits.length) continue;
+      this.laneExits[L] = Int32Array.from(keep.map((k) => exits[k]));
+      this.laneExitBase[L] = Float64Array.from(keep.map((k) => this.laneExitBase[L][k]));
+      this.laneExitCum[L] = new Float64Array(keep.length);
+    }
+    this.buildSinks(valid);
+    this.buildSpawnTable(valid, nodeById, noSpawn);
     this.setField(this.edgeWeight, this.edgeSpeed, 0);
 
     if (this.spawnLanes.length) {
@@ -440,9 +486,9 @@ export class TrafficSim {
     const want = kind === "chase" ? [ROLE_QUARRY, ROLE_POLICE, ROLE_POLICE] : [ROLE_AMBULANCE];
     const needKind = kind === "chase" ? KIND_CAR : KIND_VAN;
     let k = 0;
-    for (let i = 0; i < this.active && k < want.length; i++) {
+    for (let i = 0; i < this.enableOrder.length && k < want.length; i++) {
       const v = this.vehicles[this.enableOrder[i]];
-      if (v.kind !== needKind) continue;
+      if (v.parked || v.retiring || v.kind !== needKind) continue;
       v.role = want[k++];
       v.pace = RESPONDER_PACE;
       v.holdAt = 0;
@@ -465,28 +511,77 @@ export class TrafficSim {
     const n = Math.min(Math.abs(gap), Math.floor(this.countAcc));
     if (n === 0) return;
     this.countAcc -= n;
+    const order = this.enableOrder;
     if (gap > 0) {
-      for (let k = 0; k < n; k++) {
-        const v = this.vehicles[this.enableOrder[this.active + k]];
+      // First call back cars that were still driving off, then bring new ones in out of sight.
+      let need = n;
+      for (let i = 0; i < order.length && need > 0; i++) {
+        const v = this.vehicles[order[i]];
+        if (v.retiring && !v.parked) {
+          v.retiring = false;
+          v.replanned = false;
+          this.active++;
+          need--;
+        }
+      }
+      for (let i = 0; i < order.length && need > 0; i++) {
+        const v = this.vehicles[order[i]];
+        if (!v.parked) continue;
+        if (!this.place(v)) {
+          this.deferred++;
+          break;
+        }
         v.parked = false;
-        this.place(v);
         v.v = this.laneFree[v.lane] * v.pace * 0.6;
+        this.active++;
+        need--;
       }
-      this.active += n;
+      this.countAcc += need;
     } else {
-      for (let k = 1; k <= n; k++) {
-        const v = this.vehicles[this.enableOrder[this.active - k]];
-        v.parked = true;
-        v.lane = -1;
-        v.box = -1;
-        v.role = ROLE_NONE;
+      // Unseen cars go first (they just vanish); cars in view are told to drive on to the nearest exit.
+      let need = n;
+      for (let pass = 0; pass < 2 && need > 0; pass++) {
+        for (let i = order.length - 1; i >= 0 && need > 0; i--) {
+          const v = this.vehicles[order[i]];
+          if (v.parked || v.retiring || v.role !== ROLE_NONE) continue;
+          if (pass === 0 && v.seen) continue;
+          v.retiring = true;
+          v.replanned = false;
+          this.active--;
+          need--;
+        }
       }
-      this.active -= n;
+    }
+  }
+
+  /** Marks lanes ending at a map edge or dead end and finds each lane's distance to the nearest one (queue-based relaxation over the lane graph). */
+  private buildSinks(valid: Uint8Array) {
+    const lanes = valid.length;
+    const preds: number[][] = Array.from({ length: lanes }, () => []);
+    for (let L = 0; L < lanes; L++) for (const c of this.laneExits[L]) preds[c].push(L);
+    const queue: number[] = [];
+    for (let L = 0; L < lanes; L++) {
+      if (!valid[L]) continue;
+      if (!this.laneExits[L].length || this.net.nodes[this.laneNode[L]].edges.length === 1) {
+        this.laneSink[L] = 1;
+        this.exitDist[L] = this.laneLen[L];
+        queue.push(L);
+      }
+    }
+    for (let q = 0; q < queue.length; q++) {
+      const c = queue[q];
+      for (const L of preds[c]) {
+        const d = this.laneLen[L] + this.exitDist[c];
+        if (d < this.exitDist[L]) {
+          this.exitDist[L] = d;
+          queue.push(L);
+        }
+      }
     }
   }
 
   /** Only lanes in the largest connected piece of the network are used for spawning, so cars never get stuck in tiny islands. */
-  private buildSpawnTable(valid: Uint8Array, nodeById: Map<number, number>) {
+  private buildSpawnTable(valid: Uint8Array, nodeById: Map<number, number>, noSpawn: ArrayLike<boolean> | null) {
     const edges = this.net.edges;
     const parent = new Int32Array(this.net.nodes.length);
     for (let i = 0; i < parent.length; i++) parent[i] = i;
@@ -507,17 +602,32 @@ export class TrafficSim {
     let best = 0;
     for (let i = 1; i < compLen.length; i++) if (compLen[i] > compLen[best]) best = i;
     for (let L = 0; L < valid.length; L++) {
-      if (!valid[L] || this.laneLen[L] < MIN_SPAWN_LANE_M || !this.laneExits[L].length) continue;
+      if (!valid[L] || this.laneLen[L] < MIN_SPAWN_LANE_M || !this.laneExits[L].length || noSpawn?.[edges[L >> 1].id]) continue;
       const a = nodeById.get(edges[L >> 1].from);
       if (a === undefined || find(a) !== best) continue;
       this.spawnable[L] = 1;
     }
+    const entries: number[] = [];
+    for (let L = 0; L < valid.length; L++) {
+      if (this.spawnable[L] && this.net.nodes[this.laneDep[L]].edges.length === 1) entries.push(L);
+    }
+    this.entryLanes = Int32Array.from(entries);
   }
 
-  private pickNext(lane: number): number {
+  /** Next lane for a route: weighted by the field, or the way to the nearest exit for a retiring car; `avoid` is skipped when anything else is open. */
+  private pickNext(lane: number, retiring = false, avoid = -1): number {
     const exits = this.laneExits[lane];
     if (!exits.length) return -1;
     if (exits.length === 1) return exits[0];
+    if (retiring) {
+      let best = exits[0];
+      for (const c of exits) if (c !== avoid && this.exitDist[c] < this.exitDist[best]) best = c;
+      return best;
+    }
+    if (avoid >= 0) {
+      const rest = exits.filter((c) => c !== avoid);
+      if (rest.length) return rest[(this.rng() * rest.length) | 0];
+    }
     return exits[pickCumulative(this.laneExitCum[lane], this.rng())];
   }
 
@@ -527,8 +637,8 @@ export class TrafficSim {
     v.prev = keepRoute ? v.lane : -1;
     v.lane = lane;
     v.s = s;
-    v.next = keepRoute ? v.next2 : this.pickNext(lane);
-    v.next2 = v.next >= 0 ? this.pickNext(v.next) : -1;
+    v.next = keepRoute ? v.next2 : this.pickNext(lane, v.retiring);
+    v.next2 = v.next >= 0 ? this.pickNext(v.next, v.retiring) : -1;
     v.turnOut =
       v.next < 0
         ? 0
@@ -542,24 +652,71 @@ export class TrafficSim {
     v.hold = 0;
   }
 
-  private place(v: Vehicle, camX = NaN, camZ = NaN) {
+  /** Whether a point on the road (local metres) is inside the camera frustum grown by `pad` metres. */
+  private sees(x: number, z: number, pad: number): boolean {
+    const dx = x - this.camX;
+    const dz = z - this.camZ;
+    const d2 = dx * dx + dz * dz;
+    const p = this.planes;
+    if (!p) return d2 < FALLBACK_SIGHT_M * FALLBACK_SIGHT_M;
+    if (d2 > VISIBLE_FAR_M * VISIBLE_FAR_M) return false;
+    for (let k = 0; k < 24; k += 4) {
+      if (p[k] * x + p[k + 1] * 0.5 + p[k + 2] * z + p[k + 3] < -pad) return false;
+    }
+    return true;
+  }
+
+  /** A car may be removed or re-seeded only when nobody can see it and it is well away from the camera. */
+  private hidden(v: Vehicle): boolean {
+    const dx = v.x - this.camX;
+    const dz = v.z - this.camZ;
+    return dx * dx + dz * dz > SAFE_DIST_M * SAFE_DIST_M && !this.sees(v.x, v.z, SEEN_PAD_M);
+  }
+
+  /** Takes a car off the road. Anything that was in view counts as a pop. */
+  private park(v: Vehicle) {
+    if (v.seen && !v.fresh) this.pops++;
+    v.parked = true;
+    v.retiring = false;
+    v.lane = -1;
+    v.box = -1;
+    v.role = ROLE_NONE;
+    v.seen = false;
+  }
+
+  /** Puts the car on a spawnable lane out of the camera's sight (or at a map-edge entry); false when no such spot is free right now. */
+  private place(v: Vehicle): boolean {
     const rng = this.rng;
-    let lane = 0;
+    if (!this.spawnLanes.length) return false;
+    const out = this.out;
+    let lane = -1;
     let s = 0;
-    for (let attempt = 0; attempt < 24; attempt++) {
-      lane = this.spawnLanes[pickCumulative(this.spawnCum, rng())];
-      s = rng() * this.laneLen[lane];
-      const e = lane >> 1;
-      let clear = !((this.edgeMid[e * 2] - camX) ** 2 + (this.edgeMid[e * 2 + 1] - camZ) ** 2 < SPAWN_CAMERA_M ** 2);
+    for (let attempt = 0; attempt < 48 && lane < 0; attempt++) {
+      const entry = attempt >= 24 && this.entryLanes.length > 0;
+      const L = entry ? this.entryLanes[(rng() * this.entryLanes.length) | 0] : this.spawnLanes[pickCumulative(this.spawnCum, rng())];
+      const sTry = entry ? rng() * ENTRY_RUN_M : rng() * this.laneLen[L];
+      let clear = true;
       for (const o of this.vehicles) {
-        if (o !== v && !o.parked && o.lane === lane && Math.abs(o.s - s) < SPAWN_CLEARANCE_M) {
+        if (o !== v && !o.parked && o.lane === L && Math.abs(o.s - sTry) < SPAWN_CLEARANCE_M) {
           clear = false;
           break;
         }
       }
-      if (clear) break;
+      if (!clear) continue;
+      const forward = (L & 1) === 0;
+      this.net.sample(this.edgeId[L], forward ? sTry : this.laneLen[L] - sTry, this.laneLat[L], out);
+      const dx = out[0] - this.camX;
+      const dz = out[1] - this.camZ;
+      if (dx * dx + dz * dz < SAFE_DIST_M * SAFE_DIST_M || this.sees(out[0], out[1], SEEN_PAD_M)) continue;
+      lane = L;
+      s = sTry;
     }
+    if (lane < 0) return false;
     v.turnOut = 0;
+    v.retiring = false;
+    v.replanned = false;
+    v.reroutes = 0;
+    v.rerouteAt = 0;
     this.enter(v, lane, s, false);
     if (v.holdAt - v.s < 15) v.holdAt = 0;
     v.turnIn = 0;
@@ -569,7 +726,15 @@ export class TrafficSim {
     v.yieldT = 0;
     v.pull = 0;
     v.stuck = 0;
+    v.gridWait = 0;
     v.fresh = true;
+    v.seen = false;
+    const forward = (lane & 1) === 0;
+    const h = this.net.sample(this.edgeId[lane], forward ? s : this.laneLen[lane] - s, this.laneLat[lane], out);
+    v.x = out[0];
+    v.z = out[1];
+    v.yaw = forward ? h : h + Math.PI;
+    return true;
   }
 
   /** Footprints of the movement `inLane` → `outLane` through its junction: PATH_SAMPLES (x, z, yaw) triples along the turn arc, cached. */
@@ -650,7 +815,7 @@ export class TrafficSim {
         const b = hashCell(cx + ox, cz + oz);
         for (let p = this.hashStart[b]; p < this.hashStart[b + 1]; p++) {
           const o = vs[this.hashItems[p]];
-          if (o === v || o.lane === v.lane || o.fresh) continue;
+          if (o === v || o.lane === v.lane || o.fresh || o.parked) continue;
           const bh = o.hw - MOVE_SHRINK_M;
           const bl = o.len * 0.5 - MOVE_SHRINK_M;
           for (let i = 0; i < PATH_SAMPLES; i++) {
@@ -800,13 +965,21 @@ export class TrafficSim {
     return Math.atan2((1 - u) * (cx - p0x) + u * (p1x - cx), (1 - u) * (cz - p0z) + u * (p1z - cz));
   }
 
-  update(dtRaw: number, camX: number, camZ: number) {
+  /**
+   * Steps every car along its route, wherever it is. `planes` is the camera frustum as six
+   * (nx, ny, nz, constant) planes with inward normals (Three's `Frustum`); cars are only removed or
+   * re-seeded outside it, and `Vehicle.seen` tells the renderer which ones to draw.
+   */
+  update(dtRaw: number, camX: number, camZ: number, planes: Float32Array | null = null) {
     const vs = this.vehicles;
     const n = vs.length;
     if (!n) return;
     const dt = Math.min(dtRaw, 0.05);
     this.clock += dt;
     this.tick++;
+    this.camX = camX;
+    this.camZ = camZ;
+    this.planes = planes;
     this.easeCount(dt);
     const { order, key, laneHead, laneLen, laneFree, laneNode, laneGive, nodeStamp } = this;
     const tick = this.tick;
@@ -898,6 +1071,22 @@ export class TrafficSim {
     for (let k = 0; k < n; k++) {
       const v = vs[order[k]];
       if (v.parked) continue;
+      v.seen = this.sees(v.x, v.z, SEEN_PAD_M * 0.5);
+      if (v.retiring) {
+        const L0 = v.lane;
+        const atSink = this.laneSink[L0] === 1 && laneLen[L0] - v.s < 3 && !this.sees(v.x, v.z, 3);
+        if (atSink || this.hidden(v)) {
+          this.park(v);
+          continue;
+        }
+        if (!v.replanned && v.box < 0 && laneLen[L0] - v.s > 15) {
+          v.replanned = true;
+          v.next = this.pickNext(L0, true);
+          v.next2 = v.next >= 0 ? this.pickNext(v.next, true) : -1;
+          v.turnOut =
+            v.next < 0 ? 0 : Math.min(1, Math.abs(wrapAngle(this.laneYawStart[v.next] - this.laneYawEnd[L0])) / 0.7);
+        }
+      }
       const L = v.lane;
       const len = laneLen[L];
       const remaining = len - v.s;
@@ -1005,16 +1194,26 @@ export class TrafficSim {
       }
       if (waiting && v.v < 0.3) {
         v.gridWait += dt;
-        if (v.gridWait > RECYCLE_WAIT_S && v.role === ROLE_NONE) {
-          const cx = this.edgeMid[(L >> 1) * 2] - camX;
-          const cz = this.edgeMid[(L >> 1) * 2 + 1] - camZ;
-          if (cx * cx + cz * cz > RECYCLE_CAMERA_M * RECYCLE_CAMERA_M) {
-            this.deadlocks++;
-            this.place(v, camX, camZ);
-            continue;
+        if (v.role === ROLE_NONE && v.box < 0 && v.gridWait - v.rerouteAt > REROUTE_S && v.reroutes < REROUTE_MAX) {
+          // Head of a stuck queue: try a different exit rather than waiting for the others to clear.
+          const alt = this.pickNext(L, v.retiring, v.next);
+          v.reroutes++;
+          v.rerouteAt = v.gridWait;
+          if (alt >= 0 && alt !== v.next) {
+            v.next = alt;
+            v.next2 = this.pickNext(alt, v.retiring);
+            v.turnOut = Math.min(1, Math.abs(wrapAngle(this.laneYawStart[alt] - this.laneYawEnd[L])) / 0.7);
           }
         }
-      } else if (!waiting) v.gridWait = 0;
+        if (v.gridWait > RECYCLE_WAIT_S && v.role === ROLE_NONE && this.hidden(v)) {
+          this.deadlocks++;
+          this.place(v);
+          continue;
+        }
+      } else if (!waiting) {
+        v.gridWait = 0;
+        v.rerouteAt = 0;
+      }
 
       // Sirens approaching from behind: pull to the kerb and stop unless that would block a junction.
       let sirenNear = false;
@@ -1050,7 +1249,7 @@ export class TrafficSim {
             const b = hashCell(cx + ox, cz + oz);
             for (let p = hashStart[b]; p < hashStart[b + 1]; p++) {
               const o = vs[this.hashItems[p]];
-              if (o === v || o.lane === L || o.fresh) continue;
+              if (o === v || o.lane === L || o.fresh || o.parked) continue;
               const dx = o.x - v.x;
               const dz = o.z - v.z;
               const ahead = dx * fx + dz * fz;
@@ -1093,20 +1292,19 @@ export class TrafficSim {
       v.braking = acc < -0.8 || frozen;
 
       v.stuck = v.v < 0.2 && !frozen && v.yieldT === 0 ? v.stuck + dt : 0;
-      if (v.stuck > STUCK_S && v.role === ROLE_NONE) {
-        const cx = this.edgeMid[(L >> 1) * 2] - camX;
-        const cz = this.edgeMid[(L >> 1) * 2 + 1] - camZ;
-        if (v.stuck > STUCK_FORCE_S || cx * cx + cz * cz > RECYCLE_CAMERA_M * RECYCLE_CAMERA_M) {
-          this.deadlocks++;
-          this.place(v, camX, camZ);
-          continue;
-        }
+      if (v.stuck > STUCK_S && v.role === ROLE_NONE && this.hidden(v)) {
+        this.deadlocks++;
+        this.place(v);
+        continue;
       }
 
       for (let guard = 0; guard < 3 && v.s >= laneLen[v.lane]; guard++) {
         const carry = v.s - laneLen[v.lane];
         if (v.next < 0) {
-          this.place(v, camX, camZ);
+          // End of a one-way dead end: wait here until no one can see the car, then give it a new place.
+          v.s = laneLen[v.lane];
+          v.v = 0;
+          if (this.hidden(v)) this.place(v);
           break;
         }
         this.enter(v, v.next, carry, true);
@@ -1119,11 +1317,12 @@ export class TrafficSim {
         if (
           f &&
           v.role === ROLE_NONE &&
+          !v.retiring &&
           this.rng() < RECYCLE_CHANCE &&
           (v.x - f[0]) ** 2 + (v.z - f[1]) ** 2 > RECYCLE_FOCUS_M ** 2 &&
-          (v.x - camX) ** 2 + (v.z - camZ) ** 2 > RECYCLE_CAMERA_M ** 2
+          this.hidden(v) &&
+          this.place(v)
         ) {
-          this.place(v, camX, camZ);
           break;
         }
       }
@@ -1146,7 +1345,7 @@ export class TrafficSim {
       const nyaw = v.fresh ? yaw : v.yaw + wrapAngle(yaw - v.yaw) * yawBlend;
       if (this.blocked(v, out[0], out[1], nyaw)) {
         if (v.fresh) {
-          this.place(v, camX, camZ);
+          this.place(v);
           continue;
         }
         v.lane = lane0;
@@ -1247,7 +1446,7 @@ export class TrafficSim {
   }
 
   private hits(v: Vehicle, o: Vehicle, nx: number, nz: number, nyaw: number): boolean {
-    if (o === v) return false;
+    if (o === v || o.parked) return false;
     const dx = o.x - nx;
     const dz = o.z - nz;
     const reach = (v.len + o.len) * 0.5 + 0.6;

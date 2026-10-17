@@ -48,11 +48,16 @@ export function useLiveLink({ live, viewers, demo }: Args) {
 
   const source: PositionSource = fix ? "gps" : followPhone ? "phone" : "demo";
 
+  // Keyed on primitives: every relay push is a new `peer` object and must not churn the location.
+  const fixLat = fix?.lat, fixLon = fix?.lon, fixAcc = fix?.accuracyM;
+  const peerLat = peer?.lat, peerLon = peer?.lon, peerAcc = peer?.accuracyM, peerLabel = peer?.label;
   const location = useMemo<StreamLocation>(() => {
-    if (fix) return gpsLocation(fix.lat, fix.lon, labelFor(fix.lat, fix.lon), `GPS ±${fix.accuracyM} m`);
-    if (followPhone && peer) return gpsLocation(peer.lat, peer.lon, peer.label, `Phone ±${peer.accuracyM} m`);
+    if (fixLat !== undefined && fixLon !== undefined)
+      return gpsLocation(fixLat, fixLon, labelFor(fixLat, fixLon), `GPS ±${fixAcc} m`);
+    if (followPhone && peerLat !== undefined && peerLon !== undefined)
+      return gpsLocation(peerLat, peerLon, peerLabel ?? "Phone", `Phone ±${peerAcc} m`);
     return demo;
-  }, [fix, followPhone, peer, demo]);
+  }, [fixLat, fixLon, fixAcc, followPhone, peerLat, peerLon, peerAcc, peerLabel, demo]);
 
   // Re-broadcast on the in-browser bus only when the dot really moved.
   const lastPublished = useRef<{ lat: number; lon: number } | null>(null);

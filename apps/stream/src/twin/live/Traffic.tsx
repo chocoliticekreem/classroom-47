@@ -5,9 +5,10 @@ import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useDemoSettings } from "@/platform/demo";
 import { toLocal } from "../config";
-import { ROAD_Y } from "../network/layout";
+import { layoutOf, ROAD_Y } from "../network/layout";
 import { useNetwork } from "../network/useNetwork";
 import { ATMOS } from "../scene/palette";
+import { perf } from "../scene/perf";
 import { getLastField, useCoveredFrames, useFieldStore } from "../sim/useField";
 import { useScenario } from "./scenario";
 import { useTwinCounts } from "./sim/counts";
@@ -19,6 +20,8 @@ import { useLive } from "./store";
 
 /** Instance capacity per kind; how many are actually out comes from the field. */
 const CAPACITY = [260, 44, 56];
+/** Share of the estimated fleet kept on the road per performance tier. */
+const TIER_SCALE = { high: 1, medium: 0.75, low: 0.5 };
 /** Edges whose midpoint is this close to a TfL disruption line take its speed factor. */
 const DISRUPTION_M = 20;
 const WHITE_C = new THREE.Color(1, 1, 1);
@@ -74,13 +77,32 @@ interface StreamerSeen {
   lon: number;
 }
 
+const viewProj = new THREE.Matrix4();
+const viewFrustum = new THREE.Frustum();
+const viewPlanes = new Float32Array(24);
+
+/** The camera's frustum as six (nx, ny, nz, constant) planes, the form `TrafficSim.update` takes. */
+function frustumPlanes(camera: THREE.Camera): Float32Array {
+  camera.updateMatrixWorld();
+  viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  viewFrustum.setFromProjectionMatrix(viewProj);
+  for (let i = 0; i < 6; i++) {
+    const p = viewFrustum.planes[i];
+    viewPlanes[i * 4] = p.normal.x;
+    viewPlanes[i * 4 + 1] = p.normal.y;
+    viewPlanes[i * 4 + 2] = p.normal.z;
+    viewPlanes[i * 4 + 3] = p.constant;
+  }
+  return viewPlanes;
+}
+
 function step(
   sim: TrafficSim,
   meshes: { bodies: THREE.InstancedMesh[]; lamp: THREE.InstancedMesh[]; pool: THREE.InstancedMesh },
   lights: THREE.MeshBasicMaterial,
   pool: THREE.MeshBasicMaterial,
   seen: StreamerSeen,
-  cam: THREE.Vector3,
+  camera: THREE.Camera,
   dt: number,
   frame: number,
   respondersOnly: boolean,
@@ -91,7 +113,7 @@ function step(
     seen.lon = st.lon;
     sim.setFocus(toLocal(st.lat, st.lon));
   }
-  sim.update(dt, cam.x, cam.z);
+  sim.update(dt, camera.position.x, camera.position.z, frustumPlanes(camera));
   if (respondersOnly) {
     const scenario = useScenario.getState().scenario;
     if (scenario && sim.active > 0 && !sim.vehicles.some((v) => v.role !== ROLE_NONE)) {
@@ -104,7 +126,8 @@ function step(
   const strobe = Math.floor(performance.now() / 120) % 2 === 0;
   for (let i = 0; i < vs.length; i++) {
     const v = vs[i];
-    const sc = v.parked || (respondersOnly && v.role === ROLE_NONE) ? 0 : 1;
+    // Every car keeps driving; only those in (or just outside) the view are drawn.
+    const sc = v.parked || !v.seen || (respondersOnly && v.role === ROLE_NONE) ? 0 : 1;
     writeYawMatrix(meshes.bodies[v.kind].instanceMatrix.array, v.slot * 16, v.x, GROUND_Y, v.z, v.yaw, sc, sc);
     writeYawMatrix(poolArr, i * 16, v.x, GROUND_Y + 0.04, v.z, v.yaw, sc, sc);
     if (v.role === ROLE_POLICE || v.role === ROLE_AMBULANCE) {
@@ -136,7 +159,7 @@ export function Traffic({ respondersOnly = false }: { respondersOnly?: boolean }
   const net = useNetwork();
   const sim = useMemo(() => {
     const { lat, lon } = useLive.getState().streamer;
-    return new TrafficSim(net, CAPACITY, SEED, toLocal(lat, lon));
+    return new TrafficSim(net, CAPACITY, SEED, toLocal(lat, lon), layoutOf(net).hidden);
   }, [net]);
   const streamerSeen = useRef<StreamerSeen>({ lat: NaN, lon: NaN });
   const frame = useRef(0);
@@ -177,7 +200,7 @@ export function Traffic({ respondersOnly = false }: { respondersOnly?: boolean }
       weight[i] = field.segments[seg].vehicles;
       target += (weight[i] * edges[i].length) / 100;
     }
-    sim.setField(weight, speed, respondersOnly ? RESPONDER_POOL : target * crowd);
+    sim.setField(weight, speed, respondersOnly ? RESPONDER_POOL : target * crowd * TIER_SCALE[perf.tier]);
   }, [sim, net, fieldAt, covered, crowd, disruptions, respondersOnly]);
 
   const shared = useMemo(() => {
@@ -247,7 +270,7 @@ export function Traffic({ respondersOnly = false }: { respondersOnly?: boolean }
   }, [sim, meshes, scenario]);
 
   useFrame(({ camera }, dt) =>
-    step(sim, meshes, shared.lights, shared.pool, streamerSeen.current, camera.position, dt, frame.current++, respondersOnly),
+    step(sim, meshes, shared.lights, shared.pool, streamerSeen.current, camera, dt, frame.current++, respondersOnly),
   );
 
   return (
