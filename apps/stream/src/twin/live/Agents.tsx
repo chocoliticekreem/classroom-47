@@ -19,6 +19,7 @@ import { asphaltMargin, SNAP_STATS, useSnapIndex, type SnapIndex } from "../netw
 import { DIMS, MODEL_OF, MotionSim, State, type Entity, type Model } from "./motion";
 import { beginFrame, endFrame, recordPose } from "./motionStats";
 import { buildReplay, sampleTraj, trajEnded, type ReplayInput, type ReplaySet, type Traj } from "./sim/replay";
+import { isVirtualCam } from "@/lib/vcams";
 import { useLive } from "./store";
 
 const MAX_PEOPLE = 400;
@@ -425,7 +426,8 @@ export function Agents() {
     if (!compareCamId || !snap || !blds || clipAt === undefined) return;
     const cam = cams.find((c) => c.id === compareCamId);
     const clip = clips[compareCamId];
-    if (!cam || !clip || useAutofit.getState().byCam[cam.id]) return;
+    // Street-level virtual cams look at the horizon, where a degree of tilt moves a car tens of metres: keep their model pose.
+    if (!cam || !clip || isVirtualCam(cam.id) || useAutofit.getState().byCam[cam.id]) return;
     const fit = fitPose(cam, clip, snap, blds, currentPose(cam));
     if (!fit) return;
     useAutofit.setState((s) => ({ byCam: { ...s.byCam, [cam.id]: fit } }));
