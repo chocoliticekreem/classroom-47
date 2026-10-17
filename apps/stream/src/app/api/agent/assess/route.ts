@@ -26,7 +26,8 @@ async function askCluster(body: AssessRequest): Promise<ClusterReply | null> {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(12_000),
+      // The cluster agent runs a VSS search and an LLM call; 20–40 s is normal.
+      signal: AbortSignal.timeout(45_000),
       cache: "no-store",
     });
     if (!res.ok) return null;
@@ -104,6 +105,8 @@ async function askLocalLlm(body: AssessRequest, signals: LocalSignals): Promise<
         model: WANDB_MODEL,
         temperature: 0.2,
         max_tokens: 1500,
+        // Nemotron otherwise spends the whole budget reasoning and returns empty content.
+        chat_template_kwargs: { enable_thinking: false },
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
