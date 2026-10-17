@@ -1,3 +1,4 @@
+import { create } from "zustand";
 import type { AroundCam, TrackedObject } from "@/platform/around/types";
 import { bearingDeg } from "@/platform/around/flows";
 import { ORIGIN, toLocal } from "../config";
@@ -32,8 +33,24 @@ export const MAX_GROUND_M = 150;
 /** Far edge of the drawn view cone. */
 export const CONE_M = 90;
 
+/** Poses being adjusted live in the compare view; they win over calibration.json until saved. */
+const overrides: Record<string, CamCalibration> = {};
+
+/** Bumped whenever a live pose changes, so memoised geometry (agents, view cones) recomputes. */
+export const usePoseVersion = create<{ v: number }>(() => ({ v: 0 }));
+
+export function setPoseOverride(camId: string, pose: CamCalibration) {
+  overrides[camId] = pose;
+  usePoseVersion.setState((s) => ({ v: s.v + 1 }));
+}
+
 export function calibrationFor(camId: string): CamCalibration | null {
-  return CALIBRATIONS[camId] ?? null;
+  return overrides[camId] ?? CALIBRATIONS[camId] ?? null;
+}
+
+/** The pose a camera is using right now, as a full calibration (defaults filled in). */
+export function currentPose(cam: AroundCam): CamCalibration {
+  return calibrationFor(cam.id) ?? { headingDeg: camHeadingDeg(cam), ...DEFAULT_POSE };
 }
 
 export function camHeadingDeg(cam: AroundCam) {

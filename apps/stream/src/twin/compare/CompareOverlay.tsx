@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { AroundCam } from "@/platform/around/types";
-import { calibrationFor, camFrame } from "../live/project";
+import { calibrationFor, camFrame, usePoseVersion } from "../live/project";
+import { AlignBar } from "./AlignBar";
 import { useLive } from "../live/store";
 import { syncClock, useCompare } from "./store";
 
@@ -67,8 +68,13 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
   const video = useRef<HTMLVideoElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
+  const [overlay, setOverlay] = useState(false);
+  const overlayVideo = useRef<HTMLVideoElement>(null);
+  usePoseVersion((s) => s.v); // re-render the caption while a pose is being aligned
   const frame = camFrame(cam);
   const cal = calibrationFor(cam.id);
+  // Play the exact clip YOLO tracked (TfL overwrites its URL every few minutes); a new analysis swaps both together.
+  const src = clip ? `/api/around/clip?id=${encodeURIComponent(cam.id)}&at=${clip.at}` : cam.videoUrl;
 
   useEffect(() => {
     const el = root.current;
@@ -82,12 +88,18 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
     const el = video.current;
     if (!el) return;
     syncClock.video = el;
-    const tick = setInterval(() => setClipT(el.currentTime), 250);
+    const tick = setInterval(() => {
+      setClipT(el.currentTime);
+      // Keep the overlay copy on the same frame as the real clip.
+      const o = overlayVideo.current;
+      if (o && Math.abs(o.currentTime - el.currentTime) > 0.08) o.currentTime = el.currentTime;
+    }, 250);
     return () => {
       clearInterval(tick);
       if (syncClock.video === el) syncClock.video = null;
     };
-  }, [failed]);
+    // `src` too: a new analysis remounts the <video>, and the twin must follow the new element's clock.
+  }, [failed, src]);
 
   useEffect(() => {
     if (!failed) return;
@@ -133,9 +145,9 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
           />
         ) : (
           <video
-            key={cam.videoUrl}
+            key={src}
             ref={video}
-            src={cam.videoUrl}
+            src={src}
             autoPlay
             muted
             loop
@@ -152,14 +164,31 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
           Real CCTV
           <span style={{ color: "var(--muted)", fontWeight: 500 }}>
             · {cam.name}
-            {failed ? " · latest frame (clip blocked)" : ` · ${clipT.toFixed(1)} s`}
+            {failed ? " · latest frame (clip blocked)" : ` · ${clipT.toFixed(1)} s${clip ? " · the clip YOLO tracked" : ""}`}
           </span>
         </div>
       </div>
 
       {/* The real frame's edges, drawn on the twin half: everything inside lines up with the left half. */}
       <div style={{ position: "absolute", left: "50%", top: 0, width: "50%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ ...containBox(box.w, box.h, frame.aspect), border: "1px dashed rgba(255,255,255,0.45)", boxSizing: "border-box" }} />
+        <div style={{ ...containBox(box.w, box.h, frame.aspect), border: "1px dashed rgba(255,255,255,0.45)", boxSizing: "border-box", position: "relative" }}>
+          {overlay && !failed && (
+            <video
+              key={src}
+              ref={overlayVideo}
+              src={src}
+              autoPlay
+              muted
+              loop
+              playsInline
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "fill", opacity: 0.5, pointerEvents: "none" }}
+            />
+          )}
+        </div>
+      </div>
+
+      <div style={{ position: "absolute", left: "50%", top: 70, width: "50%", display: "flex", justifyContent: "center", padding: "0 12px", boxSizing: "border-box" }}>
+        <AlignBar cam={cam} overlay={overlay} setOverlay={setOverlay} />
       </div>
 
       <div style={{ ...caption, left: "calc(50% + 20px)" }}>
@@ -198,7 +227,7 @@ function ComparePanel({ cam }: { cam: AroundCam }) {
           <span style={{ color: "var(--muted)" }}>
             {" · "}
             {cal
-              ? `pose calibrated by Nemotron 3.5 Super VL: facing ${Math.round(cal.headingDeg)}°, tilted ${cal.pitchDeg}°, ${cal.heightM} m up, ${cal.hfovDeg}° lens`
+              ? `pose from ${cal.source?.startsWith("aligned by hand") ? "Nemotron 3.5 Super VL + hand alignment" : "Nemotron 3.5 Super VL"}: facing ${Math.round(cal.headingDeg)}°, tilted ${cal.pitchDeg}°, ${cal.heightM} m up, ${Math.round(cal.hfovDeg)}° lens`
               : `uncalibrated: default ${Math.round((Math.atan(frame.tanH) * 360) / Math.PI)}° lens, ${frame.heightM} m up`}
           </span>
         </div>

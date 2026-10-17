@@ -1,2 +1,4 @@
 openai>=1.50,<3
 weave>=0.51,<1
+vastdb>=1.0
+pyarrow>=15

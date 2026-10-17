@@ -6,15 +6,27 @@ pre-ingested footage, with Cosmos descriptions and YOLO detections) and the mode
 serverless inference, traced in Weave) into one answer for a live IRL streamer:
 `calm | busy | danger`, two sentences of advice, and the video moments that justify it.
 
-Single file, two pip deps (`openai`, `weave`), stdlib HTTP server. Small enough for a ConfigMap.
+Single file, four pip deps (`openai`, `weave`, `vastdb`, `pyarrow`), stdlib HTTP server. Small enough for a ConfigMap.
+
+VAST is also the agent's **memory**: every verdict is appended to our own VastDB table
+`team-47-vss-db/vss-schema/classroom47_verdicts` (data VIP from `S3_ENDPOINT`, the `vast-database/vastdb-write`
+pattern) and read back by `GET /app/verdicts`. `vss-collection` is never touched.
 
 ## Endpoints (all under `/app`)
 
 | Route | What |
 |---|---|
 | `GET /app/` | Dark single-file dashboard: ask "What's happening near the streamer?", see level, advice, evidence moments and the Weave link |
-| `GET /app/health` | `{ok, vss: <login works>, wandb: <configured>}`. Never returns values |
-| `POST /app/assess` | JSON `{question?, location?: {name, lat, lon}, yolo?: {people, vehicles, camera}}` → `{level, advice, reasons, evidence: [{video, start_s, end_s, description, similarity}], vss_answer, trace: {weave_project}}` |
+| `GET /app/health` | `{ok, vss: <login works>, wandb: <configured>, vastdb: {configured, written, last_error}}`. Never returns values |
+| `POST /app/assess` | JSON `{question?, location?: {name, lat, lon}, yolo?: {people, vehicles, camera}}` → `{level, advice, reasons, evidence: [{video, camera, start_s, end_s, description, similarity, counts, source, clip_url, tools?}], vss_answer, latency_ms, trace: {weave_project}}`. The top 3 evidence moments carry `tools` (below). The verdict is written to VastDB in a background thread, so a VastDB failure never blocks the answer (`/health.vastdb.last_error` says why) |
+| `POST /app/search` | JSON `{query, top_k?: 1–20}` → `{query, moments: [... same shape as evidence, every moment enriched with tools], latency_ms}`. The product's "Ask the archive" box |
+| `GET /app/clip?source=s3://…` | Streams the segment's MP4 through the agent (`GET /api/v1/videos/stream?token=` upstream, `Range` passed through) so a browser that cannot reach VSS can play evidence |
+| `GET /app/verdicts?limit=50` | `{table, total, last_hour_by_level: {calm, busy, danger}, verdicts: [{ts, question, location_name, lat, lon, level, advice, reasons, evidence_ids, model, weave_project, latency_ms}]}` newest first, read from VastDB |
+
+`tools` per moment comes from the official VSS agent tools (`retrieval/agent-qa`):
+`GET /api/v1/tools/detections?source=` → `people_timeline` (people in frame, one point per second), `people_peak`,
+`detection_count`; `GET /api/v1/tools/segments?original_video=` → `context` (people per segment across the parent video,
+`current` marks the hit). Each is fail-soft (`detections_error` / `segments_error`).
 
 CORS is open for GET/POST so the local `apps/stream` front end (`http://localhost:3047`) can call it.
 
@@ -42,6 +54,9 @@ No stack traces, no values.
 | `PORT` | optional, default `8080` |
 | `REQUEST_TIMEOUT_S` | optional, default `20` |
 | `VSS_TOP_K`, `VSS_MIN_SIMILARITY` | optional, defaults `8` / `0.3` |
+| `VSS_ENRICH_TOP` | optional, default `3`: how many `/assess` evidence moments get `tools/detections` + `tools/segments` |
+| `S3_ENDPOINT`, `ACCESS_KEY`, `SECRET_KEY`, `VASTDB_BUCKET`, `VDB_SCHEMA` | VastDB data VIP and bucket for the verdicts table (same names as `/config/<team>.config`) |
+| `VERDICTS_TABLE` | optional, default `classroom47_verdicts` |
 
 ## Run locally
 
@@ -87,6 +102,22 @@ Namespace `team-47`: Deployment/Service/Ingress `classroom47-agent`, ConfigMap `
 `WANDB_API_KEY`, `WANDB_TEAM`, `WANDB_PROJECT`, `WANDB_MODEL`; `INGRESS_URL` points at the in-cluster
 `video-backend-service`). `WANDB_MODEL` is `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B`. Weave project
 `anson9m23-chocoliticekreem-codes/classroom-47`. `/app/health` → `{"ok": true, "vss": true, "wandb": true}`.
+
+Redeployed 17 Oct 13:07 BST with VastDB memory, agent tools, `/search`, `/clip` (Secret now also holds
+`S3_ENDPOINT`, `ACCESS_KEY`, `SECRET_KEY`, `VASTDB_BUCKET`, `VDB_SCHEMA`; `pip install vastdb pyarrow` takes 15 s in
+the pod). Observed through the public Ingress from the lab VM:
+
+```
+GET  /app/health   → {"ok": true, "vss": true, "wandb": true, "vastdb": {"configured": true, "written": 0, "last_error": ""}}
+POST /app/search   {"query": "pedestrians crossing", "top_k": 2}   → latency 4487 ms, 2 moments, both nyc_streets_cam-1:
+                   25–30 s sim 0.458, 17 people (YOLO), peak 12 in frame, parent-video people per segment [15,15,17,14,14,17]
+                   10–15 s sim 0.444, 15 people, peak 11, [15,14,15,16,17,17]; Cosmos: "city street intersection with a marked crosswalk…"
+POST /app/assess   (Tower Hill, 42 people)  → level busy, 22683 ms, evidence nyc_streets_cam-2 (peak 10), sf_streets_cam-1 (6), sf_streets_cam-2 (10), each with clip_url
+GET  /app/health   → vastdb.written 1
+GET  /app/verdicts?limit=3 → {"table": "team-47-vss-db/vss-schema/classroom47_verdicts", "total": 1, "last_hour_by_level": {"calm": 0, "busy": 1, "danger": 0}}
+                   row: 2026-10-17T12:08:29Z busy Tower Hill nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B 22683 ms
+GET  /app/clip?source=s3://team-47-vss-chunks-segments/… (Range: bytes=0-99) → 206, video/mp4, Content-Range bytes 0-99/10871536
+```
 
 ## Evaluate the search the agent depends on
 
