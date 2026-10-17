@@ -1,13 +1,11 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Compass, Eye, Route, Search, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Compass, Route, Search, Sparkles } from "lucide-react";
 import type { StreamLocation } from "@/lib/types";
 import type { Assessment } from "@/platform/agent/types";
 import { useAdvisor } from "@/platform/agent/useAdvisor";
-import { useFollowSnapshot, topFollower } from "@/platform/follow/store";
 import { ArchivePanel } from "@/components/stream/ArchivePanel";
-import { FollowerCard } from "@/components/stream/FollowerCard";
 import { Advisor, LEVEL } from "./Advisor";
 import { AroundYou, useSurroundingsStatus } from "./AroundYou";
 import { SaferRoute } from "./SaferRoute";
@@ -86,23 +84,14 @@ interface CopilotPanelProps {
   onOpenChange: (open: boolean) => void;
 }
 
-function useFollowerLevel() {
-  const snap = useFollowSnapshot();
-  if (!snap.watching) return null;
-  const f = topFollower(snap);
-  if (!f) return "calm" as const;
-  return f.appearances >= 5 || f.moved_m >= 300 ? ("danger" as const) : ("busy" as const);
-}
-
 function Dot({ level }: { level: keyof typeof LEVEL | null }) {
   return <span className={`size-1.5 rounded-full ${level ? LEVEL[level].dot : "bg-dim"}`} aria-hidden />;
 }
 
-/** The right-hand copilot: advisor, surroundings, route, follower watch and the archive, on every tab. */
+/** The right-hand copilot: advisor, surroundings, route and the archive, on every tab. */
 export function CopilotPanel({ location, live, desktop, open, onOpenChange }: CopilotPanelProps) {
   const { assessment, error, loading, assess } = useAdvisor(location, live);
   const surroundings = useSurroundingsStatus();
-  const followerLevel = useFollowerLevel();
   const level = assessment?.level ?? null;
 
   const body = (
@@ -115,9 +104,6 @@ export function CopilotPanel({ location, live, desktop, open, onOpenChange }: Co
       </Section>
       <Section icon={Route} title="Safer route" defaultOpen={level === "busy" || level === "danger"}>
         <SaferRoute location={location} level={level} />
-      </Section>
-      <Section icon={Eye} title="Follower watch" meta={followerLevel ? <Dot level={followerLevel} /> : <span>off</span>}>
-        <FollowerCard />
       </Section>
       <Section icon={Search} title="Ask the archive" defaultOpen={false}>
         <ArchivePanel />
@@ -143,10 +129,9 @@ export function CopilotPanel({ location, live, desktop, open, onOpenChange }: Co
             <ChevronLeft className="size-4" />
           </button>
           <span className={`h-9 w-1 rounded-full ${level ? LEVEL[level].dot : "bg-line-strong"}`} aria-hidden />
-          <span className="flex flex-col items-center gap-2.5" title="Advisor · Around you · Follower watch">
+          <span className="flex flex-col items-center gap-2.5" title="Advisor · Around you">
             <Dot level={level} />
             <Dot level={surroundings?.level ?? null} />
-            <Dot level={followerLevel} />
           </span>
           <span className="mt-auto font-mono text-[10px] text-dim" style={{ writingMode: "vertical-rl" }}>
             Copilot
