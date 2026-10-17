@@ -20,6 +20,7 @@ interface PredictState {
   score: ScoreResult | null;
   scoring: boolean;
   panelOpen: boolean;
+  reportOpen: boolean;
 }
 
 export const usePredict = create<PredictState>(() => ({
@@ -36,6 +37,7 @@ export const usePredict = create<PredictState>(() => ({
   score: null,
   scoring: false,
   panelOpen: true,
+  reportOpen: false,
 }));
 
 export function shownRun(s: PredictState): PredictRun | null {
@@ -62,8 +64,8 @@ export async function runForecast(kind: "baseline" | "whatIf") {
     const run = await postJson<PredictRun>("/api/predict", body);
     usePredict.setState(
       kind === "whatIf"
-        ? { whatIf: run, shown: "whatIf", loading: false, minute: 30 }
-        : { baseline: run, whatIf: null, shown: "baseline", loading: false, score: null, minute: 0 },
+        ? { whatIf: run, shown: "whatIf", loading: false, minute: 30, reportOpen: true }
+        : { baseline: run, whatIf: null, shown: "baseline", loading: false, score: null, minute: 0, reportOpen: true },
     );
   } catch (e) {
     usePredict.setState({ loading: false, error: (e as Error).message });
