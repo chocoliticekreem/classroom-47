@@ -16,9 +16,8 @@ The **official VAST guide and skills** are in `vast-builders-challenge/`, a subm
 
 ## TL;DR
 
-1. **CAMP is mandatory. The agent code exists, but nothing is confirmed running on VAST yet.** The project has to sit on VAST's stack: Cursor, then an agent on VAST's cluster, then Cosmos/YOLO/W&B on CoreWeave, then VSS/VastDB on VAST.
-   - `services/agent` (PRs #8, #10) is that agent, ready to deploy.
-   - **Top priority:** get into the VAST lab, re-ingest with our prompt, and **deploy `services/agent` at `/app`** (steps in `services/agent/README.md`).
+1. **CAMP is mandatory, and the agent is live on VAST** (verified 12:50 BST, 17 Oct): `classroom47-agent` Deployment/Service/Ingress at `/app` in the team-47 namespace, `/app/health` → `vss: true, wandb: true`, one `POST /app/assess` returns a verdict with VSS evidence and a Weave trace. The stream page calls it through `apps/stream/src/app/api/agent/assess`.
+   - **Remaining CAMP gaps, ranked:** `docs/COMPLIANCE.md` ("Do next"). Top one: re-ingest a few clips with our streamer-safety prompt; the search eval (`services/agent/eval_search.py`) shows the "filming / following" query is the one the default prompt can't answer.
 2. **`apps/stream` works and has grown.** Live / Around me / 3D mirror tabs:
    - real TfL cameras, buses, disruptions and weather;
    - local YOLO counts and tracks;
@@ -30,7 +29,7 @@ The **official VAST guide and skills** are in `vast-builders-challenge/`, a subm
 | Layer | What's required | What we have | Gap |
 |---|---|---|---|
 | **C**: Cursor | Build on the lab VM over Cursor Remote-SSH | Cursor accounts and credits | Each person: sign in to the lab portal, add an SSH key, connect |
-| **A**: VAST agent runtime | Agent and app deployed on the team's Kubernetes namespace at `/app` | **`services/agent/app.py`** (stdlib HTTP + `openai` + `weave`): dashboard `/app/`, `/app/health`, `POST /app/assess` | **Deploy it** with `/deploy-app-no-registry`, using **our Secret key names** (`USERNAME`, `PASSWORD`, `INGRESS_URL`, `WANDB_*`), not the template's `VSS_*`; see `services/agent/README.md`. Then point the front ends at it |
+| **A**: VAST agent runtime | Agent and app deployed on the team's Kubernetes namespace at `/app` | **`services/agent/app.py` deployed** as `classroom47-agent` (ConfigMap `classroom47-agent-code`, Secret `classroom47-agent-creds` with `USERNAME`, `PASSWORD`, `INGRESS_URL`, `WANDB_*`, `WANDB_MODEL`): dashboard `/app/`, `/app/health`, `POST /app/assess` | Use VSS `tools/detections`; write verdicts to our own VastDB table (`docs/COMPLIANCE.md`) |
 | **M**: NVIDIA + CoreWeave | Cosmos3-Reason, Embed1 and YOLO11 via VSS. W&B inference + Weave for our reasoning | The agent calls W&B (`Qwen/Qwen3.8-27B` by default) inside a `weave.op`. Predict uses W&B + Weave too. Local YOLO on TfL (`services/yolo`) | Our Cosmos prompt through re-ingest. Optional: Canary ASR on the stream's audio to catch the streamer saying where they are |
 | **P**: VAST platform | Query our team's VSS index. Re-ingest the pre-loaded footage with our prompt | The agent queries VSS `agent/search-and-answer` + `search`; its evidence carries the Cosmos text and YOLO counts (PR #10) | Pick the packs (F indoor crowds, E SF streets, B Toronto forward-facing drive), write the re-ingest prompt, re-ingest a few clips. Optional: **store the agent's verdicts in our own VastDB table** (`vastdb-write`) |
 
