@@ -1,9 +1,11 @@
 "use client";
 
+import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { TwinGeometry } from "../config";
+import { ATMOS } from "./palette";
 import { useGeometry } from "./useGeometry";
 import { ringToShape } from "./shapes";
 
@@ -53,6 +55,8 @@ vTwinNormal = normalize(mat3(modelMatrix) * objectNormal);
 const FRAG_PARS = /* glsl */ `
 varying vec3 vTwinWorld;
 varying vec3 vTwinNormal;
+uniform float uTwinGlow;
+uniform float uTwinWet;
 float twinHash(vec3 p) {
   p = fract(p * vec3(443.897, 441.423, 437.195));
   p += dot(p, p.yzx + 19.19);
@@ -81,21 +85,24 @@ const FRAG_WINDOWS = /* glsl */ `
   vec3 cool = vec3(0.62, 0.78, 1.0);
   vec3 winColor = mix(warm, cool, step(0.68 - clamp(top / 400.0, 0.0, 0.4), warmth));
   float strength = 1.4 + 1.8 * twinHash(vec3(cell + 3.0, seed));
-  totalEmissiveRadiance += winColor * lit * strength;
+  totalEmissiveRadiance += winColor * lit * strength * uTwinGlow;
 
   float rim = wall * smoothstep(top - 0.9, top - 0.4, v) * step(v, top + 0.1);
   vec3 rimColor = top > 90.0 ? vec3(0.55, 0.8, 1.6) : vec3(0.5, 0.45, 0.4);
-  totalEmissiveRadiance += rimColor * rim * (top > 90.0 ? 1.4 : 0.35);
+  totalEmissiveRadiance += rimColor * rim * (top > 90.0 ? 1.4 : 0.35) * uTwinGlow;
 
   float ao = mix(0.55, 1.0, smoothstep(0.0, 14.0, v));
   diffuseColor.rgb *= ao;
   float street = wall * (1.0 - smoothstep(0.0, 9.0, v));
-  totalEmissiveRadiance += vec3(0.5, 0.36, 0.22) * street * 0.14;
-  diffuseColor.rgb *= mix(0.85, 1.15, seed);
+  totalEmissiveRadiance += vec3(0.5, 0.36, 0.22) * street * 0.14 * uTwinGlow;
+  diffuseColor.rgb *= mix(0.85, 1.15, seed) * mix(1.0, 0.72, uTwinWet);
   float crown = (1.0 - wall) * step(90.0, top);
-  totalEmissiveRadiance += vec3(0.25, 0.4, 0.8) * crown * 0.35;
+  totalEmissiveRadiance += vec3(0.25, 0.4, 0.8) * crown * 0.35 * uTwinGlow;
 }
 `;
+
+const glowUniform = { value: 1 };
+const wetUniform = { value: 0 };
 
 function makeMaterial() {
   const mat = new THREE.MeshStandardMaterial({
@@ -106,12 +113,18 @@ function makeMaterial() {
     emissive: "#000000",
   });
   mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTwinGlow = glowUniform;
+    shader.uniforms.uTwinWet = wetUniform;
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", `#include <common>\n${VERT_PARS}`)
       .replace("#include <worldpos_vertex>", `#include <worldpos_vertex>\n${VERT_BODY}`);
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>\n${FRAG_PARS}`)
       .replace("#include <color_fragment>", "")
+      .replace(
+        "#include <roughnessmap_fragment>",
+        "#include <roughnessmap_fragment>\nroughnessFactor *= mix(1.0, 0.5, uTwinWet);",
+      )
       .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>\n${FRAG_WINDOWS}`);
   };
   return mat;
@@ -135,6 +148,11 @@ export function Buildings() {
   }, [buildings]);
 
   const material = useMemo(() => makeMaterial(), []);
+
+  useFrame(() => {
+    glowUniform.value = ATMOS.windowGlow;
+    wetUniform.value = ATMOS.wet;
+  });
 
   useEffect(
     () => () => {

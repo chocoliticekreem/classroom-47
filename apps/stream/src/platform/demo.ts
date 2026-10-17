@@ -85,6 +85,25 @@ export function liveTimeOfDay(now = new Date()): TimeOfDay {
   return "night";
 }
 
+/**
+ * Real solar elevation/azimuth (degrees, azimuth clockwise from north) for the London clock.
+ * Standard declination + hour-angle approximation; good to ~1° which is all a sky needs.
+ */
+export function sunAngles(point: { lat: number; lon: number }, now = new Date()) {
+  const start = Date.UTC(now.getUTCFullYear(), 0, 0);
+  const dayOfYear = (now.getTime() - start) / 86_400_000;
+  const decl = (23.44 * Math.PI) / 180 * Math.sin(((2 * Math.PI) / 365) * (dayOfYear - 81));
+  const solarHours = now.getUTCHours() + now.getUTCMinutes() / 60 + point.lon / 15;
+  const hourAngle = ((solarHours - 12) * 15 * Math.PI) / 180;
+  const lat = (point.lat * Math.PI) / 180;
+  const sinEl = Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(hourAngle);
+  const elevation = Math.asin(sinEl);
+  const azimuth =
+    Math.atan2(Math.sin(hourAngle), Math.cos(hourAngle) * Math.sin(lat) - Math.tan(decl) * Math.cos(lat)) +
+    Math.PI;
+  return { elevation: (elevation * 180) / Math.PI, azimuth: ((azimuth * 180) / Math.PI) % 360 };
+}
+
 export interface Conditions {
   weather: WeatherKind;
   time: TimeOfDay;
