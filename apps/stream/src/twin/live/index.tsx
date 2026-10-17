@@ -8,6 +8,8 @@ import { Cameras } from "./Cameras";
 import { Disruptions } from "./Disruptions";
 import { Hud } from "./Hud";
 import { LabelHost, LabelLayer } from "./Label";
+import { PredictLayers } from "../predict/Ghost";
+import { PredictPanel } from "../predict/Panel";
 import { Crowd } from "../sim/Crowd";
 import { FieldDebug } from "../sim/FieldDebug";
 import { useLiveFeeds } from "./store";
@@ -26,6 +28,7 @@ export function LiveLayers() {
       <Buses />
       <Disruptions />
       <Streamer />
+      <PredictLayers />
       <RouteLine />
       <LabelLayer />
     </group>
@@ -40,6 +43,7 @@ export function LiveHud() {
       <Hud />
       <ViewBar />
       <CompareOverlay />
+      <PredictPanel />
     </>
   );
 }
