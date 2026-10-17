@@ -56,9 +56,15 @@ export interface AroundBusStop {
 }
 
 
+export type TrackedClass = "person" | "car" | "bus" | "truck" | "motorcycle" | "bicycle";
+
 export interface TrackedObject {
   id: number;
   kind: "person" | "vehicle";
+  /** YOLO class, majority vote over the clip. Absent from older YOLO servers. */
+  cls?: TrackedClass;
+  /** Median colour of the object in the real frame, "#rrggbb" (torso for people, body panel for vehicles). */
+  color?: string;
   /** [seconds into clip, u, v]: bottom-centre of the box, normalised to the frame. */
   pts: [number, number, number][];
 }

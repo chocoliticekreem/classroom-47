@@ -1,0 +1,62 @@
+{
+  "JamCams_00001.02001": {
+    "headingDeg": 285.9,
+    "pitchDeg": 13.4,
+    "heightM": 8.0,
+    "hfovDeg": 55.0,
+    "aspect": 1.2222,
+    "source": "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B",
+    "confidence": 0.75,
+    "reason": "The road recedes toward the west along Goodman's Yard, with the vanishing point near the upper fifth of the frame and a typical elevated CCTV height.",
+    "street": "Goodman's Yard",
+    "at": "2026-10-17T11:06:13+00:00"
+  },
+  "JamCams_00001.02351": {
+    "headingDeg": 157.8,
+    "pitchDeg": 13.4,
+    "heightM": 6.0,
+    "hfovDeg": 55.0,
+    "aspect": 1.2222,
+    "source": "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B",
+    "confidence": 0.75,
+    "reason": "The road recedes toward the right side of the frame, matching Vaughan Way's 158\u00b0 southward bearing, with a high-mounted normal-lens view and horizon just above the upper third.",
+    "street": "Vaughan Way",
+    "at": "2026-10-17T11:06:47+00:00"
+  },
+  "JamCams_00001.02100": {
+    "headingDeg": 243.6,
+    "pitchDeg": 15.2,
+    "heightM": 8.0,
+    "hfovDeg": 55.0,
+    "aspect": 1.2222,
+    "source": "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B",
+    "confidence": 0.75,
+    "reason": "The view looks down Whitechapel High Street toward the southwest, with the road vanishing point near the top of the frame and a typical elevated CCTV mounting height.",
+    "street": "Whitechapel High Street",
+    "at": "2026-10-17T11:07:19+00:00"
+  },
+  "JamCams_00001.02025": {
+    "headingDeg": 175.9,
+    "pitchDeg": 15.2,
+    "heightM": 6.0,
+    "hfovDeg": 55.0,
+    "aspect": 1.2222,
+    "source": "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B",
+    "confidence": 0.85,
+    "reason": "The road and building lines converge toward a vanishing point near the top of the frame consistent with looking south along Leman Street, and the elevated, slightly wide but not fisheye view matches a typical TfL JamCam mounting.",
+    "street": "Leman Street",
+    "at": "2026-10-17T11:07:59+00:00"
+  },
+  "JamCams_00001.03500": {
+    "headingDeg": 233.7,
+    "pitchDeg": 15.2,
+    "heightM": 6.0,
+    "hfovDeg": 55.0,
+    "aspect": 1.2222,
+    "source": "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B",
+    "confidence": 0.85,
+    "reason": "The road recedes toward the southwest, matching East Smithfield's 234\u00b0 bearing, with the vanishing point near the top of the frame and a typical elevated CCTV height.",
+    "street": "East Smithfield",
+    "at": "2026-10-17T11:08:36+00:00"
+  }
+}

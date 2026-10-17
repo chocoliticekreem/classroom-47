@@ -1,0 +1,3 @@
+[submodule "vast-builders-challenge"]
+	path = vast-builders-challenge
+	url = https://github.com/vast-data/vast-builders-challenge.git

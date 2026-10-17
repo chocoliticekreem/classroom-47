@@ -36,6 +36,7 @@ export interface Atmosphere {
   wet: number;
   lightning: number;
   brightness: number;
+  saturation: number;
 }
 
 function make(): Atmosphere {
@@ -61,6 +62,7 @@ function make(): Atmosphere {
     wet: 0,
     lightning: 0,
     brightness: 0.035,
+    saturation: 0.1,
   };
 }
 
@@ -81,6 +83,9 @@ interface TimeLook {
   windowGlow: number;
   bloom: number;
   brightness: number;
+  saturation: number;
+  fogNear: number;
+  fogFar: number;
 }
 
 const TIME_LOOKS: Record<TimeOfDay, TimeLook> = {
@@ -98,6 +103,9 @@ const TIME_LOOKS: Record<TimeOfDay, TimeLook> = {
     windowGlow: 1,
     bloom: 1.1,
     brightness: 0.035,
+    saturation: 0.1,
+    fogNear: FOG_NEAR,
+    fogFar: FOG_FAR,
   },
   dusk: {
     skyTop: "#141a3a",
@@ -113,21 +121,28 @@ const TIME_LOOKS: Record<TimeOfDay, TimeLook> = {
     windowGlow: 0.7,
     bloom: 0.9,
     brightness: 0.03,
+    saturation: 0.18,
+    fogNear: FOG_NEAR,
+    fogFar: FOG_FAR,
   },
   day: {
-    skyTop: "#2a62b8",
-    skyHorizon: "#8fb0d6",
-    glow: "#ffffff",
-    sunColor: "#fff2dc",
-    hemiSky: "#a9c4e8",
-    hemiGround: "#7a736a",
-    sunIntensity: 3.4,
+    skyTop: "#1d6fd8",
+    skyHorizon: "#a9d6f2",
+    glow: "#ffb56a",
+    sunColor: "#fff0cf",
+    hemiSky: "#b4d4f2",
+    hemiGround: "#9a8b73",
+    sunIntensity: 4.2,
     sunDisc: 1,
-    hemiIntensity: 3.2,
+    hemiIntensity: 3.4,
     stars: 0,
     windowGlow: 0.02,
-    bloom: 0.35,
-    brightness: 0.0,
+    bloom: 0.7,
+    brightness: 0.03,
+    saturation: 0.38,
+    // Crisp daylight: the city stays sharp to the horizon on a clear day.
+    fogNear: 900,
+    fogFar: 5200,
   },
 };
 
@@ -189,23 +204,29 @@ export function setAtmosphereTarget(input: AtmosphereInput) {
   greyOf(t.hemiSky.set(look.hemiSky), mod.grey * 0.6, mod.dim);
   t.hemiGround.set(look.hemiGround).multiplyScalar(mod.dim);
   t.sunDir.copy(input.sunDir);
-  if (t.sunDir.y < 0.05) t.sunDir.set(-0.52, 0.6, -0.43).normalize();
+  if (t.sunDir.y < 0.05) {
+    // Below the horizon: a dusk sun rests on the horizon at its azimuth, night keeps a high moon-light.
+    if (look.sunDisc > 0) t.sunDir.setY(0.07).normalize();
+    else t.sunDir.set(-0.52, 0.6, -0.43).normalize();
+  }
   t.sunIntensity = look.sunIntensity * mod.sun;
   t.sunDisc = look.sunDisc * (1 - mod.cloud);
   t.hemiIntensity = look.hemiIntensity * (0.75 + 0.25 * mod.dim);
   t.stars = look.stars * (1 - mod.cloud);
   t.cloud = mod.cloud;
-  t.fogNear = mod.fogNear;
-  t.fogFar =
-    input.weather === "fog" && input.visibilityM !== null
-      ? THREE.MathUtils.clamp(input.visibilityM, 150, 1200)
-      : mod.fogFar;
+  // Weather pulls the time-of-day distances in by the same ratio it pulls the night defaults;
+  // fog is absolute so daylight never thins it.
+  const foggy = input.weather === "fog";
+  t.fogNear = foggy ? mod.fogNear : look.fogNear * (mod.fogNear / FOG_NEAR);
+  if (!foggy) t.fogFar = look.fogFar * (mod.fogFar / FOG_FAR);
+  else t.fogFar = input.visibilityM !== null ? THREE.MathUtils.clamp(input.visibilityM, 150, 1200) : mod.fogFar;
   t.windowGlow = Math.min(1, look.windowGlow + (1 - mod.dim) * 0.5);
   t.bloom = look.bloom + mod.rain * 0.1;
   t.rain = mod.rain;
   t.wet = mod.wet;
   t.lightning = mod.lightning;
   t.brightness = look.brightness;
+  t.saturation = look.saturation;
 }
 
 /** Exponential approach: ~95 % of the way after `tau * 3` seconds. */
@@ -233,4 +254,5 @@ export function lerpAtmosphere(dt: number, tau = 0.5) {
   a.rain += (t.rain - a.rain) * k;
   a.wet += (t.wet - a.wet) * k;
   a.brightness += (t.brightness - a.brightness) * k;
+  a.saturation += (t.saturation - a.saturation) * k;
 }

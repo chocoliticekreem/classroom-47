@@ -7,6 +7,8 @@ import type { StreamContext, StreamLocation } from "@/lib/types";
 
 interface StreamerBarProps {
   ctx: StreamContext;
+  /** Where the position comes from; the picker is a demo fallback unless it is "demo". */
+  positionSource?: "gps" | "phone" | "demo";
   onLocationChange: (l: StreamLocation) => void;
   onReveal: () => void;
   onSimulate: () => void;
@@ -26,9 +28,12 @@ function useSince(at: number | null) {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-export function StreamerBar({ ctx, onLocationChange, onReveal, onSimulate }: StreamerBarProps) {
+export function StreamerBar({ ctx, positionSource = "demo", onLocationChange, onReveal, onSimulate }: StreamerBarProps) {
   const since = useSince(ctx.locationRevealedAt);
   const revealed = ctx.locationRevealedAt !== null;
+  const demo = positionSource === "demo";
+  const pickerValue = demo ? ctx.location.id : "gps";
+  const pickerLabel = demo ? ctx.location.name : positionSource === "gps" ? "Phone GPS" : "Following phone";
 
   return (
     <section className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -72,18 +77,19 @@ export function StreamerBar({ ctx, onLocationChange, onReveal, onSimulate }: Str
 
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex h-9 items-center gap-2 rounded-md border border-line bg-surface pl-2.5 pr-2.5 transition-colors focus-within:border-line-strong hover:border-line-strong">
-          <span className="font-mono text-[10px] tracking-normal text-dim">At</span>
+          <span className="font-mono text-[10px] tracking-normal text-dim">{demo ? "Demo location" : "At"}</span>
           <span className="relative">
-            <span className="invisible block px-1 text-[13px] font-medium">{ctx.location.name}</span>
+            <span className="invisible block px-1 text-[13px] font-medium">{pickerLabel}</span>
             <select
-              aria-label="Location"
-              value={ctx.location.id}
+              aria-label={demo ? "Demo location" : "Location"}
+              value={pickerValue}
               onChange={(e) => {
                 const loc = LOCATIONS.find((l) => l.id === e.target.value);
                 if (loc) onLocationChange(loc);
               }}
               className="absolute inset-0 w-full cursor-pointer appearance-none bg-transparent px-1 text-[13px] font-medium text-text focus:outline-none"
             >
+              {!demo && <option value="gps">{pickerLabel}</option>}
               {LOCATIONS.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}

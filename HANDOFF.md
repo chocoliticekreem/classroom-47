@@ -1,8 +1,10 @@
 # HANDOFF: repo state and next steps
 
-**Snapshot:** 2026-10-17, 12:05 BST. `main` includes PRs #5–#7 (Around me, the 3D twin, the CCTV compare) and Chris's `services/`.
+**Snapshot:** 2026-10-17, 12:20 BST. `main` includes PRs #5–#7 (Around me, the 3D twin, the CCTV compare) and Chris's `services/`.
 
-Event facts, rules, CAMP requirements, the **official schedule and judging criteria** (from the organisers' slides) are in [`AGENTS.md`](AGENTS.md). The how-to for the infrastructure is the [`vast-camp` skill](.agents/skills/vast-camp/SKILL.md). Update this file when the state changes.
+Event facts, rules, CAMP requirements, the **official schedule and judging criteria** (from the organisers' slides) are in [`AGENTS.md`](AGENTS.md). The how-to for the infrastructure is the [`vast-camp` skill](.agents/skills/vast-camp/SKILL.md).
+
+The **official VAST guide and skills** are in `vast-builders-challenge/`, a submodule (`npm run vast:guide`). It has been read in full, and its practices are folded into the skill. Update this file when the state changes.
 
 **Verification:** nothing was installed or built for this snapshot. It comes from reading the code, with `file:line` references so you can check it.
 
@@ -22,9 +24,9 @@ Event facts, rules, CAMP requirements, the **official schedule and judging crite
 | Layer | What's required | What we have | Gap |
 |---|---|---|---|
 | **C**: Cursor | Build on the lab VM over Cursor Remote-SSH | Cursor accounts and credits | Each person: sign in to the lab portal, add an SSH key, connect |
-| **A**: VAST agent runtime | Agent and app deployed on the team's Kubernetes namespace at `/app` | Nothing | **Build a small Python agent plus a dashboard and deploy it** with `/deploy-app-no-registry` |
-| **M**: NVIDIA + CoreWeave | Cosmos3-Reason, Embed1 and YOLO11 via VSS. W&B inference + Weave for our reasoning | Local YOLO on TfL (`services/yolo`). W&B and Cosmos clients (`services/vision`, not wired into any app) | Agent reasoning on W&B with Weave traces. Our Cosmos prompt through re-ingest |
-| **P**: VAST platform | Query our team's VSS index. Re-ingest the pre-loaded footage with our prompt | Nothing | Pick the footage (the dashcam pedestrian crossings fit best), write the re-ingest prompt, re-ingest a few clips |
+| **A**: VAST agent runtime | Agent and app deployed on the team's Kubernetes namespace at `/app` | Nothing | **Build a small Python agent (`tools/<app>/main.py`) that calls the VSS `/api/v1/tools/*` as its tools**, plus a dashboard. Deploy it with `/deploy-app-no-registry` |
+| **M**: NVIDIA + CoreWeave | Cosmos3-Reason, Embed1 and YOLO11 via VSS. W&B inference + Weave for our reasoning | Local YOLO on TfL (`services/yolo`). W&B and Cosmos clients (`services/vision`, not wired into any app) | Agent reasoning on W&B with Weave traces. Our Cosmos prompt through re-ingest. Optional: Canary ASR on the stream's audio to catch the streamer saying where they are |
+| **P**: VAST platform | Query our team's VSS index. Re-ingest the pre-loaded footage with our prompt | Nothing | Pick the packs (F indoor crowds, E SF streets, B Toronto forward-facing drive), write the re-ingest prompt, re-ingest a few clips. **Store the agent's verdicts in our own VastDB table** (`vastdb-write`) |
 
 ## `apps/stream` (streaming platform): works locally
 
@@ -79,7 +81,10 @@ Event facts, rules, CAMP requirements, the **official schedule and judging crite
 
 ## Decisions to make now
 
-1. **Footage:** the VAST-backed part must use the provided footage, not TfL or YouTube. Proposal: the dashcam pedestrian-crossing clips, re-ingested with a crowd and approach prompt (the prompt is in the skill).
+1. **Footage:** the VAST-backed part must use the provided corpus, not TfL or YouTube.
+   - Proposal: **Pack F (indoor smart spaces, the "Crowds" category)** for crowd density, **Pack E (SF street cams)** for pedestrians crossing once it's indexed, and **Pack B (Toronto forward-facing drives)** as a streamer-like point of view. Re-ingest them with our crowd and approach prompt (in the skill).
+   - Also search Explore for "london walk": the official skills mention a `london-luxury-walk` chunk.
+   - Uploading our own footage: ask the organisers first.
 2. **Which 3D:** the real-OSM `/twin` in `apps/stream` now works on live data and matches the pitch (real Tower Hill). The imported `apps/web` city is fictional and doesn't build. Suggestion: build on `/twin`, and leave `apps/web` out of the demo unless someone needs a piece of it.
 3. **"No previous projects" (`CLAUDE.md`):** `apps/web` came from hamyway-city (e2e report dated 2026-10-10, settings link to the old repo).
    - The organisers' slides don't mention this rule, so it's still unconfirmed.
@@ -89,8 +94,19 @@ Event facts, rules, CAMP requirements, the **official schedule and judging crite
 ## Next steps (in order)
 
 1. **Everyone: get VAST lab access** (`AGENTS.md`, "Getting access"). Pick the team number once, then run the health check.
-2. **Look at the indexed footage in the VSS UI**, write the re-ingest prompt, and re-ingest a few clips (one person).
-3. **Agent on the cluster:** a Python service that does VSS `search-and-answer`, adds YOLO counts, reasons on W&B with Weave tracing, and returns `calm | busy | danger` plus advice. Deploy it with `/deploy-app-no-registry`, then open it from the portal's App button.
+2. **Run the organisers' Test Drive loop** with `/build-day-quickstart` on the VM:
+   1. Look at what's indexed.
+   2. Search for our idea.
+   3. Ask a question instead.
+   4. Search for a gap.
+   5. Re-ingest with our crowd prompt (one person, a few clips).
+   6. Search again.
+
+   Save the exact prompt text in the repo, because VSS doesn't store it anywhere you can read back.
+3. **Agent on the cluster:** a Python service in `tools/<app>/main.py`.
+   - It uses the VSS tools (`tools/search`, `tools/detections`, `agent/search-and-answer`), reasons on W&B with Weave tracing, and returns `calm | busy | danger` plus advice.
+   - It writes each verdict to our VastDB table.
+   - Deploy it with `/deploy-app-no-registry`, then open it from the portal's App button.
 4. **Connect the front ends:** the stream page and twin show the agent's verdict (`surroundings.update`) alongside live London data.
 5. **The "what if" in the twin:** on `reality:fork` / `streamer:location_leaked`, spawn the crowd converging on the streamer and show the danger, then the safer spot.
 6. **Judging needs** (`AGENTS.md`, "Judging criteria"):

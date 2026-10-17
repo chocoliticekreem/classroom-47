@@ -2,8 +2,10 @@
 
 GET /counts?ids=JamCams_00001.03500,JamCams_00001.03506
     -> {"readings": [{"camId", "people", "vehicles", "at", "frame"}]}
-GET /tracks?ids=...  -> {"clips": [{"camId", "at", "duration", "tracks": [{"id", "kind", "pts": [[t, u, v]]}]}]}
+GET /tracks?ids=...  -> {"clips": [{"camId", "at", "duration", "tracks": [{"id", "kind", "cls", "color", "pts": [[t, u, v]]}]}]}
     u, v = bottom-centre of the box, normalised to the frame (0..1).
+    cls = YOLO class (person, car, bus, truck, motorcycle, bicycle); color = the object's median colour
+    as "#rrggbb" (torso for people, body panel for vehicles), so the twin can draw it like the real one.
 GET /frame?id=JamCams_00001.03500  -> annotated JPEG of the busiest analysed frame
 
 Each clip is ~10s and TfL refreshes it every few minutes, so readings are cached per camera.
@@ -19,6 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import cv2
+import numpy as np
 from ultralytics import YOLO
 
 PORT = 8047
@@ -28,6 +31,9 @@ STRIDE = 2  # analyse every 2nd frame (~12fps): enough for ByteTrack, half the c
 MIN_TRACK_POINTS = 4
 PEOPLE = {0}
 VEHICLES = {1, 2, 3, 5, 7}  # bicycle, car, motorcycle, bus, truck
+CLASS_NAMES = {0: "person", 1: "bicycle", 2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
+# Part of the box to sample for colour, as (x0, x1, y0, y1) fractions: the torso, or the lower body panel (below the windows).
+SAMPLE = {"person": (0.3, 0.7, 0.2, 0.45), "vehicle": (0.25, 0.75, 0.5, 0.8)}
 
 model = YOLO("yolo11n.pt")
 model_lock = threading.Lock()
@@ -41,6 +47,29 @@ pool = ThreadPoolExecutor(max_workers=2)
 
 def clip_url(cam_id: str) -> str:
     return f"https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/{cam_id.removeprefix('JamCams_')}.mp4"
+
+
+def sample_color(frame, kind: str, x1: float, y1: float, x2: float, y2: float):
+    """Median BGR of the sampled part of the box, or None when the box is too small to trust."""
+    fx0, fx1, fy0, fy1 = SAMPLE[kind]
+    w, h = x2 - x1, y2 - y1
+    xa, xb = int(x1 + w * fx0), int(x1 + w * fx1)
+    ya, yb = int(y1 + h * fy0), int(y1 + h * fy1)
+    patch = frame[max(ya, 0):yb, max(xa, 0):xb]
+    if patch.size < 3 * 4:
+        return None
+    return np.median(patch.reshape(-1, 3), axis=0)
+
+
+def finish_track(t: dict) -> dict:
+    """Collapse per-frame samples into one class (majority vote) and one colour (median)."""
+    classes = t.pop("classes")
+    colors = t.pop("colors")
+    t["cls"] = max(set(classes), key=classes.count)
+    if colors:
+        b, g, r = (int(c) for c in np.median(np.array(colors), axis=0))
+        t["color"] = f"#{r:02x}{g:02x}{b:02x}"
+    return t
 
 
 def track_clip(path: str):
@@ -72,12 +101,17 @@ def track_clip(path: str):
                 people, vehicles = max(people, p), max(vehicles, v)
                 if boxes.id is not None:
                     for tid, c, (x1, y1, x2, y2) in zip(boxes.id.int().tolist(), classes, boxes.xyxy.tolist()):
-                        t = tracks.setdefault(tid, {"id": tid, "kind": "person" if c in PEOPLE else "vehicle", "pts": []})
+                        kind = "person" if c in PEOPLE else "vehicle"
+                        t = tracks.setdefault(tid, {"id": tid, "kind": kind, "pts": [], "classes": [], "colors": []})
                         # Bottom-centre of the box = where the object touches the ground.
                         t["pts"].append([round(idx / fps, 2), round((x1 + x2) / 2 / w, 4), round(y2 / h, 4)])
+                        t["classes"].append(CLASS_NAMES.get(c, kind))
+                        color = sample_color(frame, kind, x1, y1, x2, y2)
+                        if color is not None:
+                            t["colors"].append(color)
             idx += 1
     cap.release()
-    kept = [t for t in tracks.values() if len(t["pts"]) >= MIN_TRACK_POINTS]
+    kept = [finish_track(t) for t in tracks.values() if len(t["pts"]) >= MIN_TRACK_POINTS]
     return people, vehicles, kept, best_plot, round(idx / fps, 2)
 
 
