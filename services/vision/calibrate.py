@@ -139,6 +139,7 @@ def ask(cam: dict, jpeg: bytes, candidates: list[dict]) -> dict:
     ]}]
     res = vlm().chat.completions.create(
         model=os.environ["WANDB_VL_MODEL"], messages=msg, max_tokens=400, temperature=0,
+        response_format={"type": "json_object"},  # without it Nemotron sometimes returns broken JSON
         # Nemotron VL reasons by default and would spend the whole budget thinking.
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )

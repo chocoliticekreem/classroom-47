@@ -51,6 +51,8 @@ def vl_json(frames_jpeg: list[bytes], prompt: str, max_tokens: int = 600) -> dic
         messages=[{"role": "user", "content": [{"type": "text", "text": prompt}, *map(jpeg_part, frames_jpeg)]}],
         max_tokens=max_tokens,
         temperature=0,
+        # Without thinking it sometimes leaves a string value unquoted; W&B enforces JSON mode server-side.
+        response_format={"type": "json_object"},
         # Nemotron VL reasons by default and can spend the whole budget thinking before it answers.
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
