@@ -1,0 +1,162 @@
+"use client";
+
+import { AdaptiveDpr, PerformanceMonitor, Stats } from "@react-three/drei";
+import { Canvas } from "@react-three/fiber";
+import { Suspense, useMemo, useState, type ReactNode } from "react";
+import * as THREE from "three";
+import { LiveHud, LiveLayers } from "./live";
+import { ModuleBoundary } from "./ModuleBoundary";
+import { Buildings } from "./scene/Buildings";
+import { CameraRig } from "./scene/CameraRig";
+import { PRESETS, useCameraStore, type CameraPreset } from "./scene/cameraStore";
+import { Ground } from "./scene/Ground";
+import { Lights } from "./scene/Lights";
+import { CAMERA_FAR } from "./scene/palette";
+import { Parks } from "./scene/Parks";
+import { Post } from "./scene/Post";
+import { Probe } from "./scene/Probe";
+import { Roads } from "./scene/Roads";
+import { Sky } from "./scene/Sky";
+import { GeometryContext, useGeometryLoader } from "./scene/useGeometry";
+import { Water } from "./scene/Water";
+
+interface Toggles {
+  only: Set<string> | null;
+  skip: Set<string>;
+  stats: boolean;
+}
+
+function readToggles(): Toggles {
+  const q = new URLSearchParams(window.location.search);
+  const list = (key: string) =>
+    (q.get(key) ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+  const only = list("only");
+  return { only: only.length ? new Set(only) : null, skip: new Set(list("skip")), stats: q.get("stats") === "1" };
+}
+
+function Module({ name, toggles, children }: { name: string; toggles: Toggles; children: ReactNode }) {
+  const key = name.toLowerCase();
+  if (toggles.skip.has(key)) return null;
+  if (toggles.only && !toggles.only.has(key)) return null;
+  return (
+    <ModuleBoundary name={name}>
+      <Suspense fallback={null}>{children}</Suspense>
+    </ModuleBoundary>
+  );
+}
+
+const PRESET_ORDER: CameraPreset[] = ["aerial", "street", "skyline"];
+
+function PresetButtons() {
+  const preset = useCameraStore((s) => s.preset);
+  const fly = useCameraStore((s) => s.fly);
+  return (
+    <div className="pointer-events-auto absolute bottom-16 left-5 flex gap-1 rounded-full border border-white/10 bg-black/50 p-1 backdrop-blur-md">
+      {PRESET_ORDER.map((p) => (
+        <button
+          key={p}
+          type="button"
+          onClick={() => fly(p)}
+          className={`rounded-full px-4 py-1.5 text-xs font-medium tracking-wide transition ${
+            preset === p ? "bg-white text-black" : "text-white/70 hover:bg-white/10 hover:text-white"
+          }`}
+        >
+          {PRESETS[p].label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function World() {
+  const [toggles] = useState(readToggles);
+  const geometry = useGeometryLoader();
+  const [dpr, setDpr] = useState(1.5);
+  const camera = useMemo(
+    () => ({ position: PRESETS.aerial.pos, fov: 50, near: 2, far: CAMERA_FAR }),
+    [],
+  );
+
+  return (
+    <div className="relative h-full w-full bg-[#1c2546]">
+      <Canvas
+        dpr={dpr}
+        camera={camera}
+        gl={{
+          antialias: true,
+          powerPreference: "high-performance",
+          stencil: false,
+          toneMapping: THREE.NoToneMapping,
+        }}
+        className="isolate z-0"
+      >
+        <PerformanceMonitor onDecline={() => setDpr(1)} onIncline={() => setDpr(1.5)} />
+        <AdaptiveDpr pixelated />
+        {toggles.stats && <Stats />}
+        <Probe />
+        <Module name="Sky" toggles={toggles}>
+          <Sky />
+        </Module>
+        <Module name="Lights" toggles={toggles}>
+          <Lights />
+        </Module>
+        <Module name="Ground" toggles={toggles}>
+          <Ground />
+        </Module>
+        <Module name="CameraRig" toggles={toggles}>
+          <CameraRig />
+        </Module>
+        {geometry.status === "ready" && (
+          <GeometryContext.Provider value={geometry.data}>
+            <Module name="Buildings" toggles={toggles}>
+              <Buildings />
+            </Module>
+            <Module name="Roads" toggles={toggles}>
+              <Roads />
+            </Module>
+            <Module name="Water" toggles={toggles}>
+              <Water />
+            </Module>
+            <Module name="Parks" toggles={toggles}>
+              <Parks />
+            </Module>
+          </GeometryContext.Provider>
+        )}
+        <Module name="Live" toggles={toggles}>
+          <LiveLayers />
+        </Module>
+        <Module name="Post" toggles={toggles}>
+          <Post />
+        </Module>
+      </Canvas>
+
+      <div className="pointer-events-none absolute inset-0 z-10">
+        <div className="absolute left-5 top-5 flex flex-col gap-0.5">
+          <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-white/50">Digital twin</span>
+          <span className="text-lg font-semibold text-white">Tower Hill, London</span>
+        </div>
+        {geometry.status === "loading" && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="flex items-center gap-3 rounded-full border border-white/10 bg-black/60 px-5 py-2.5 text-sm text-white/85 backdrop-blur-md">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+              Loading Tower Hill…
+            </div>
+          </div>
+        )}
+        {geometry.status === "error" && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="max-w-sm rounded-2xl border border-red-400/30 bg-black/70 px-5 py-4 text-sm text-white/85 backdrop-blur-md">
+              <p className="font-medium text-red-300">Could not load Tower Hill</p>
+              <p className="mt-1 text-white/60">{geometry.message}</p>
+            </div>
+          </div>
+        )}
+        <PresetButtons />
+        <LiveHud />
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,35 @@
+"use client";
+
+import { Agents } from "./Agents";
+import { Buses } from "./Buses";
+import { Cameras } from "./Cameras";
+import { Disruptions } from "./Disruptions";
+import { Hud } from "./Hud";
+import { LabelHost, LabelLayer } from "./Label";
+import { useLiveFeeds } from "./store";
+import { Streamer } from "./Streamer";
+
+/** Live data layers rendered inside the <Canvas>: real TfL cams, YOLO tracks, buses, disruptions. */
+export function LiveLayers() {
+  useLiveFeeds();
+  return (
+    <group>
+      <Agents />
+      <Cameras />
+      <Buses />
+      <Disruptions />
+      <Streamer />
+      <LabelLayer />
+    </group>
+  );
+}
+
+/** DOM overlay rendered outside the <Canvas>. */
+export function LiveHud() {
+  return (
+    <>
+      <LabelHost />
+      <Hud />
+    </>
+  );
+}
