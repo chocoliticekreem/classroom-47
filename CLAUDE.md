@@ -3,6 +3,8 @@
 Hackathon project. This file overrides global PR/CI discipline: there's one deadline, no reviewers, no prod.
 Speed and a demo that works live matter more than process.
 
+**Read [`AGENTS.md`](AGENTS.md) and [`HANDOFF.md`](HANDOFF.md) before you start.** `AGENTS.md` has the event facts, rules, submission checklist and links. `HANDOFF.md` has the current state of the repo and the next steps.
+
 ## The event
 - **VAST Builders Challenge — Real-Time Video Agents Hack, London.** Sat 2026-10-17.
 - Venue: Halkin, 1–2 Paris Garden, London SE1 8ND.

@@ -5,6 +5,21 @@
 
 ---
 
+## Hackathon
+
+Built at the **[Real-Time Video Agents Hack, London](https://luma.com/vastlondon)** (VAST Builders Challenge, organised by [tokens&](https://tokensand.com/vastlondon)), Saturday 17 October 2026.
+
+- **Brief:** build agents that unlock the value of video. They should make footage searchable and queryable, and act on it.
+- **Deadline:** **16:30 BST**, submitted at [tokensand.com/vastlondon/submit](https://tokensand.com/vastlondon/submit). Our own code freeze is 15:45.
+- **Sponsor stack:** NVIDIA Cosmos, YOLO, W&B inference + Weave, VAST AI OS, CoreWeave, Cursor.
+- **Team docs:**
+  - [`AGENTS.md`](AGENTS.md): event facts, rules, submission checklist, sponsor access links.
+  - [`HANDOFF.md`](HANDOFF.md): what works today, what's broken, next steps.
+  - [`TODO.md`](TODO.md): to-dos.
+  - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): the stream ↔ city event bus.
+
+---
+
 ## What This Is
 
 When an IRL streamer is broadcasting live in **London**, every movement and word to chat changes the physical world around them. **NUMA** gives the streamer:
@@ -37,6 +52,8 @@ When an IRL streamer is broadcasting live in **London**, every movement and word
 ---
 
 ## Architecture (Module-per-Zone Speedrun Pattern)
+
+> **This is the planned layout.** Several files below don't exist yet. See [`HANDOFF.md`](HANDOFF.md) for what is actually in the repo today.
 
 ```text
 apps/web/src/
@@ -79,14 +96,15 @@ apps/web/src/
 ## Quick Start
 
 ```bash
-npm install
-npm run dev -w web
+npm install                            # once, at the repo root (npm workspaces)
+npm run dev -w web                     # 3D city: http://localhost:3000 (/ and /city)
+npm run dev -w stream -- --port 3001   # streaming page: http://localhost:3001
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Don't use the root `npm run dev`; it expects an `apps/api` workspace that isn't in this repo. The `apps/web` build is currently blocked; [`HANDOFF.md`](HANDOFF.md) has the details.
 
 ### URL Debug Flags
 - `?only=Sky,Ground,StreamerAvatar,SyntheticCrowd` — Render specific modules in isolation
 - `?skip=Traffic` — Skip modules for bisecting
 - `?stats=1` — Show live FPS / frame-time monitor
-- `window.__world.bench(30)` — Run deterministic 30-frame GPU/draw-call benchmark in console
+- `window.__city.bench(30)` — Run deterministic 30-frame GPU/draw-call benchmark in console
