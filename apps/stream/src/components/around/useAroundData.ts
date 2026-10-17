@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type {
   AroundAir,
   AroundBusStop,
@@ -21,11 +21,38 @@ const CRIME_RADIUS_M = 600;
 const LIVECAM_RADIUS_M = 3000;
 const REFRESH_MS = 60_000;
 const BUS_REFRESH_MS = 30_000;
+const STATION_REFRESH_MS = 60_000;
 const SLOW_REFRESH_MS = 5 * 60_000;
 
 async function getJson<T>(url: string, signal: AbortSignal): Promise<T | null> {
   const res = await fetch(url, { signal }).catch(() => null);
   return res?.ok ? ((await res.json()) as T) : null;
+}
+
+/** Keeps the previous object when a poll returns identical data, so markers and layers keyed on it do not redo work. */
+function setIfChanged<T>(set: Dispatch<SetStateAction<T>>, next: NoInfer<T>) {
+  const text = JSON.stringify(next);
+  set((prev) => (JSON.stringify(prev) === text ? prev : next));
+}
+
+/** Runs `load` now and every `ms`, skipping ticks while the tab is hidden and catching up when it is shown again. */
+function poll(load: () => void, ms: number) {
+  let last = 0;
+  const tick = () => {
+    if (document.hidden) return;
+    last = Date.now();
+    load();
+  };
+  const onVisible = () => {
+    if (!document.hidden && Date.now() - last >= ms) tick();
+  };
+  tick();
+  const id = setInterval(tick, ms);
+  document.addEventListener("visibilitychange", onVisible);
+  return () => {
+    clearInterval(id);
+    document.removeEventListener("visibilitychange", onVisible);
+  };
 }
 
 export function useAroundData(point: Point) {
@@ -37,7 +64,6 @@ export function useAroundData(point: Point) {
   const [tide, setTide] = useState<AroundTide | null>(null);
   const [air, setAir] = useState<AroundAir | null>(null);
   const [liveCams, setLiveCams] = useState<AroundLiveCam[]>([]);
-  const [busFetchedAt, setBusFetchedAt] = useState<number | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -57,8 +83,8 @@ export function useAroundData(point: Point) {
           { items?: AroundDisruption[] },
         ];
         if (controller.signal.aborted) return;
-        setCams(camsJson.cams ?? []);
-        setDisruptions(disJson.items ?? []);
+        setIfChanged(setCams, camsJson.cams ?? []);
+        setIfChanged(setDisruptions, disJson.items ?? []);
         setUpdatedAt(new Date());
         setFailed(false);
       } catch (err) {
@@ -67,11 +93,10 @@ export function useAroundData(point: Point) {
         setFailed(true);
       }
     };
-    load();
-    const id = setInterval(load, REFRESH_MS);
+    const stop = poll(load, REFRESH_MS);
     return () => {
       controller.abort();
-      clearInterval(id);
+      stop();
     };
   }, [point.lat, point.lon]);
 
@@ -79,25 +104,32 @@ export function useAroundData(point: Point) {
     const controller = new AbortController();
     const q = `lat=${point.lat}&lon=${point.lon}`;
     const load = async () => {
-      const [buses, stationsJson] = await Promise.all([
-        getJson<{ stops?: AroundBusStop[] }>(`/api/around/buses?${q}&radius=${BUS_RADIUS_M}`, controller.signal),
-        getJson<{ stations?: AroundStation[] }>(
-          `/api/around/stations?${q}&radius=${STATION_RADIUS_M}`,
-          controller.signal,
-        ),
-      ]);
-      if (controller.signal.aborted) return;
-      if (buses) {
-        setStops(buses.stops ?? []);
-        setBusFetchedAt(Date.now());
-      }
-      if (stationsJson) setStations(stationsJson.stations ?? []);
+      const buses = await getJson<{ stops?: AroundBusStop[] }>(`/api/around/buses?${q}&radius=${BUS_RADIUS_M}`, controller.signal);
+      if (controller.signal.aborted || !buses) return;
+      setIfChanged(setStops, buses.stops ?? []);
     };
-    load();
-    const id = setInterval(load, BUS_REFRESH_MS);
+    const stop = poll(load, BUS_REFRESH_MS);
     return () => {
       controller.abort();
-      clearInterval(id);
+      stop();
+    };
+  }, [point.lat, point.lon]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const q = `lat=${point.lat}&lon=${point.lon}`;
+    const load = async () => {
+      const json = await getJson<{ stations?: AroundStation[] }>(
+        `/api/around/stations?${q}&radius=${STATION_RADIUS_M}`,
+        controller.signal,
+      );
+      if (controller.signal.aborted || !json) return;
+      setIfChanged(setStations, json.stations ?? []);
+    };
+    const stop = poll(load, STATION_REFRESH_MS);
+    return () => {
+      controller.abort();
+      stop();
     };
   }, [point.lat, point.lon]);
 
@@ -112,20 +144,19 @@ export function useAroundData(point: Point) {
         getJson<{ cams?: AroundLiveCam[] }>(`/api/around/livecams?${q}&radius=${LIVECAM_RADIUS_M}`, controller.signal),
       ]);
       if (controller.signal.aborted) return;
-      if (crimeJson) setCrime(crimeJson);
-      if (tideJson) setTide(tideJson);
-      if (airJson) setAir(airJson);
-      if (liveJson) setLiveCams(liveJson.cams ?? []);
+      if (crimeJson) setIfChanged(setCrime, crimeJson);
+      if (tideJson) setIfChanged(setTide, tideJson);
+      if (airJson) setIfChanged(setAir, airJson);
+      if (liveJson) setIfChanged(setLiveCams, liveJson.cams ?? []);
     };
-    load();
-    const id = setInterval(load, SLOW_REFRESH_MS);
+    const stop = poll(load, SLOW_REFRESH_MS);
     return () => {
       controller.abort();
-      clearInterval(id);
+      stop();
     };
   }, [point.lat, point.lon]);
 
-  return { cams, disruptions, stops, stations, crime, tide, air, liveCams, busFetchedAt, updatedAt, failed };
+  return { cams, disruptions, stops, stations, crime, tide, air, liveCams, updatedAt, failed };
 }
 
 /** Re-renders every `ms` so client-side countdowns tick. */
